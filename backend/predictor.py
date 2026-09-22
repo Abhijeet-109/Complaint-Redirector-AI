@@ -3,7 +3,7 @@ import pickle
 import numpy as np
 
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+from sentence_transformers import SentenceTransformer
 
 from preprocessor import preprocess_text
 
@@ -17,28 +17,17 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 MODEL_PATH = os.path.join(
     BASE_DIR,
-    "model",
+    "new_Models",
     "complaint_lstm.keras"
 )
 
-TOKENIZER_PATH = os.path.join(
-    BASE_DIR,
-    "model",
-    "tokenizer.pkl"
-)
+
 
 LABEL_ENCODER_PATH = os.path.join(
     BASE_DIR,
-    "model",
+    "new_Models",
     "label_encoder.pkl"
 )
-
-
-# ==========================================
-# MODEL SETTINGS
-# ==========================================
-
-MAX_LEN = 30
 
 
 # ==========================================
@@ -47,11 +36,19 @@ MAX_LEN = 30
 
 model = load_model(MODEL_PATH)
 
-with open(TOKENIZER_PATH, "rb") as file:
-    tokenizer = pickle.load(file)
 
 with open(LABEL_ENCODER_PATH, "rb") as file:
     label_encoder = pickle.load(file)
+
+
+
+# ==========================================
+# LOAD EMBEDDING MODEL
+# ==========================================
+
+embedding_model = SentenceTransformer(
+    "all-MiniLM-L6-v2"
+)
 
 
 # ==========================================
@@ -63,27 +60,28 @@ def predict_department(complaint):
     # 1. Preprocess complaint
     cleaned_text = preprocess_text(complaint)
 
-    # 2. Convert text to sequence
-    sequence = tokenizer.texts_to_sequences(
+    # 2. Generate embedding
+    embedding = embedding_model.encode(
         [cleaned_text]
     )
 
-    # 3. Pad sequence
-    padded = pad_sequences(
-        sequence,
-        maxlen=MAX_LEN,
-        padding="post",
-        truncating="post"
+    # 3. Reshape for LSTM
+    embedding = embedding.reshape(
+        1,
+        1,
+        384
     )
 
     # 4. Predict
     probabilities = model.predict(
-        padded,
+        embedding,
         verbose=0
     )[0]
 
     # 5. Get highest probability
-    predicted_index = np.argmax(probabilities)
+    predicted_index = np.argmax(
+        probabilities
+    )
 
     # 6. Convert index to department
     predicted_department = (
@@ -98,7 +96,6 @@ def predict_department(complaint):
     )
 
     return predicted_department, confidence
-
 
 # ==========================================
 # TEST
