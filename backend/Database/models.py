@@ -38,9 +38,8 @@ class User(Base):
     )
 
 
+
     create_at = Column(
         DateTime,
         server_default = func.now()
     )
-
-

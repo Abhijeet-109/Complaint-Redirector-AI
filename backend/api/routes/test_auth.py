@@ -29,7 +29,7 @@ def get_me(
 @router.get("/admin")
 def admin_test(
     current_user: User = Depends(
-        require_role("admin")
+        require_role("admin", "super_admin")
     )
 ):
 
