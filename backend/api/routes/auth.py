@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.Database.connection import SessionLocal
 from backend.Database.models import User
 from backend.Database.schemas import userCreate,UserResponse, LoginRequest
+from backend.auth.dependencies import get_db
 
 
 from backend.auth.security import ( hash_password, verify_password, create_access_token)
@@ -14,14 +14,6 @@ router = APIRouter(
     prefix = "/api/auth",
     tags = ["Authentication"]
 )
-
-
-def get_db() :
-    db = SessionLocal()
-    try:
-        yield db
-    finally :
-        db.close()
 
 
 @router.post("/register", response_model=UserResponse)
@@ -91,6 +83,6 @@ def login(
 
     return{
         "access_token" : token,
-        "token_type" : "berarer"
+        "token_type" : "bearer"
     }
 
