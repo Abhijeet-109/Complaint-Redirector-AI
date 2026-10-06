@@ -1,6 +1,44 @@
-.env
-
+# Python bytecode and caches
 __pycache__/
-**/__pycache__/
-*.pyc
-Data/*.csv
+*.py[cod]
+*$py.class
+
+# Local Python environments
+.venv/
+venv/
+env/
+ENV/
+myenv/
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+!.env.template
+.streamlit/secrets.toml
+
+# Test and type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter generated checkpoints
+.ipynb_checkpoints/
+
+# Local data files (datasets are not committed)
+/Data/*.csv
+
+# Logs and temporary editor files
+*.log
+*.tmp
+*.swp
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini

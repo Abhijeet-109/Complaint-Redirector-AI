@@ -1,5 +1,5 @@
-from predictor import predict_department
-from router import get_department_email
+from backend.predictor import predict_department
+from backend.router import get_department_email
 
 
 complaint = "I was charged twice for the same order."

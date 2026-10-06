@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
-from Database.models import User
-from auth.dependencies import (
+from backend.Database.models import User
+from backend.auth.dependencies import (
     get_current_user,
     require_role
 )
