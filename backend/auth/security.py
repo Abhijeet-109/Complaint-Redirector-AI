@@ -13,7 +13,7 @@ ALGORITHM = "HS256"
 
 
 def hash_password (password: str)-> str:
-    return hash_password.hash(password)
+    return password_hash.hash(password)
 
 
 
@@ -45,12 +45,12 @@ def create_access_token(user_id: int, role: str):
     return token 
 
 
-def decode_access_tone( token: str):
+def decode_access_token( token: str):
 
     return jwt.decode(
         token,
         SECRET_KEY,
-        algorithms = ALGORITHM
+        algorithms=[ALGORITHM]
     )
 
 

@@ -15,7 +15,7 @@ class UserResponse(BaseModel):
     email : EmailStr
     role : str
 
-    class config:
+    class Config:
         from_attributes = True
 
 
