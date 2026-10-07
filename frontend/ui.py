@@ -10,6 +10,7 @@ from frontend.auth_api import (
     validate_email,
 )
 from frontend.styles import apply_styles
+from frontend.dashboard import render_role_placeholder, render_user_dashboard
 
 
 def _go(page: str) -> None:
@@ -194,6 +195,8 @@ def render_login_page() -> None:
                     _clear_auth_state()
                     st.rerun()
             else:
+                if st.session_state.pop("session_expired_notice", False):
+                    st.warning("Your session has expired. Please login again.")
                 if st.session_state.pop("registration_notice", False):
                     st.success("Your account is ready. Login to continue.")
                 with st.form("login_form"):
@@ -272,6 +275,15 @@ def _clear_auth_state() -> None:
     st.session_state.token_type = None
     st.session_state.user_role = None
     st.session_state.logged_in = False
+    st.session_state.user_info = None
+    st.session_state.complaints_cache = None
+    st.session_state.selected_complaint_id = None
+    st.session_state.submission_result = None
+    st.session_state.submission_detail = None
+    st.session_state.contact_cache = {}
+    st.session_state.pop("history_status_filter", None)
+    st.session_state.pop("contact_complaint_select", None)
+    st.session_state.pop("login_password_input", None)
     st.session_state.current_page = "landing"
 
 
@@ -282,8 +294,41 @@ def run_app() -> None:
     st.session_state.setdefault("token_type", None)
     st.session_state.setdefault("logged_in", False)
     st.session_state.setdefault("user_role", None)
+    st.session_state.setdefault("user_info", None)
+    st.session_state.setdefault("complaints_cache", None)
+    st.session_state.setdefault("selected_complaint_id", None)
+    st.session_state.setdefault("submission_result", None)
+    st.session_state.setdefault("submission_detail", None)
+    st.session_state.setdefault("contact_cache", {})
 
     page = st.session_state.current_page
+    if st.session_state.logged_in:
+        if st.session_state.user_role == "user":
+            if page in {"landing", "login", "register", "role_placeholder"}:
+                page = "dashboard"
+                st.session_state.current_page = page
+            render_user_dashboard(page)
+        else:
+            if page != "role_placeholder":
+                st.session_state.current_page = "role_placeholder"
+            st.markdown(
+                '<style>section[data-testid="stSidebar"], header[data-testid="stHeader"] { display:none !important; }</style>',
+                unsafe_allow_html=True,
+            )
+            render_role_placeholder()
+        return
+
+    if page in {
+        "dashboard", "file_complaint", "track_complaint", "complaint_history",
+        "complaint_detail", "department_contact", "role_placeholder",
+    }:
+        page = "landing"
+        st.session_state.current_page = page
+
+    st.markdown(
+        '<style>section[data-testid="stSidebar"], header[data-testid="stHeader"] { display:none !important; }</style>',
+        unsafe_allow_html=True,
+    )
     if page == "register":
         render_register_page()
     elif page == "login":
