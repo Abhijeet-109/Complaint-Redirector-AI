@@ -7,6 +7,7 @@ from backend.api.routes.classifier import router as classifier_router
 from backend.api.routes.complaint import router as complaint_router
 from backend.api.routes.email import router as email_router
 from backend.api.routes.test_auth import router as test_auth_router
+from backend.api.routes.department import handler_router as handler_department_router
 from backend.api.routes.department import router as department_router
 
 
@@ -33,4 +34,5 @@ app.include_router(complaint_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(department_router)
+app.include_router(handler_department_router)
 app.include_router(test_auth_router)

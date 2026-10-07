@@ -286,6 +286,9 @@ def _clear_auth_state() -> None:
     st.session_state.pop("login_password_input", None)
     for key in ("handler_complaints", "handler_selected_id", "handler_notice", "handler_search", "handler_filter"):
         st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith(("admin_", "users_", "handlers_", "admins_", "department_")):
+            st.session_state.pop(key, None)
     st.session_state.current_page = "landing"
 
 
@@ -302,6 +305,13 @@ def run_app() -> None:
     st.session_state.setdefault("submission_result", None)
     st.session_state.setdefault("submission_detail", None)
     st.session_state.setdefault("contact_cache", {})
+
+    if st.session_state.pop("admin_cleanup_pending", False):
+        for key in list(st.session_state.keys()):
+            if key.startswith(("admin_", "users_", "handlers_", "admins_", "department_")):
+                st.session_state.pop(key, None)
+        for key in ("login_password_input", "history_status_filter", "contact_complaint_select"):
+            st.session_state.pop(key, None)
 
     page = st.session_state.current_page
     if st.session_state.logged_in:
@@ -320,6 +330,23 @@ def run_app() -> None:
                 page = "handler_dashboard"
                 st.session_state.current_page = page
             render_handler_dashboard(page)
+        elif st.session_state.user_role in {"admin", "super_admin"}:
+            from frontend.admin_dashboard import ADMIN_PAGES, render_admin_dashboard
+
+            role = st.session_state.user_role
+            if page in {"landing", "login", "register", "role_placeholder"}:
+                page = "super_admin_dashboard" if role == "super_admin" else "admin_dashboard"
+                st.session_state.current_page = page
+            if page not in ADMIN_PAGES:
+                page = "super_admin_dashboard" if role == "super_admin" else "admin_dashboard"
+                st.session_state.current_page = page
+            elif role == "admin" and page == "admin_admins":
+                page = "admin_dashboard"
+                st.session_state.current_page = page
+            elif role == "super_admin" and page == "admin_dashboard":
+                page = "super_admin_dashboard"
+                st.session_state.current_page = page
+            render_admin_dashboard(page)
         else:
             if page != "role_placeholder":
                 st.session_state.current_page = "role_placeholder"
@@ -333,6 +360,9 @@ def run_app() -> None:
     if page in {
         "dashboard", "file_complaint", "track_complaint", "complaint_history",
         "complaint_detail", "department_contact", "role_placeholder",
+        "admin_dashboard", "super_admin_dashboard", "admin_users", "admin_handlers",
+        "admin_departments", "admin_complaints", "admin_complaint_detail", "admin_admins",
+        "handler_dashboard", "handler_complaints", "handler_detail",
     }:
         page = "landing"
         st.session_state.current_page = page

@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
@@ -11,7 +9,10 @@ from sqlalchemy.orm import Session
 from backend.Database.models import Complaint, Department, User
 from backend.Database.schemas import (
     ComplaintCreate,
-    ComplaintResponse
+    ComplaintDetailResponse,
+    ComplaintRedirectResponse,
+    ComplaintResponse,
+    HandlerComplaintResponse,
 )
 from backend.auth.dependencies import (
     get_db,
@@ -29,18 +30,6 @@ class ComplaintProcessRequest(BaseModel):
     name: str
     email: str
     complaint: str
-
-
-class ComplaintDetailResponse(BaseModel):
-    id: int
-    complaint_text: str
-    predicted_department_id: int
-    predicted_department: str
-    department_id: int
-    current_department: str
-    status: str
-    confidence: str | None
-    create_at: datetime | None
 
 
 class ComplaintStatusUpdate(BaseModel):
@@ -84,6 +73,25 @@ def _complaint_details(db: Session, complaints: list[Complaint]):
             "create_at": complaint.create_at,
         }
         for complaint in complaints
+    ]
+
+
+def _handler_complaint_details(db: Session, complaints: list[Complaint]):
+    details = _complaint_details(db, complaints)
+    user_ids = {complaint.user_id for complaint in complaints}
+    users = {
+        user.id: user
+        for user in db.query(User).filter(User.id.in_(user_ids)).all()
+    } if user_ids else {}
+
+    return [
+        {
+            **detail,
+            "user_id": complaint.user_id,
+            "user_name": users[complaint.user_id].name if complaint.user_id in users else None,
+            "user_email": users[complaint.user_id].email if complaint.user_id in users else None,
+        }
+        for complaint, detail in zip(complaints, details)
     ]
 
 
@@ -176,7 +184,7 @@ def create_complaint(
 
 @router.get(
     "/handler/complaints",
-    response_model=list[ComplaintDetailResponse]
+    response_model=list[HandlerComplaintResponse]
 )
 def get_handler_complaints(
     db: Session = Depends(get_db),
@@ -197,7 +205,7 @@ def get_handler_complaints(
         Complaint.create_at.desc(), Complaint.id.desc()
     ).all()
 
-    return _complaint_details(db, complaints)
+    return _handler_complaint_details(db, complaints)
 
 
 @router.get(
@@ -244,7 +252,7 @@ def update_handler_complaint_status(
 
 @router.patch(
     "/handler/complaints/{complaint_id}/redirect",
-    response_model=ComplaintDetailResponse
+    response_model=ComplaintRedirectResponse
 )
 def redirect_handler_complaint(
     complaint_id: int,
@@ -269,7 +277,10 @@ def redirect_handler_complaint(
     db.commit()
     db.refresh(complaint)
 
-    return _complaint_details(db, [complaint])[0]
+    return {
+        **_complaint_details(db, [complaint])[0],
+        "handler_id": complaint.handler_id,
+    }
 
 
 @router.get(

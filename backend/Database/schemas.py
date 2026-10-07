@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr
@@ -72,6 +73,28 @@ class DepartmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ComplaintDetailResponse(BaseModel):
+    id: int
+    complaint_text: str
+    predicted_department_id: int
+    predicted_department: str
+    department_id: int
+    current_department: str
+    status: str
+    confidence: str | None
+    create_at: datetime | None
+
+
+class HandlerComplaintResponse(ComplaintDetailResponse):
+    user_id: int
+    user_name: str | None
+    user_email: EmailStr | None
+
+
+class ComplaintRedirectResponse(ComplaintDetailResponse):
+    handler_id: int | None
 
 
 

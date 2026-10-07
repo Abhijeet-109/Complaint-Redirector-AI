@@ -15,6 +15,24 @@ router = APIRouter(
     tags=["Department Management"]
 )
 
+handler_router = APIRouter(
+    prefix="/api/v1/departments",
+    tags=["Department"],
+)
+
+
+@handler_router.get(
+    "",
+    response_model=list[DepartmentResponse],
+)
+def list_departments_for_handlers(
+    db: Session = Depends(get_db),
+    current_user=Depends(
+        require_role("department_handler", "admin", "super_admin")
+    ),
+):
+    return db.query(Department).order_by(Department.id).all()
+
 
 @router.post(
     "",
