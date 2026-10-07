@@ -1,8 +1,31 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime,ForeignKey
 from sqlalchemy.sql import func
 
 
 from backend.Database.connection import Base
+
+class Department(Base):
+    __tablename__ = "departments"
+
+
+    id = Column(
+        Integer,
+        primary_key = True,
+        index = True
+    )
+
+    name = Column(
+        String,
+        unique = True,
+        nullable = False
+
+    )
+
+    email = Column(
+        String,
+        nullable = False,
+
+    )
 
 class User(Base):
     __tablename__ = "users"
@@ -37,9 +60,18 @@ class User(Base):
         default = "user"
     )
 
+    department_id = Column(
+        Integer,
+        ForeignKey("departments.id"),
+        nullable=True
+    )
+
 
 
     create_at = Column(
         DateTime,
         server_default = func.now()
     )
+
+
+

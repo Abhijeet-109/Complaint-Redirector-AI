@@ -40,3 +40,20 @@ class LoginRequest (BaseModel):
     email : EmailStr
     password : str
 
+
+
+class DepartmentCreate(BaseModel):
+
+    name: str
+    email: EmailStr
+
+
+class DepartmentResponse(BaseModel):
+
+    id: int
+    name: str
+    email: EmailStr
+
+    class Config:
+        from_attributes = True
+
