@@ -75,3 +75,60 @@ class User(Base):
 
 
 
+
+class Complaint(Base):
+    __tablename__ = "complaints"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+
+    predicted_department_id = Column(
+        Integer,
+        ForeignKey("departments.id"),
+        nullable=False
+    )
+
+    department_id = Column(
+        Integer,
+        ForeignKey("departments.id"),
+        nullable=False
+    )
+
+    handler_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True
+    )
+
+    complaint_text = Column(
+        String,
+        nullable=False
+    )
+
+    confidence = Column(
+        String,
+        nullable=True
+    )
+
+    status = Column(
+        String,
+        nullable=False,
+        default="pending"
+    )
+
+    create_at = Column(
+        DateTime,
+        server_default=func.now()
+    )
+
+
+

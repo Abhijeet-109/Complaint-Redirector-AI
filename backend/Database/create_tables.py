@@ -1,6 +1,6 @@
 
 from backend.Database.connection import Base, engine
-from backend.Database.models import User, Department
+from backend.Database.models import User, Department, Complaint
 
 
 print('Creating Database Tables...')
