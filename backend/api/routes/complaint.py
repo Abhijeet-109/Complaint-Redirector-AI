@@ -7,9 +7,16 @@ from backend.router import send_complaint_email
 from sqlalchemy.orm import Session
 
 from backend.Database.models import Complaint, Department, User
-from backend.Database.schemas import ComplaintCreate, ComplaintResponse
-from backend.auth.dependencies import get_db, get_current_user
-
+from backend.Database.schemas import (
+    ComplaintCreate,
+    ComplaintResponse,
+    ComplaintHandlerResponse
+)
+from backend.auth.dependencies import (
+    get_db,
+    get_current_user,
+    require_role
+)
 
 router = APIRouter(
     prefix="/api/v1",
@@ -84,3 +91,28 @@ def create_complaint(
     db.refresh(complaint)
 
     return complaint
+
+@router.get(
+    "/handler/complaints",
+    response_model=list[ComplaintHandlerResponse]
+)
+def get_handler_complaints(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("department_handler")
+    )
+):
+
+    if current_user.department_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Department handler is not assigned to a department"
+        )
+
+    complaints = db.query(Complaint).filter(
+        Complaint.department_id == current_user.department_id
+    ).order_by(
+        Complaint.id
+    ).all()
+
+    return complaints

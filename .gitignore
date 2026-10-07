@@ -42,3 +42,4 @@ htmlcov/
 .DS_Store
 Thumbs.db
 Desktop.ini
+seed_super_admin.py

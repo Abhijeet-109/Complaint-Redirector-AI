@@ -94,3 +94,18 @@ class ComplaintResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ComplaintHandlerResponse(BaseModel):
+
+    id: int
+    user_id: int
+    predicted_department_id: int
+    department_id: int
+    handler_id: int | None = None
+    complaint_text: str
+    confidence: str | None = None
+    status: str
+
+    class Config:
+        from_attributes = True
