@@ -284,6 +284,8 @@ def _clear_auth_state() -> None:
     st.session_state.pop("history_status_filter", None)
     st.session_state.pop("contact_complaint_select", None)
     st.session_state.pop("login_password_input", None)
+    for key in ("handler_complaints", "handler_selected_id", "handler_notice", "handler_search", "handler_filter"):
+        st.session_state.pop(key, None)
     st.session_state.current_page = "landing"
 
 
@@ -308,6 +310,16 @@ def run_app() -> None:
                 page = "dashboard"
                 st.session_state.current_page = page
             render_user_dashboard(page)
+        elif st.session_state.user_role == "department_handler":
+            from frontend.handler_dashboard import render_handler_dashboard
+
+            if page in {"landing", "login", "register", "role_placeholder"}:
+                page = "handler_dashboard"
+                st.session_state.current_page = page
+            if page not in {"handler_dashboard", "handler_complaints", "handler_detail"}:
+                page = "handler_dashboard"
+                st.session_state.current_page = page
+            render_handler_dashboard(page)
         else:
             if page != "role_placeholder":
                 st.session_state.current_page = "role_placeholder"
