@@ -1,4 +1,4 @@
-"""Department-handler dashboard and assigned complaint workflow."""
+"""Department-handler dashboard and assigned complaint workflow — Phase 5 redesign."""
 
 from datetime import datetime
 from html import escape
@@ -9,6 +9,7 @@ from frontend.complaint_api import ComplaintAPIError, get_current_user
 from frontend.handler_api import (
     HandlerAPIError,
     get_handler_complaints,
+    get_handler_departments,
     redirect_handler_complaint,
     update_handler_complaint_status,
 )
@@ -47,7 +48,7 @@ def _status_badge(status):
 
 
 def _clear_handler_state():
-    for key in ("handler_complaints", "handler_selected_id", "handler_notice", "handler_search", "handler_filter"):
+    for key in ("handler_complaints", "handler_selected_id", "handler_notice", "handler_search", "handler_filter", "handler_departments"):
         st.session_state.pop(key, None)
 
 
@@ -104,15 +105,42 @@ def _load_complaints(force=False):
         return None
 
 
+def _load_departments():
+    """Load departments for the redirect dropdown from the handler-safe endpoint."""
+    cached = st.session_state.get("handler_departments")
+    if isinstance(cached, list):
+        return cached
+    try:
+        departments = get_handler_departments(st.session_state.access_token)
+        st.session_state.handler_departments = departments
+        return departments
+    except HandlerAPIError:
+        return None
+
+
 def _set_page(page):
     st.session_state.current_page = page
     st.rerun()
 
 
 def _sidebar(profile):
+    name = _safe(profile.get("name"), "Department handler")
+    initial = str(name)[0].upper() if name and name != "—" else "H"
+    role = profile.get("role", "department_handler")
+    role_label = "DEPARTMENT HANDLER"
+
     with st.sidebar:
-        st.markdown('<div class="fk-sidebar-brand"><span class="fk-sidebar-mark">F</span>Flatkart</div>', unsafe_allow_html=True)
-        st.caption(f"Signed in as {_safe(profile.get('name'), 'Department handler')}")
+        st.markdown(
+            '<div class="fk-sidebar-brand"><span class="fk-sidebar-mark">F</span>Flatkart</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f'<div class="fk-sidebar-user">'
+            f'<span class="fk-sidebar-avatar">{initial}</span>'
+            f'<div><div class="fk-sidebar-uname">{name}</div>'
+            f'<span class="fk-sidebar-urole fk-role-{role}">{role_label}</span></div></div>',
+            unsafe_allow_html=True,
+        )
         st.markdown('<div class="fk-sidebar-label">WORKSPACE</div>', unsafe_allow_html=True)
         for label, page, key in (
             ("⌂  Dashboard", "handler_dashboard", "handler_nav_dashboard"),
@@ -132,10 +160,12 @@ def _heading(title, description):
     )
 
 
-def _stat(label, value, icon):
+def _stat(label, value, icon, color_class="total"):
     st.markdown(
-        f'<article class="fk-handler-stat"><span class="fk-handler-stat-icon" aria-hidden="true">{icon}</span>'
-        f'<div><div class="fk-stat-label">{label}</div><div class="fk-stat-value">{value}</div></div></article>',
+        f'<article class="fk-stat-card fk-stat-{color_class}">'
+        f'<div class="fk-stat-icon fk-stat-icon-{color_class}" aria-hidden="true">{icon}</div>'
+        f'<div class="fk-stat-label">{label}</div>'
+        f'<div class="fk-stat-value">{value}</div></article>',
         unsafe_allow_html=True,
     )
 
@@ -155,20 +185,22 @@ def _complaint_card(item, *, prefix):
             f'{_status_badge(item.get("status"))}</div><p class="fk-complaint-text">{escape(preview)}</p>',
             unsafe_allow_html=True,
         )
-        predicted, current, confidence, created = st.columns(4)
-        with predicted:
-            st.caption("Predicted department")
-            st.write(_safe(item.get("predicted_department")))
-        with current:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
             st.caption("Current department")
             st.write(_safe(item.get("current_department")))
-        with confidence:
+        with col2:
+            st.caption("Predicted department")
+            st.write(_safe(item.get("predicted_department")))
+        with col3:
             st.caption("Confidence")
             st.write(_confidence(item.get("confidence")))
-        with created:
+        with col4:
             st.caption("Created")
             st.write(_date(item.get("create_at")))
-        if st.button("View complaint", key=f"{prefix}_open_{complaint_id}", use_container_width=True):
+        if item.get("user_name"):
+            st.caption(f"Customer: {_safe(item.get('user_name'))}")
+        if st.button("View Complaint", key=f"{prefix}_open_{complaint_id}", type="primary", use_container_width=True):
             _select_complaint(complaint_id)
 
 
@@ -180,22 +212,34 @@ def _empty_state():
     )
 
 
-def _dashboard(complaints):
-    _heading("Department Handler", "Manage and resolve complaints assigned to your department.")
+def _dashboard(complaints, profile):
+    dept_name = ""
+    if profile.get("department_id"):
+        # Try to find department name from complaints
+        for item in (complaints or []):
+            if item.get("current_department"):
+                dept_name = item.get("current_department")
+                break
+
+    heading_subtitle = f"Manage and resolve complaints assigned to your department."
+    if dept_name:
+        heading_subtitle = f"{dept_name} · Manage and resolve complaints assigned to your department."
+
+    _heading("Department Handler", heading_subtitle)
     if not complaints:
         _empty_state()
         return
     counts = {status: sum(item.get("status") == status for item in complaints) for status in STATUS_LABELS}
     columns = st.columns(4, gap="medium")
     stats = (
-        ("Total Complaints", len(complaints), "▦"),
-        ("Pending", counts["pending"], "◷"),
-        ("Followed Up", counts["followed_up"], "↗"),
-        ("Resolved", counts["processed"], "✓"),
+        ("Assigned", len(complaints), "▦", "total"),
+        ("Pending", counts["pending"], "◷", "pending"),
+        ("Followed Up", counts["followed_up"], "↗", "followed"),
+        ("Resolved", counts["processed"], "✓", "resolved"),
     )
-    for column, (label, value, icon) in zip(columns, stats):
+    for column, (label, value, icon, color) in zip(columns, stats):
         with column:
-            _stat(label, value, icon)
+            _stat(label, value, icon, color)
 
     st.markdown('<div class="fk-section-title"><h2>Recent Complaints</h2></div>', unsafe_allow_html=True)
     for item in complaints[:5]:
@@ -223,7 +267,10 @@ def _complaints_page(complaints):
         and (not query or query in str(item.get("id", "")).lower() or query in str(item.get("complaint_text", "")).lower())
     ]
     if not filtered:
-        st.info("No complaints match these filters.")
+        st.markdown(
+            '<div class="fk-alert fk-alert-info">No complaints match these filters.</div>',
+            unsafe_allow_html=True,
+        )
         return
     st.caption(f"{len(filtered)} complaint{'s' if len(filtered) != 1 else ''}")
     for item in filtered:
@@ -245,51 +292,149 @@ def _detail(complaints):
     complaint_id = st.session_state.get("handler_selected_id")
     item = next((row for row in complaints if row.get("id") == complaint_id), None)
     if item is None:
-        st.warning("This complaint is no longer in your assigned list.")
-        if st.button("Back to complaints", key="handler_detail_back_missing"):
+        st.markdown(
+            '<div class="fk-alert fk-alert-warning">This complaint is no longer in your assigned list.</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("← Back to complaints", key="handler_detail_back_missing"):
             _set_page("handler_complaints")
         return
+
     if st.button("← Back to complaints", key="handler_detail_back"):
         _set_page("handler_complaints")
-    _heading(f"Complaint #{_safe(item.get('id'))}", "Review the complaint and choose its next status.")
+
+    # Title row
+    st.markdown(
+        f'<div class="fk-page-heading"><h1>Complaint #{_safe(item.get("id"))} '
+        f'{_status_badge(item.get("status"))}</h1>'
+        f'<p>Review the complaint and choose its next status.</p></div>',
+        unsafe_allow_html=True,
+    )
     if notice := st.session_state.pop("handler_notice", None):
-        st.success(notice)
+        st.markdown(f'<div class="fk-alert fk-alert-success">✓ {escape(notice)}</div>', unsafe_allow_html=True)
+
+    # Main content
     left, right = st.columns([1.4, 0.8], gap="large")
     with left:
         with st.container(border=True):
             st.markdown('<h3 class="fk-detail-section-title">Complaint</h3>', unsafe_allow_html=True)
             st.markdown(f'<div class="fk-full-complaint">{_safe(item.get("complaint_text"))}</div>', unsafe_allow_html=True)
-            st.markdown('<h3 class="fk-detail-section-title">AI Prediction</h3>', unsafe_allow_html=True)
-            predicted, current = st.columns(2)
-            with predicted:
+
+        # Customer info section
+        with st.container(border=True):
+            st.markdown('<h3 class="fk-detail-section-title">Customer</h3>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.caption("Name")
+                st.write(_safe(item.get("user_name")))
+            with c2:
+                st.caption("Email")
+                st.write(_safe(item.get("user_email")))
+
+        # AI routing section
+        with st.container(border=True):
+            st.markdown('<h3 class="fk-detail-section-title">AI Routing</h3>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
                 st.caption("Predicted department")
                 st.write(_safe(item.get("predicted_department")))
-            with current:
+            with c2:
                 st.caption("Current department")
                 st.write(_safe(item.get("current_department")))
+
     with right:
         with st.container(border=True):
-            st.markdown('<h3 class="fk-detail-section-title">Complaint details</h3>', unsafe_allow_html=True)
+            st.markdown('<h3 class="fk-detail-section-title">Complaint Details</h3>', unsafe_allow_html=True)
             st.caption("Status")
             st.markdown(_status_badge(item.get("status")), unsafe_allow_html=True)
+            st.write("")
             st.caption("Confidence")
             st.write(_confidence(item.get("confidence")))
+            st.write("")
             st.caption("Created")
             st.write(_date(item.get("create_at")))
+
+    # Actions section
     st.markdown('<div class="fk-section-title"><h2>Actions</h2></div>', unsafe_allow_html=True)
-    pending, followed, resolved = st.columns(3, gap="small")
+    pending_col, followed_col, resolved_col = st.columns(3, gap="small")
     for column, label, status, key in (
-        (pending, "Keep Pending", "pending", "handler_status_pending"),
-        (followed, "Mark Followed Up", "followed_up", "handler_status_followed"),
-        (resolved, "Mark Resolved", "processed", "handler_status_resolved"),
+        (pending_col, "Keep Pending", "pending", "handler_status_pending"),
+        (followed_col, "Mark Followed Up", "followed_up", "handler_status_followed"),
+        (resolved_col, "Mark Resolved", "processed", "handler_status_resolved"),
     ):
         with column:
             if st.button(label, key=key, type="primary" if status == "processed" else "secondary", use_container_width=True):
                 _perform_status_action(item["id"], status)
-    with st.expander("Redirect Complaint"):
-        st.write("Select the department that should handle this complaint.")
-        st.info("Department information is currently unavailable. Redirect needs a safe department list for handler accounts.")
-        st.caption("The existing department list endpoint is restricted to admins. No redirect request was sent.")
+
+    # Redirect panel
+    st.markdown(
+        '<div class="fk-redirect-panel">'
+        '<h3 class="fk-redirect-title">Redirect Complaint</h3>'
+        '<p class="fk-redirect-copy">Send this complaint to another department for handling.</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    current_dept = _safe(item.get("current_department"))
+    st.markdown(
+        f'<p style="margin:.4rem 0 .6rem;font-size:.88rem;color:var(--fk-muted);">'
+        f'Currently assigned to: <span class="fk-redirect-current">{current_dept}</span></p>',
+        unsafe_allow_html=True,
+    )
+
+    departments = _load_departments()
+    if departments is None:
+        st.markdown(
+            '<div class="fk-alert fk-alert-warning">Unable to load departments. Please try again.</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Retry loading departments", key="handler_dept_retry"):
+            st.session_state.pop("handler_departments", None)
+            st.rerun()
+    elif not departments:
+        st.markdown(
+            '<div class="fk-alert fk-alert-info">No departments available for redirect.</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        # Filter out current department
+        other_departments = [d for d in departments if d.get("id") != item.get("department_id")]
+        if not other_departments:
+            st.markdown(
+                '<div class="fk-alert fk-alert-info">No other departments available for redirect.</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            dept_map = {d["id"]: d["name"] for d in other_departments}
+            selected_dept_id = st.selectbox(
+                "Select department",
+                options=list(dept_map.keys()),
+                format_func=lambda d_id: dept_map[d_id],
+                key="handler_redirect_dept",
+                label_visibility="collapsed",
+            )
+
+            if st.button("Redirect Complaint", key="handler_redirect_btn", type="primary", use_container_width=True):
+                try:
+                    with st.spinner("Redirecting complaint..."):
+                        result = redirect_handler_complaint(
+                            st.session_state.access_token,
+                            item["id"],
+                            selected_dept_id,
+                        )
+                    # Force reload complaints
+                    st.session_state.pop("handler_complaints", None)
+                    target_name = dept_map.get(selected_dept_id, "the selected department")
+
+                    email_sent = result.get("email_sent", True)
+                    if email_sent:
+                        st.session_state.handler_notice = f"Complaint #{item['id']} was redirected to {target_name}."
+                    else:
+                        st.session_state.handler_notice = f"Complaint #{item['id']} was redirected to {target_name}, but the department notification could not be sent."
+
+                    _set_page("handler_complaints")
+                except HandlerAPIError as error:
+                    _api_error(error)
 
 
 def render_handler_dashboard(page):
@@ -316,10 +461,10 @@ def render_handler_dashboard(page):
             st.rerun()
         return
     if notice := st.session_state.pop("handler_notice", None):
-        st.success(notice)
+        st.markdown(f'<div class="fk-alert fk-alert-success">✓ {escape(notice)}</div>', unsafe_allow_html=True)
     if page == "handler_complaints":
         _complaints_page(complaints)
     elif page == "handler_detail":
         _detail(complaints)
     else:
-        _dashboard(complaints)
+        _dashboard(complaints, profile)

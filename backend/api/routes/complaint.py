@@ -1,8 +1,10 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from backend.predictor import predict_department
-from backend.router import send_complaint_email
+from backend.router import send_complaint_email, send_redirect_email
 
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,8 @@ from backend.auth.dependencies import (
     get_current_user,
     require_role
 )
+
+logger = logging.getLogger("flatkart.complaint")
 
 router = APIRouter(
     prefix="/api/v1",
@@ -180,6 +184,26 @@ def create_complaint(
     db.commit()
     db.refresh(complaint)
 
+    # --- Send email notification to the department ---
+    email_sent = True
+    try:
+        send_complaint_email(
+            complaint=complaint_data.complaint_text,
+            department=department_name,
+            confidence=confidence,
+            receiver=department.email,
+            user_name=current_user.name,
+            user_email=current_user.email,
+            complaint_id=complaint.id,
+        )
+    except Exception as exc:
+        email_sent = False
+        logger.warning(
+            "Complaint #%s created but email notification failed: %s",
+            complaint.id,
+            exc,
+        )
+
     return complaint
 
 @router.get(
@@ -262,6 +286,18 @@ def redirect_handler_complaint(
 ):
     complaint = _handler_complaint(db, complaint_id, current_user)
 
+    # Resolve the previous department name before changing
+    prev_department = db.query(Department).filter(
+        Department.id == complaint.department_id
+    ).first()
+    prev_department_name = prev_department.name if prev_department else "Unknown"
+
+    # Resolve predicted department name
+    predicted_department = db.query(Department).filter(
+        Department.id == complaint.predicted_department_id
+    ).first()
+    predicted_department_name = predicted_department.name if predicted_department else "Unknown"
+
     target_department = db.query(Department).filter(
         Department.id == redirect.department_id
     ).first()
@@ -277,10 +313,34 @@ def redirect_handler_complaint(
     db.commit()
     db.refresh(complaint)
 
-    return {
+    # --- Send redirect email notification to target department ---
+    email_sent = True
+    try:
+        send_redirect_email(
+            complaint_text=complaint.complaint_text,
+            complaint_id=complaint.id,
+            previous_department=prev_department_name,
+            new_department=target_department.name,
+            predicted_department=predicted_department_name,
+            confidence=complaint.confidence,
+            receiver=target_department.email,
+            status=complaint.status,
+        )
+    except Exception as exc:
+        email_sent = False
+        logger.warning(
+            "Complaint #%s redirected but email notification failed: %s",
+            complaint.id,
+            exc,
+        )
+
+    result = {
         **_complaint_details(db, [complaint])[0],
         "handler_id": complaint.handler_id,
+        "email_sent": email_sent,
     }
+
+    return result
 
 
 @router.get(

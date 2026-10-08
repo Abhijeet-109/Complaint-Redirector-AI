@@ -73,3 +73,11 @@ def redirect_handler_complaint(token: str, complaint_id: int, department_id: int
     if not isinstance(result, dict):
         raise HandlerAPIError("We couldn't redirect this complaint. Please try again.")
     return result
+
+
+def get_handler_departments(token: str) -> list[dict]:
+    """Fetch the department list from the handler-safe endpoint."""
+    result = _request("GET", "/api/v1/departments", token)
+    if not isinstance(result, list):
+        raise HandlerAPIError("Unable to load departments. Please try again.")
+    return [item for item in result if isinstance(item, dict)]

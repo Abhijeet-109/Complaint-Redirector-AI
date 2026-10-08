@@ -1,4 +1,4 @@
-"""Admin and super-admin dashboards using Flatkart's existing API and styles."""
+"""Admin and super-admin dashboards — Phase 5 SaaS redesign."""
 
 from collections import Counter
 from datetime import datetime
@@ -129,12 +129,16 @@ def _heading(title, subtitle):
 
 def _show_notice():
     if notice := st.session_state.pop("admin_notice", None):
-        st.success(notice)
+        st.markdown(f'<div class="fk-alert fk-alert-success">✓ {escape(notice)}</div>', unsafe_allow_html=True)
 
 
 def _sidebar(profile, role):
+    name = _safe(profile.get("name"), "Administrator")
+    initial = str(name)[0].upper() if name and name != "—" else "A"
+    role_label = "SUPER ADMIN" if role == "super_admin" else "ADMIN"
+
     navigation = [
-        ("⌂  Dashboard", "admin_dashboard", "admin_nav_dashboard"),
+        ("⌂  Dashboard", "super_admin_dashboard" if role == "super_admin" else "admin_dashboard", "admin_nav_dashboard"),
         ("♙  Manage Users", "admin_users", "admin_nav_users"),
         ("▣  Department Handlers", "admin_handlers", "admin_nav_handlers"),
         ("▦  Departments", "admin_departments", "admin_nav_departments"),
@@ -144,7 +148,13 @@ def _sidebar(profile, role):
         navigation.append(("♛  Manage Admins", "admin_admins", "admin_nav_admins"))
     with st.sidebar:
         st.markdown('<div class="fk-sidebar-brand"><span class="fk-sidebar-mark">F</span>Flatkart</div>', unsafe_allow_html=True)
-        st.caption(f"Signed in as {_safe(profile.get('name'), 'Administrator')}")
+        st.markdown(
+            f'<div class="fk-sidebar-user">'
+            f'<span class="fk-sidebar-avatar">{initial}</span>'
+            f'<div><div class="fk-sidebar-uname">{name}</div>'
+            f'<span class="fk-sidebar-urole fk-role-{role}">{role_label}</span></div></div>',
+            unsafe_allow_html=True,
+        )
         st.markdown('<div class="fk-sidebar-label">ADMINISTRATION</div>', unsafe_allow_html=True)
         for label, page, key in navigation:
             if st.button(label, key=key, type="primary" if st.session_state.current_page == page else "secondary", width="stretch"):
@@ -154,10 +164,12 @@ def _sidebar(profile, role):
         st.button("↪  Logout", key="admin_logout", width="stretch", on_click=lambda: _logout(rerun=False))
 
 
-def _metric(label, value, marker):
+def _metric(label, value, marker, color_class="total"):
     st.markdown(
-        f'<article class="fk-admin-stat"><div class="fk-admin-stat-marker" aria-hidden="true">{marker}</div>'
-        f'<div><div class="fk-stat-label">{escape(label)}</div><div class="fk-stat-value">{value}</div></div></article>',
+        f'<article class="fk-stat-card fk-stat-{color_class}">'
+        f'<div class="fk-stat-icon fk-stat-icon-{color_class}" aria-hidden="true">{marker}</div>'
+        f'<div class="fk-stat-label">{escape(label)}</div>'
+        f'<div class="fk-stat-value">{value}</div></article>',
         unsafe_allow_html=True,
     )
 
@@ -169,21 +181,21 @@ def _render_metrics(complaints):
         "processed": sum(row.get("status") == "processed" for row in complaints),
     }
     items = [
-        ("Total Complaints", len(complaints), "▤"),
-        ("Pending", values["pending"], "◷"),
-        ("Followed Up", values["followed_up"], "↗"),
-        ("Resolved", values["processed"], "✓"),
+        ("Total Complaints", len(complaints), "▤", "total"),
+        ("Pending", values["pending"], "◷", "pending"),
+        ("Followed Up", values["followed_up"], "↗", "followed"),
+        ("Resolved", values["processed"], "✓", "resolved"),
     ]
     columns = st.columns(4, gap="medium")
-    for column, (label, value, marker) in zip(columns, items):
+    for column, (label, value, marker, color) in zip(columns, items):
         with column:
-            _metric(label, value, marker)
+            _metric(label, value, marker, color)
 
 
 def _department_counts(complaints, departments):
     counts = Counter(row.get("current_department") for row in complaints if row.get("current_department"))
     return [
-        {"Department": department.get("name", ""), "Total": counts.get(department.get("name"), 0)}
+        {"name": department.get("name", ""), "count": counts.get(department.get("name"), 0)}
         for department in departments
     ]
 
@@ -191,9 +203,24 @@ def _department_counts(complaints, departments):
 def _department_overview(complaints, departments):
     st.markdown('<div class="fk-section-title"><h2>Complaints by Department</h2></div>', unsafe_allow_html=True)
     if not departments:
-        st.info("No departments have been created yet.")
+        st.markdown('<div class="fk-alert fk-alert-info">No departments have been created yet.</div>', unsafe_allow_html=True)
         return
-    st.dataframe(_department_counts(complaints, departments), hide_index=True, width="stretch")
+    dept_data = _department_counts(complaints, departments)
+    max_count = max((d["count"] for d in dept_data), default=1) or 1
+
+    # Build custom HTML table
+    rows_html = ""
+    for dept in dept_data:
+        bar_width = max(int((dept["count"] / max_count) * 80), 4) if dept["count"] > 0 else 0
+        bar_html = f'<span class="fk-dept-bar" style="width:{bar_width}px;"></span>' if bar_width > 0 else ""
+        rows_html += f'<tr><td>{escape(dept["name"])}</td><td>{bar_html}{dept["count"]}</td></tr>'
+
+    st.markdown(
+        f'<div style="background:#FFFFFF;border:1px solid var(--fk-border);border-radius:var(--fk-radius-card);padding:.8rem;box-shadow:0 4px 16px rgba(20,33,61,.03);">'
+        f'<table class="fk-dept-table"><thead><tr><th>Department</th><th>Complaints</th></tr></thead>'
+        f'<tbody>{rows_html}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _complaint_row(item, key_prefix):
@@ -216,7 +243,7 @@ def _complaint_row(item, key_prefix):
         with c:
             st.caption("Created")
             st.write(_date(item.get("create_at")))
-        if st.button("View complaint", key=f"{key_prefix}_{complaint_id}"):
+        if st.button("View Complaint", key=f"{key_prefix}_{complaint_id}", type="primary", use_container_width=True):
             st.session_state.admin_complaint_id = complaint_id
             st.session_state.current_page = "admin_complaint_detail"
             st.rerun()
@@ -229,7 +256,7 @@ def _recent_complaints(complaints):
         return
     for row in complaints[:5]:
         _complaint_row(row, "admin_recent")
-    if st.button("View All Complaints", key="admin_view_all_complaints", type="primary"):
+    if len(complaints) > 5 and st.button("View All Complaints", key="admin_view_all_complaints", type="primary"):
         st.session_state.current_page = "admin_complaints"
         st.rerun()
 
@@ -247,28 +274,42 @@ def _super_admin_home(complaints, departments, users):
     _heading("Super Admin Dashboard", "System-wide overview of complaints, users and administration.")
     if complaints is None or departments is None or users is None:
         return
+
     roles = Counter(row.get("role") for row in users)
-    st.markdown('<div class="fk-section-title"><h2>System Account Overview</h2></div>', unsafe_allow_html=True)
+
+    # Top system cards
     columns = st.columns(4, gap="medium")
-    for column, (label, value, marker) in zip(columns, (
-        ("Total Complaints", len(complaints), "▤"),
-        ("Total Users", roles["user"], "♙"),
-        ("Department Handlers", roles["department_handler"], "♟"),
-        ("Administrators", roles["admin"], "♛"),
+    for column, (label, value, marker, color) in zip(columns, (
+        ("Total Complaints", len(complaints), "▤", "total"),
+        ("Total Users", roles["user"], "♙", "followed"),
+        ("Department Handlers", roles["department_handler"], "♟", "pending"),
+        ("Administrators", roles["admin"], "♛", "resolved"),
     )):
         with column:
-            _metric(label, value, marker)
-    st.markdown('<div class="fk-section-title"><h2>Complaint Overview</h2></div>', unsafe_allow_html=True)
+            _metric(label, value, marker, color)
+
+    # Complaint health
+    st.markdown('<div class="fk-section-title"><h2>Complaint Health</h2></div>', unsafe_allow_html=True)
     _render_metrics(complaints)
+
     _department_overview(complaints, departments)
+
+    # Administrative overview - custom HTML table
     st.markdown('<div class="fk-section-title"><h2>Administrative Overview</h2></div>', unsafe_allow_html=True)
-    admin_counts = [
-        {"Category": "Users", "Total": roles["user"]},
-        {"Category": "Department Handlers", "Total": roles["department_handler"]},
-        {"Category": "Administrators", "Total": roles["admin"]},
-        {"Category": "Departments", "Total": len(departments)},
+    admin_data = [
+        ("Users", roles["user"]),
+        ("Department Handlers", roles["department_handler"]),
+        ("Administrators", roles["admin"]),
+        ("Departments", len(departments)),
     ]
-    st.dataframe(admin_counts, hide_index=True, width="stretch")
+    rows_html = "".join(f'<tr><td>{escape(cat)}</td><td>{count}</td></tr>' for cat, count in admin_data)
+    st.markdown(
+        f'<div style="background:#FFFFFF;border:1px solid var(--fk-border);border-radius:var(--fk-radius-card);padding:.8rem;box-shadow:0 4px 16px rgba(20,33,61,.03);">'
+        f'<table class="fk-dept-table"><thead><tr><th>Category</th><th>Total</th></tr></thead>'
+        f'<tbody>{rows_html}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
+
     _recent_complaints(complaints)
 
 
@@ -278,15 +319,28 @@ def _empty(message):
         f'<h2>{escape(message)}</h2><p>Records will appear here as they are added.</p></div>',
         unsafe_allow_html=True,
     )
+
+
 def _department_map(departments):
     return {row.get("id"): row.get("name", "") for row in departments}
 
 
-def _render_table(rows, columns, *, empty):
+def _render_html_table(rows, columns, *, empty):
+    """Render a polished HTML table instead of st.dataframe."""
     if not rows:
         _empty(empty)
         return False
-    st.dataframe(rows, hide_index=True, width="stretch", column_order=columns)
+    header_html = "".join(f"<th>{escape(col)}</th>" for col in columns)
+    body_html = ""
+    for row in rows:
+        cells = "".join(f"<td>{escape(str(row.get(col, '—')))}</td>" for col in columns)
+        body_html += f"<tr>{cells}</tr>"
+    st.markdown(
+        f'<div style="background:#FFFFFF;border:1px solid var(--fk-border);border-radius:var(--fk-radius-card);padding:.6rem;box-shadow:0 4px 16px rgba(20,33,61,.03);overflow-x:auto;">'
+        f'<table class="fk-data-table"><thead><tr>{header_html}</tr></thead>'
+        f'<tbody>{body_html}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
     return True
 
 
@@ -319,7 +373,7 @@ def _action_bar(rows, key_prefix, *, edit=True, delete=True):
                 st.rerun()
     if delete:
         with delete_col:
-            if st.button("Delete", key=f"{key_prefix}_delete", width="stretch"):
+            if st.button("⚠ Delete", key=f"{key_prefix}_delete", width="stretch"):
                 st.session_state.admin_user_delete = (selected_id, key_prefix)
     return by_id[selected_id]
 
@@ -327,16 +381,21 @@ def _action_bar(rows, key_prefix, *, edit=True, delete=True):
 def _view_account(row, departments):
     if not row or st.session_state.get("admin_user_view") != row.get("id"):
         return
-    st.markdown('<div class="fk-section-title"><h2>Account details</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="fk-section-title"><h2>Account Details</h2></div>', unsafe_allow_html=True)
     department_name = departments.get(row.get("department_id"), "—")
-    info = [
-        {"Field": "ID", "Value": row.get("id")},
-        {"Field": "Name", "Value": row.get("name")},
-        {"Field": "Email", "Value": row.get("email")},
-        {"Field": "Role", "Value": row.get("role")},
-        {"Field": "Department", "Value": department_name},
-    ]
-    st.dataframe(info, hide_index=True, width="stretch")
+    with st.container(border=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.caption("Name")
+            st.write(_safe(row.get("name")))
+            st.caption("Role")
+            st.write(_safe(row.get("role")))
+        with c2:
+            st.caption("Email")
+            st.write(_safe(row.get("email")))
+            st.caption("Department")
+            st.write(department_name)
+        st.caption(f"Account ID · #{row.get('id')}")
 
 
 def _close_form():
@@ -347,10 +406,10 @@ def _close_form():
 
 def _account_form(mode, row, role, departments):
     is_create = mode == "create"
-    title = "Create account" if is_create else "Edit account"
+    title = "Create Account" if is_create else "Edit Account"
     st.markdown(f'<div class="fk-section-title"><h2>{title}</h2></div>', unsafe_allow_html=True)
     if role == "department_handler" and not departments:
-        st.info("Unable to load departments. Try again before creating or editing a handler.")
+        st.markdown('<div class="fk-alert fk-alert-warning">Unable to load departments. Try again before creating or editing a handler.</div>', unsafe_allow_html=True)
         if st.button("Cancel", key="admin_form_cancel_empty"):
             _close_form()
         return
@@ -375,7 +434,7 @@ def _account_form(mode, row, role, departments):
                     format_func=lambda dept_id: dept_by_id[dept_id],
                     key=f"admin_form_department_{form_id}",
                 )
-            submitted = st.form_submit_button("Create" if is_create else "Save changes", type="primary", width="stretch")
+            submitted = st.form_submit_button("Create" if is_create else "Save Changes", type="primary", width="stretch")
         cancel, _ = st.columns([1, 4])
         with cancel:
             cancelled = st.button("Cancel", key=f"admin_form_cancel_{form_id}")
@@ -428,14 +487,17 @@ def _delete_confirmation(row, key_prefix):
     selection = st.session_state.get("admin_user_delete")
     if not row or not selection or selection[0] != row.get("id"):
         return
-    st.warning("Are you sure you want to delete this account?")
+    st.markdown(
+        '<div class="fk-alert fk-alert-error">⚠ Are you sure you want to delete this account? This action cannot be undone.</div>',
+        unsafe_allow_html=True,
+    )
     cancel, confirm = st.columns(2)
     with cancel:
         if st.button("Cancel", key=f"{key_prefix}_delete_cancel"):
             st.session_state.pop("admin_user_delete", None)
             st.rerun()
     with confirm:
-        if st.button("Delete", key=f"{key_prefix}_delete_confirm", type="primary"):
+        if st.button("Confirm Delete", key=f"{key_prefix}_delete_confirm", type="primary"):
             try:
                 with st.spinner("Deleting account..."):
                     delete_user(st.session_state.access_token, row["id"])
@@ -466,7 +528,7 @@ def _account_page(role, title, subtitle, cache, *, create_label, empty):
         {"ID": row.get("id"), "Name": row.get("name"), "Email": row.get("email"), "Role": row.get("role"), "Department": names.get(row.get("department_id"), "—")}
         for row in rows
     ]
-    _render_table(table_rows, ["ID", "Name", "Email", "Role", "Department"], empty=empty)
+    _render_html_table(table_rows, ["ID", "Name", "Email", "Role", "Department"], empty=empty)
     add_col, refresh_col = st.columns([1, 5])
     with add_col:
         if st.button(create_label, key=f"{cache}_create", type="primary"):
@@ -515,8 +577,21 @@ def _department_page():
     _show_notice()
     if departments is None:
         return
-    rows = [{"ID": row.get("id"), "Department Name": row.get("name"), "Email": row.get("email")} for row in departments]
-    _render_table(rows, ["ID", "Department Name", "Email"], empty="No departments have been created yet.")
+
+    # Custom HTML table for departments
+    if departments:
+        rows_html = ""
+        for dept in departments:
+            rows_html += f'<tr><td>{dept.get("id", "")}</td><td><strong>{escape(dept.get("name", ""))}</strong></td><td>{escape(dept.get("email", ""))}</td></tr>'
+        st.markdown(
+            f'<div style="background:#FFFFFF;border:1px solid var(--fk-border);border-radius:var(--fk-radius-card);padding:.6rem;box-shadow:0 4px 16px rgba(20,33,61,.03);overflow-x:auto;">'
+            f'<table class="fk-data-table"><thead><tr><th>ID</th><th>Department Name</th><th>Email</th></tr></thead>'
+            f'<tbody>{rows_html}</tbody></table></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        _empty("No departments have been created yet.")
+
     create_col, refresh_col = st.columns([1, 5])
     with create_col:
         if st.button("+ Create Department", key="department_create", type="primary"):
@@ -608,7 +683,15 @@ def _complaints_page():
         _empty("No complaints found.")
         return
     st.caption(f"{len(filtered)} complaint{'s' if len(filtered) != 1 else ''}")
-    _render_table([_complaint_table_row(row) for row in filtered], ["Complaint ID", "Complaint", "Predicted Department", "Current Department", "Status", "Confidence", "Created"], empty="No complaints found.")
+
+    # Use HTML table instead of st.dataframe
+    table_data = [_complaint_table_row(row) for row in filtered]
+    _render_html_table(
+        table_data,
+        ["Complaint ID", "Complaint", "Current Department", "Status", "Confidence", "Created"],
+        empty="No complaints found.",
+    )
+
     by_id = {row.get("id"): row for row in filtered}
     selected_id = st.selectbox("Select a complaint", list(by_id), format_func=lambda value: f"Complaint #{value}", key="admin_complaint_selected")
     if st.button("View details", key="admin_complaint_view", type="primary"):
@@ -626,12 +709,21 @@ def _complaint_detail(complaints):
     if row is None:
         _empty("No complaints found.")
         return
-    _heading(f"Complaint #{row.get('id')}", "Review the complaint, its AI prediction and current status.")
+
+    st.markdown(
+        f'<div class="fk-page-heading"><h1>Complaint #{row.get("id")} '
+        f'{_status_badge(row.get("status"))}</h1>'
+        f'<p>Review the complaint, its AI prediction and current status.</p></div>',
+        unsafe_allow_html=True,
+    )
+
     left, right = st.columns([1.4, .8], gap="large")
     with left:
         with st.container(border=True):
             st.markdown('<h3 class="fk-detail-section-title">Complaint</h3>', unsafe_allow_html=True)
             st.markdown(f'<div class="fk-full-complaint">{_safe(row.get("complaint_text"))}</div>', unsafe_allow_html=True)
+
+        with st.container(border=True):
             st.markdown('<h3 class="fk-detail-section-title">AI Prediction</h3>', unsafe_allow_html=True)
             first, second = st.columns(2)
             with first:
@@ -641,13 +733,19 @@ def _complaint_detail(complaints):
                 st.caption("Current Department")
                 st.write(_safe(row.get("current_department")))
             if row.get("predicted_department_id") != row.get("department_id"):
-                st.info("Currently routed to another department.")
+                st.markdown(
+                    '<div class="fk-alert fk-alert-info">This complaint has been redirected to another department.</div>',
+                    unsafe_allow_html=True,
+                )
     with right:
         with st.container(border=True):
-            st.markdown('<h3 class="fk-detail-section-title">Status</h3>', unsafe_allow_html=True)
+            st.markdown('<h3 class="fk-detail-section-title">Details</h3>', unsafe_allow_html=True)
+            st.caption("Status")
             st.markdown(_status_badge(row.get("status")), unsafe_allow_html=True)
+            st.write("")
             st.caption("Confidence")
             st.write(_confidence(row.get("confidence")))
+            st.write("")
             st.caption("Created")
             st.write(_date(row.get("create_at")))
 

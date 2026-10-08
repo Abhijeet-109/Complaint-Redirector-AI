@@ -1,4 +1,4 @@
-"""Normal-user dashboard pages for Phase 2."""
+"""Normal-user dashboard pages — Phase 5 SaaS redesign."""
 
 from datetime import datetime
 from html import escape
@@ -103,19 +103,34 @@ def _get_profile() -> dict | None:
 def _get_complaints() -> list[dict] | None:
     try:
         with st.spinner("Loading your complaints…"):
-            return get_my_complaints(st.session_state.access_token)
+            complaints = get_my_complaints(st.session_state.access_token)
+            if complaints:
+                total = len(complaints)
+                for i, c in enumerate(complaints):
+                    c['display_id'] = total - i
+            return complaints
     except ComplaintAPIError as error:
         _show_api_error(error)
         return None
 
 
 def _sidebar(profile: dict) -> None:
+    name = _safe_text(profile.get("name"), "Flatkart user")
+    initial = str(name)[0].upper() if name and name != "—" else "U"
+    role = profile.get("role", "user")
+
     with st.sidebar:
         st.markdown(
             '<div class="fk-sidebar-brand"><span class="fk-sidebar-mark">F</span>Flatkart</div>',
             unsafe_allow_html=True,
         )
-        st.caption(f"Signed in as {_safe_text(profile.get('name'), 'Flatkart user')}")
+        st.markdown(
+            f'<div class="fk-sidebar-user">'
+            f'<span class="fk-sidebar-avatar">{initial}</span>'
+            f'<div><div class="fk-sidebar-uname">{name}</div>'
+            f'<span class="fk-sidebar-urole fk-role-{role}">USER</span></div></div>',
+            unsafe_allow_html=True,
+        )
         st.markdown('<div class="fk-sidebar-label">YOUR ACCOUNT</div>', unsafe_allow_html=True)
         navigation = [
             ("⌂  Home", "dashboard", "user_nav_home"),
@@ -158,9 +173,10 @@ def _empty_state(*, title: str = "No complaints yet", copy: str = "Your submitte
 
 def _complaint_card(complaint: dict, *, key_prefix: str) -> None:
     complaint_id = complaint.get("id")
+    display_id = complaint.get("display_id", complaint_id)
     with st.container(border=True):
         st.markdown(
-            f'<div class="fk-complaint-top"><strong>Complaint #{_safe_text(complaint_id)}</strong>'
+            f'<div class="fk-complaint-top"><strong>Complaint #{_safe_text(display_id)}</strong>'
             f'{_status_badge(str(complaint.get("status", "")))}</div>',
             unsafe_allow_html=True,
         )
@@ -177,15 +193,18 @@ def _complaint_card(complaint: dict, *, key_prefix: str) -> None:
         with right:
             st.caption("Created")
             st.write(_format_date(complaint.get("create_at")))
-        if st.button("View details", key=f"{key_prefix}_details_{complaint_id}"):
+        if st.button("View Details", key=f"{key_prefix}_details_{complaint_id}", type="primary", use_container_width=True):
             st.session_state.selected_complaint_id = complaint_id
             _go("complaint_detail")
 
 
-def _stat_card(label: str, value: int, note: str) -> None:
+def _stat_card(label: str, value: int, note: str, color_class: str = "total", icon: str = "▦") -> None:
     st.markdown(
-        f'<article class="fk-stat-card"><div class="fk-stat-label">{escape(label)}</div>'
-        f'<div class="fk-stat-value">{value}</div><div class="fk-stat-note">{escape(note)}</div></article>',
+        f'<article class="fk-stat-card fk-stat-{color_class}">'
+        f'<div class="fk-stat-icon fk-stat-icon-{color_class}" aria-hidden="true">{icon}</div>'
+        f'<div class="fk-stat-label">{escape(label)}</div>'
+        f'<div class="fk-stat-value">{value}</div>'
+        f'<div class="fk-stat-note">{escape(note)}</div></article>',
         unsafe_allow_html=True,
     )
 
@@ -209,14 +228,14 @@ def _render_home(profile: dict) -> None:
     }
     columns = st.columns(4, gap="medium")
     stats = [
-        ("Total Complaints", len(complaints), "All submitted complaints"),
-        ("Pending", status_counts["pending"], "Awaiting an update"),
-        ("Followed Up", status_counts["followed_up"], "In progress"),
-        ("Processed", status_counts["processed"], "Marked processed"),
+        ("Total Complaints", len(complaints), "All submitted complaints", "total", "▦"),
+        ("Pending", status_counts["pending"], "Awaiting an update", "pending", "◷"),
+        ("Followed Up", status_counts["followed_up"], "In progress", "followed", "↗"),
+        ("Processed", status_counts["processed"], "Marked processed", "resolved", "✓"),
     ]
-    for column, (label, value, note) in zip(columns, stats):
+    for column, (label, value, note, color, icon) in zip(columns, stats):
         with column:
-            _stat_card(label, value, note)
+            _stat_card(label, value, note, color, icon)
 
     st.markdown('<div class="fk-section-title"><h2>Recent Complaints</h2></div>', unsafe_allow_html=True)
     if not complaints:
@@ -229,14 +248,14 @@ def _render_home(profile: dict) -> None:
 
 
 def _render_file_complaint() -> None:
-    _page_heading("File a Complaint", "Tell us what happened and we’ll find the right team.")
+    _page_heading("File a Complaint", "Tell us what happened and we'll find the right team.")
     with st.container(key="fk-form-card"):
-        st.markdown('<h2 class="fk-form-title">Tell us what happened</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 class="fk-form-title">Complaint details</h2>', unsafe_allow_html=True)
         st.markdown('<p class="fk-form-copy">Describe your issue in your own words. Your account details are added securely.</p>', unsafe_allow_html=True)
         with st.form("complaint_submit_form"):
             complaint_text = st.text_area(
-                "Complaint details",
-                placeholder="Describe your issue in your own words…",
+                "Describe your issue",
+                placeholder="Tell us what happened…",
                 height=190,
                 max_chars=10000,
             )
@@ -258,6 +277,10 @@ def _render_file_complaint() -> None:
                     st.session_state.submission_detail = None
                     try:
                         current_items = get_my_complaints(st.session_state.access_token)
+                        if current_items:
+                            total = len(current_items)
+                            for i, c in enumerate(current_items):
+                                c['display_id'] = total - i
                         st.session_state.complaints_cache = current_items
                         st.session_state.submission_detail = next(
                             (item for item in current_items if item.get("id") == result.get("id")),
@@ -273,16 +296,23 @@ def _render_file_complaint() -> None:
         result = st.session_state.get("submission_result")
         if result:
             detail = st.session_state.get("submission_detail") or {}
-            st.success("Complaint Submitted")
+            display_id = detail.get("display_id", result.get("id"))
             st.markdown(
-                f'<h3>Complaint #{_safe_text(result.get("id"))}</h3>'
-                f'<div class="fk-result-grid">'
-                f'<div><span>Department</span><strong>{_safe_text(detail.get("current_department"))}</strong></div>'
-                f'<div><span>AI confidence</span><strong>{_confidence(result.get("confidence"))}</strong></div>'
-                f'<div><span>Status</span><strong>{escape(_status_label(str(result.get("status", ""))))}</strong></div>'
-                f'</div>',
+                '<div class="fk-alert fk-alert-success">✓ Complaint submitted successfully!</div>',
                 unsafe_allow_html=True,
             )
+            with st.container(border=True):
+                st.markdown(f'<h3 style="margin:0 0 .6rem;color:#10234B;">Complaint #{_safe_text(display_id)}</h3>', unsafe_allow_html=True)
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.caption("Department")
+                    st.write(_safe_text(detail.get("current_department")))
+                with c2:
+                    st.caption("AI Confidence")
+                    st.write(_confidence(result.get("confidence")))
+                with c3:
+                    st.caption("Status")
+                    st.markdown(_status_badge(str(result.get("status", ""))), unsafe_allow_html=True)
             if st.button("View Complaint", type="primary", key="view_new_complaint"):
                 st.session_state.selected_complaint_id = result.get("id")
                 _go("track_complaint")
@@ -309,7 +339,7 @@ def _render_track() -> None:
 
 
 def _render_history() -> None:
-    _page_heading("Complaint History", "Review and filter the complaints you’ve submitted.")
+    _page_heading("Complaint History", "Review and filter the complaints you've submitted.")
     complaints = _get_complaints()
     if complaints is None:
         return
@@ -337,6 +367,7 @@ def _render_history() -> None:
     if not filtered:
         _empty_state(title="No matching complaints", copy="Try another status or search term.")
         return
+    st.caption(f"{len(filtered)} complaint{'s' if len(filtered) != 1 else ''}")
     for index, complaint in enumerate(filtered):
         _complaint_card(complaint, key_prefix=f"history_{index}")
 
@@ -352,36 +383,58 @@ def _render_detail() -> None:
         return
     complaint = _selected_complaint(complaints)
     if complaint is None:
-        st.info("Choose a complaint from Track Complaint or Complaint History to view its details.")
+        st.markdown(
+            '<div class="fk-alert fk-alert-info">Choose a complaint from Track Complaint or Complaint History to view its details.</div>',
+            unsafe_allow_html=True,
+        )
         if st.button("Back to Track Complaint", key="detail_back_to_track"):
             _go("track_complaint")
         return
 
     complaint_id = complaint.get("id")
-    _page_heading(f"Complaint #{complaint_id}", "Your complaint details and current routing information.")
-    with st.container(border=True):
-        st.markdown('<h2 class="fk-detail-section-title">Complaint</h2>', unsafe_allow_html=True)
-        st.markdown(f'<div class="fk-full-complaint">{escape(str(complaint.get("complaint_text") or ""))}</div>', unsafe_allow_html=True)
-        st.markdown('<h2 class="fk-detail-section-title">AI Classification</h2>', unsafe_allow_html=True)
-        details = [
-            ("Predicted Department", _safe_text(complaint.get("predicted_department"))),
-            ("Current Department", _safe_text(complaint.get("current_department"))),
-            ("AI Confidence", _confidence(complaint.get("confidence"))),
-            ("Status", _status_label(str(complaint.get("status", "")))),
-            ("Created", _format_date(complaint.get("create_at"))),
-        ]
-        for label, value in details:
-            left, right = st.columns([1, 2])
-            with left:
-                st.caption(label)
-            with right:
-                st.markdown(value if label != "Status" else _status_badge(str(complaint.get("status", ""))), unsafe_allow_html=True)
+    display_id = complaint.get("display_id", complaint_id)
+
+    if st.button("← Back to Track Complaint", key="detail_back_track"):
+        _go("track_complaint")
+
+    st.markdown(
+        f'<div class="fk-page-heading"><h1>Complaint #{_safe_text(display_id)} '
+        f'{_status_badge(str(complaint.get("status", "")))}</h1>'
+        f'<p>Your complaint details and current routing information.</p></div>',
+        unsafe_allow_html=True,
+    )
+
+    left, right = st.columns([1.4, 0.8], gap="large")
+    with left:
+        with st.container(border=True):
+            st.markdown('<h2 class="fk-detail-section-title">Complaint</h2>', unsafe_allow_html=True)
+            st.markdown(f'<div class="fk-full-complaint">{escape(str(complaint.get("complaint_text") or ""))}</div>', unsafe_allow_html=True)
+
+        with st.container(border=True):
+            st.markdown('<h2 class="fk-detail-section-title">AI Classification</h2>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.caption("Predicted Department")
+                st.write(_safe_text(complaint.get("predicted_department")))
+            with c2:
+                st.caption("Current Department")
+                st.write(_safe_text(complaint.get("current_department")))
+
+    with right:
+        with st.container(border=True):
+            st.markdown('<h2 class="fk-detail-section-title">Details</h2>', unsafe_allow_html=True)
+            st.caption("Status")
+            st.markdown(_status_badge(str(complaint.get("status", ""))), unsafe_allow_html=True)
+            st.write("")
+            st.caption("AI Confidence")
+            st.write(_confidence(complaint.get("confidence")))
+            st.write("")
+            st.caption("Created")
+            st.write(_format_date(complaint.get("create_at")))
 
     if st.button("Get Department Contact", type="primary", key="detail_department_contact"):
         st.session_state.selected_complaint_id = complaint_id
         _go("department_contact")
-    if st.button("Back to Track Complaint", key="detail_back_track"):
-        _go("track_complaint")
 
 
 def _render_contact() -> None:
@@ -405,10 +458,11 @@ def _render_contact() -> None:
              if item.get("id") == st.session_state.get("selected_complaint_id")),
             0,
         ),
-        format_func=lambda complaint_id: f"Complaint #{complaint_id}",
+        format_func=lambda cid: f"Complaint #{next((c.get('display_id', cid) for c in complaints if c.get('id') == cid), cid)}",
         key="contact_complaint_select",
     )
     complaint = next((item for item in complaints if item.get("id") == selected_id), {})
+    display_id = complaint.get("display_id", selected_id)
     cache = st.session_state.setdefault("contact_cache", {})
     contact = cache.get(selected_id)
     if contact is None:
@@ -423,7 +477,7 @@ def _render_contact() -> None:
             return
 
     with st.container(border=True):
-        st.caption(f"For complaint #{selected_id} · {_status_label(str(complaint.get('status', '')))}")
+        st.caption(f"For complaint #{display_id} · {_status_label(str(complaint.get('status', '')))}")
         st.markdown(f'<div class="fk-contact-name">{_safe_text(contact.get("department"))}</div>', unsafe_allow_html=True)
         st.caption("Contact email")
         st.code(str(contact.get("email") or ""), language=None)
