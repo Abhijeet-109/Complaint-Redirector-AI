@@ -43,3 +43,10 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 seed_super_admin.py
+
+# Node.js and Frontend
+node_modules/
+dist/
+build/
+*.timestamp-*.mjs
+package-lock.json
