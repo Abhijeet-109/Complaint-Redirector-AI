@@ -9,6 +9,12 @@ from backend.api.routes.email import router as email_router
 from backend.api.routes.test_auth import router as test_auth_router
 from backend.api.routes.department import handler_router as handler_department_router
 from backend.api.routes.department import router as department_router
+from backend.api.routes.chatbot import router as chatbot_router
+from backend.api.routes.documents import router as documents_router
+
+
+
+
 
 
 app = FastAPI(
@@ -39,3 +45,5 @@ app.include_router(admin_router)
 app.include_router(department_router)
 app.include_router(handler_department_router)
 app.include_router(test_auth_router)
+app.include_router(chatbot_router)
+app.include_router(documents_router)
