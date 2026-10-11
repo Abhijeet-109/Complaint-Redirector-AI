@@ -4,31 +4,36 @@ import { CategoryNav } from '../components/layout/CategoryNav';
 import { HeroBanner } from '../components/home/HeroBanner';
 import { CategorySection } from '../components/home/CategorySection';
 import { FeaturedProducts } from '../components/home/FeaturedProducts';
+import { TrendingNow } from '../components/home/TrendingNow';
+import { LifestyleSection } from '../components/home/LifestyleSection';
+import { FreshArrivals } from '../components/home/FreshArrivals';
+import { FeaturedCollectionBanner } from '../components/home/FeaturedCollectionBanner';
+import { PopularBrands } from '../components/home/PopularBrands';
+import { WhyFlatkart } from '../components/home/WhyFlatkart';
 import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
-import { AuthModal } from '../components/common/AuthModal';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { OrdersModal } from '../components/common/OrdersModal';
 
-export function Home() {
+export function Home({ onNavigate }) {
   const [activeCategory, setActiveCategory] = useState('Home');
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
 
   const handleSelectCategory = (catName) => {
     setActiveCategory(catName);
+    window.scrollTo({ top: 380, behavior: 'smooth' });
   };
 
   const handleSelectProduct = (product) => {
-    // If user clicks a product, can open assistant or details
+    // Can trigger assistant or drawer
   };
 
   return (
     <div className="fk-page-container">
       {/* 1. Main Header */}
       <Header
-        onOpenAuth={() => setIsAuthOpen(true)}
+        onNavigate={onNavigate}
         onOpenOrders={() => setIsOrdersOpen(true)}
         onSelectProduct={handleSelectProduct}
       />
@@ -39,8 +44,8 @@ export function Home() {
         onSelectCategory={handleSelectCategory}
       />
 
-      {/* 3. Hero Banner */}
-      <HeroBanner />
+      {/* 3. Hero Carousel Banner */}
+      <HeroBanner onExplore={handleSelectCategory} />
 
       {/* 4. Shop by Category (8 cards) */}
       <CategorySection onSelectCategory={handleSelectCategory} />
@@ -48,21 +53,34 @@ export function Home() {
       {/* 5. Best of Flatkart (4 featured cards) */}
       <FeaturedProducts onSelectProduct={handleSelectProduct} />
 
-      {/* 6. Floating Help Widget */}
+      {/* 6. Section A: Trending Now */}
+      <TrendingNow onSelectProduct={handleSelectProduct} />
+
+      {/* 7. Section B: Shop by Lifestyle (Find Your Style) */}
+      <LifestyleSection onSelectCategory={handleSelectCategory} />
+
+      {/* 8. Section C: Fresh Arrivals */}
+      <FreshArrivals onSelectProduct={handleSelectProduct} />
+
+      {/* 9. Section D: Featured Collection Editorial Banner */}
+      <FeaturedCollectionBanner onExplore={handleSelectCategory} />
+
+      {/* 10. Section E: Popular Brands (Brands to Know) */}
+      <PopularBrands onSelectBrand={(brand) => console.log('Brand selected:', brand)} />
+
+      {/* 11. Section F: Why Flatkart (Trust and Support) */}
+      <WhyFlatkart />
+
+      {/* 12. Floating Help / AI Assistant Widget */}
       <ChatbotWidget
         isOpen={isChatbotOpen}
         onToggle={() => setIsChatbotOpen(!isChatbotOpen)}
+        onNavigate={onNavigate}
       />
 
-      {/* Modals & Drawers */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-      />
-
+      {/* Drawers & Modals */}
       <CartDrawer />
       <WishlistDrawer />
-
       <OrdersModal
         isOpen={isOrdersOpen}
         onClose={() => setIsOrdersOpen(false)}

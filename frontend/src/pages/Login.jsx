@@ -1,0 +1,183 @@
+import React, { useState } from 'react';
+import { ShoppingCart, Eye, EyeOff, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+
+export function Login({ onNavigate }) {
+  const { login } = useAuth();
+  const [emailOrPhone, setEmailOrPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!emailOrPhone.trim()) {
+      setError('Please enter your email or mobile number.');
+      return;
+    }
+    if (!password) {
+      setError('Please enter your password.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await login(emailOrPhone.trim(), password);
+      if (onNavigate) {
+        onNavigate('home');
+      }
+    } catch (err) {
+      setError(err.message || 'Invalid email or password. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="fk-auth-page-wrapper">
+      {/* Shared Minimal Authentication Header */}
+      <header className="fk-auth-top-bar">
+        <button
+          className="fk-auth-back-btn"
+          onClick={() => onNavigate && onNavigate('home')}
+          aria-label="Back to store"
+        >
+          <ArrowLeft size={18} />
+          <span>Back to Flatkart</span>
+        </button>
+
+        <div
+          className="fk-auth-brand"
+          onClick={() => onNavigate && onNavigate('home')}
+          role="button"
+          tabIndex={0}
+          aria-label="Flatkart Home"
+          style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          <ShoppingCart size={20} color="var(--fk-header)" />
+          <span style={{ fontWeight: '800', letterSpacing: '0.05em', color: 'var(--fk-header)' }}>
+            FLATKART
+          </span>
+        </div>
+      </header>
+
+      {/* Main Login Screen: Balanced, centered composition */}
+      <main className="fk-login-main-section">
+        <div className="fk-login-card-container">
+          {/* Left Column: High-Resolution Aesthetic Lifestyle Image */}
+          <div className="fk-login-image-column">
+            <img
+              src="/assets/login_rich_1.jpg"
+              alt="Flatkart everyday lifestyle essentials"
+              className="fk-login-lifestyle-img"
+            />
+          </div>
+
+          {/* Right Column: Balanced Form Box */}
+          <div className="fk-login-form-column">
+            <div className="fk-login-form-box">
+              <h1 className="fk-login-title">Welcome back</h1>
+              <p className="fk-login-subtitle">
+                Log in to your Flatkart account<br />
+                to continue shopping.
+              </p>
+
+              {error && (
+                <div className="fk-auth-error-alert" role="alert">
+                  <AlertCircle size={18} />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="fk-auth-form" noValidate>
+                <div className="fk-form-group">
+                  <label htmlFor="login-email" className="fk-form-label">
+                    Email or mobile number
+                  </label>
+                  <input
+                    id="login-email"
+                    type="text"
+                    className="fk-form-input"
+                    placeholder="Enter email or mobile number"
+                    value={emailOrPhone}
+                    onChange={(e) => setEmailOrPhone(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+
+                <div className="fk-form-group">
+                  <label htmlFor="login-password" className="fk-form-label">
+                    Password
+                  </label>
+                  <div className="fk-input-password-wrapper">
+                    <input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      className="fk-form-input"
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={isLoading}
+                      autoComplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="fk-password-toggle-btn"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="fk-forgot-password-row">
+                  <button
+                    type="button"
+                    className="fk-forgot-password-link"
+                    onClick={() => alert('Please contact support desk or reset password through your email.')}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+
+                <button
+                  type="submit"
+                  className="fk-auth-submit-btn"
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                      <Loader2 size={18} className="animate-spin" /> Logging in...
+                    </span>
+                  ) : (
+                    'Log in'
+                  )}
+                </button>
+
+                <div className="fk-auth-switch-text">
+                  New to Flatkart?{' '}
+                  <button
+                    type="button"
+                    className="fk-auth-switch-link"
+                    onClick={() => onNavigate && onNavigate('register')}
+                  >
+                    Register
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default Login;

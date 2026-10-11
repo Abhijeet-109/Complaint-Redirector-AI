@@ -4,17 +4,28 @@ import { authService } from '../services/authService';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  // Default to Arjun as shown in reference screenshot
+  // Clean up any legacy dummy/demo user state from localStorage
   const [user, setUser] = useState(() => {
     const saved = localStorage.getItem('flatkart_user');
-    if (saved) {
+    const token = authService.getToken();
+    if (saved && token) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed?.isDemo || parsed?.email === 'arjun@flatkart.com') {
+          localStorage.removeItem('flatkart_user');
+          return null;
+        }
+        return parsed;
       } catch {
-        // ignore
+        localStorage.removeItem('flatkart_user');
+        return null;
       }
     }
-    return { name: 'Arjun', email: 'arjun@flatkart.com', role: 'user', isDemo: true };
+    // Clean up if there's no token or demo data
+    if (saved) {
+      localStorage.removeItem('flatkart_user');
+    }
+    return null;
   });
 
   const [loading, setLoading] = useState(true);
@@ -24,17 +35,25 @@ export function AuthProvider({ children }) {
     if (token) {
       authService.getMe()
         .then((userData) => {
-          setUser(userData);
-          localStorage.setItem('flatkart_user', JSON.stringify(userData));
+          if (userData && !userData.isDemo && userData.email !== 'arjun@flatkart.com') {
+            setUser(userData);
+            localStorage.setItem('flatkart_user', JSON.stringify(userData));
+          } else {
+            authService.logout();
+            setUser(null);
+          }
         })
         .catch(() => {
           // Token expired or invalid
           authService.logout();
+          setUser(null);
         })
         .finally(() => {
           setLoading(false);
         });
     } else {
+      // Ensure no leftover user object without token
+      setUser(null);
       setLoading(false);
     }
   }, []);
@@ -49,16 +68,26 @@ export function AuthProvider({ children }) {
 
   const register = async (name, email, password) => {
     await authService.register(name, email, password);
-    return login(email, password);
+    return await login(email, password);
   };
 
   const logout = () => {
     authService.logout();
-    setUser({ name: 'Arjun', email: 'arjun@flatkart.com', role: 'user', isDemo: true });
+    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading, isAuthenticated: !!authService.getToken() }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        setUser,
+        login,
+        register,
+        logout,
+        loading,
+        isAuthenticated: !!user && !!authService.getToken(),
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

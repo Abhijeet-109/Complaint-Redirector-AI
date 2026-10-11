@@ -66,11 +66,11 @@ input, textarea, select {
 .fk-header {
   background-color: var(--fk-header);
   color: #FFFFFF;
-  height: 56px;
+  height: 62px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 40px;
+  padding: 0 44px;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -78,7 +78,7 @@ input, textarea, select {
 }
 
 .fk-header-brand {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
   letter-spacing: 0.06em;
   color: #FFFFFF;
@@ -91,8 +91,8 @@ input, textarea, select {
 
 .fk-header-search-container {
   flex: 1;
-  max-width: 520px;
-  margin: 0 32px;
+  max-width: 572px;
+  margin: 0 35px;
   position: relative;
 }
 
@@ -105,20 +105,20 @@ input, textarea, select {
 
 .fk-header-search-input {
   width: 100%;
-  height: 36px;
-  padding: 0 38px 0 14px;
+  height: 40px;
+  padding: 0 42px 0 15px;
   border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background-color: #FFFFFF;
   color: #1C352F;
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
   transition: all 0.2s ease;
 }
 
 .fk-header-search-input::placeholder {
   color: #8C9698;
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .fk-header-search-input:focus {
@@ -176,7 +176,7 @@ input, textarea, select {
 .fk-header-actions {
   display: flex;
   align-items: center;
-  gap: 30px;
+  gap: 33px;
 }
 
 .fk-header-user-btn {
@@ -192,20 +192,20 @@ input, textarea, select {
 }
 
 .fk-header-user-greeting {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: rgba(255, 255, 255, 0.85);
   font-weight: 400;
 }
 
 .fk-header-user-name {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #FFFFFF;
 }
 
 .fk-header-nav-link {
   color: #FFFFFF;
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 500;
   cursor: pointer;
   transition: opacity 0.2s;
@@ -227,9 +227,9 @@ input, textarea, select {
 .fk-header-cart-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   color: #FFFFFF;
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 500;
   cursor: pointer;
   background: none;
@@ -305,25 +305,25 @@ input, textarea, select {
    ============================================================ */
 .fk-secondary-nav {
   background-color: var(--fk-navigation);
-  height: 40px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 40px;
+  padding: 0 44px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .fk-nav-links {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 24px;
   overflow-x: auto;
   white-space: nowrap;
 }
 
 .fk-nav-item {
   color: var(--fk-text-primary);
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 600;
   cursor: pointer;
   padding: 4px 0;
@@ -355,10 +355,10 @@ input, textarea, select {
 .fk-nav-delivery {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   color: var(--fk-text-primary);
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: 14px;
   flex-shrink: 0;
 }
 
@@ -369,12 +369,12 @@ input, textarea, select {
 }
 
 .fk-delivery-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fk-text-muted);
 }
 
 .fk-delivery-value {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--fk-text-primary);
 }
@@ -383,13 +383,13 @@ input, textarea, select {
    3. HERO BANNER
    ============================================================ */
 .fk-hero-section {
-  padding: 14px 40px 18px;
+  padding: 15px 44px 20px;
 }
 
 .fk-hero-banner {
   display: grid;
-  grid-template-columns: 380px 1fr;
-  height: 270px;
+  grid-template-columns: 418px 1fr;
+  height: 297px;
   border-radius: 8px;
   overflow: hidden;
   background-color: var(--fk-hero);
@@ -398,7 +398,7 @@ input, textarea, select {
 
 .fk-hero-left {
   background-color: var(--fk-hero);
-  padding: 32px 34px;
+  padding: 35px 37px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -406,24 +406,24 @@ input, textarea, select {
 
 .fk-hero-title {
   color: #FFFFFF;
-  font-size: 34px;
+  font-size: 37px;
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.02em;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .fk-hero-subtitle {
   color: rgba(255, 255, 255, 0.88);
-  font-size: 14.5px;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.4;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
 }
 
 .fk-hero-promo {
   color: var(--fk-gold);
-  font-size: 13.5px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.35;
 }
@@ -445,21 +445,21 @@ input, textarea, select {
    4. SHOP BY CATEGORY SECTION
    ============================================================ */
 .fk-categories-section {
-  padding: 0 40px 16px;
+  padding: 0 44px 18px;
 }
 
 .fk-section-heading {
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 800;
   color: var(--fk-text-primary);
-  margin-bottom: 12px;
+  margin-bottom: 13px;
   letter-spacing: -0.01em;
 }
 
 .fk-categories-grid {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
-  gap: 12px;
+  gap: 13px;
 }
 
 .fk-category-card {
@@ -480,7 +480,7 @@ input, textarea, select {
 
 .fk-category-image-wrapper {
   width: 100%;
-  height: 76px;
+  height: 84px;
   background-color: #EAE6DB;
   overflow: hidden;
   display: flex;
@@ -502,10 +502,10 @@ input, textarea, select {
 .fk-category-label-strip {
   background-color: var(--fk-olive);
   color: #FFFFFF;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   text-align: center;
-  padding: 4px 2px;
+  padding: 5px 2px;
   letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -516,29 +516,29 @@ input, textarea, select {
    5. BEST OF FLATKART / FEATURED PRODUCTS SECTION
    ============================================================ */
 .fk-featured-section {
-  padding: 0 40px 24px;
+  padding: 0 44px 26px;
   position: relative;
 }
 
 .fk-products-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: 18px;
 }
 
 .fk-product-card {
   background-color: var(--fk-surface);
   border-radius: 6px;
-  padding: 12px 14px;
+  padding: 13px 15px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 15px;
   border: 1px solid rgba(0, 0, 0, 0.03);
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.03);
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   position: relative;
-  min-height: 116px;
+  min-height: 128px;
 }
 
 .fk-product-card:hover {
@@ -547,8 +547,8 @@ input, textarea, select {
 }
 
 .fk-product-img-box {
-  width: 82px;
-  height: 92px;
+  width: 90px;
+  height: 101px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -570,24 +570,24 @@ input, textarea, select {
 }
 
 .fk-product-brand {
-  font-size: 14px;
+  font-size: 15.5px;
   font-weight: 700;
   color: var(--fk-text-primary);
 }
 
 .fk-product-name {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--fk-text-muted);
   line-height: 1.25;
 }
 
 .fk-product-subtext {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--fk-text-muted);
 }
 
 .fk-product-price {
-  font-size: 14.5px;
+  font-size: 16px;
   font-weight: 800;
   margin-top: 3px;
 }
@@ -1003,5 +1003,390 @@ input, textarea, select {
   .fk-featured-section {
     padding-left: 16px;
     padding-right: 16px;
+  }
+}
+
+/* ============================================================
+   11. AUTHENTICATION PAGES: LOGIN & REGISTER (CANVA DESIGNS)
+   ============================================================ */
+.fk-login-page-wrapper,
+.fk-auth-page-wrapper {
+  min-height: 100vh;
+  background-color: var(--fk-background);
+  display: flex;
+  flex-direction: column;
+}
+
+.fk-auth-top-bar {
+  height: 56px;
+  padding: 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #FFFFFF;
+  border-bottom: 1px solid #ECE8DE;
+}
+
+.fk-auth-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fk-header);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.fk-auth-back-btn:hover {
+  opacity: 0.8;
+}
+
+.fk-login-main-section {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 40px;
+  background-color: var(--fk-background);
+}
+
+.fk-login-card-container {
+  display: grid;
+  grid-template-columns: 460px 480px;
+  max-width: 940px;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  background-color: #FFFFFF;
+}
+
+.fk-login-image-column {
+  position: relative;
+  overflow: hidden;
+  background-color: #E8E4DA;
+  height: 100%;
+}
+
+.fk-login-lifestyle-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.fk-login-form-column {
+  background-color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 38px 44px;
+}
+
+.fk-login-form-box {
+  width: 100%;
+  max-width: 400px;
+}
+
+.fk-login-title {
+  font-size: 38px;
+  font-weight: 800;
+  color: var(--fk-header);
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+  line-height: 1.1;
+}
+
+.fk-login-subtitle {
+  font-size: 15px;
+  color: var(--fk-text-primary);
+  line-height: 1.45;
+  margin-bottom: 30px;
+}
+
+.fk-auth-error-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background-color: #FDF2F2;
+  border: 1px solid #F8B4B4;
+  border-radius: 6px;
+  color: #9B1C1C;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.fk-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.fk-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fk-form-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--fk-text-primary);
+}
+
+.fk-form-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid #D5D1C7;
+  background-color: #F8F7F3;
+  color: var(--fk-text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.fk-form-input:focus {
+  border-color: var(--fk-header);
+  background-color: #FFFFFF;
+  box-shadow: 0 0 0 2px rgba(18, 45, 41, 0.15);
+}
+
+.fk-input-password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.fk-input-password-wrapper .fk-form-input {
+  padding-right: 42px;
+}
+
+.fk-password-toggle-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--fk-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.fk-password-toggle-btn:hover {
+  color: var(--fk-text-primary);
+}
+
+.fk-forgot-password-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+
+.fk-forgot-password-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fk-price-ochre);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.fk-forgot-password-link:hover {
+  text-decoration: underline;
+}
+
+.fk-auth-submit-btn {
+  width: 100%;
+  height: 48px;
+  background-color: var(--fk-header);
+  color: #FFFFFF;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  margin-top: 6px;
+}
+
+.fk-auth-submit-btn:hover {
+  background-color: #1a403a;
+}
+
+.fk-auth-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.fk-auth-switch-text {
+  font-size: 13.5px;
+  color: var(--fk-text-muted);
+  text-align: left;
+  margin-top: 6px;
+}
+
+.fk-auth-switch-link {
+  font-weight: 700;
+  color: var(--fk-price-ochre);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.fk-auth-switch-link:hover {
+  text-decoration: underline;
+}
+
+/* Register Page Specifics */
+.fk-register-main-section {
+  flex: 1;
+  padding: 40px 40px 60px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: var(--fk-background);
+}
+
+.fk-register-card-container {
+  display: grid;
+  grid-template-columns: 460px 480px;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  background-color: #FFFFFF;
+}
+
+.fk-register-left-card {
+  background-color: var(--fk-hero);
+  color: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+}
+
+.fk-register-left-content {
+  padding: 44px 38px 24px;
+}
+
+.fk-register-left-title {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+  color: #FFFFFF;
+}
+
+.fk-register-left-subtitle {
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.88);
+  margin-bottom: 24px;
+}
+
+.fk-register-benefits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fk-register-benefit-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fk-gold);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.fk-benefit-bullet {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.fk-register-left-image-wrapper {
+  width: 100%;
+  height: 220px;
+  overflow: hidden;
+  background-color: #122D29;
+}
+
+.fk-register-lifestyle-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.fk-register-right-card {
+  padding: 44px 40px;
+  background-color: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.fk-register-form-title {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--fk-text-primary);
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+
+.fk-register-form-subtitle {
+  font-size: 13.5px;
+  color: var(--fk-text-muted);
+  margin-bottom: 22px;
+}
+
+.fk-register-submit-btn {
+  width: 100%;
+  height: 46px;
+  background-color: var(--fk-olive);
+  color: #FFFFFF;
+  font-size: 14.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  margin-top: 8px;
+}
+
+.fk-register-submit-btn:hover {
+  background-color: #79764f;
+}
+
+.fk-register-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+@media (max-width: 980px) {
+  .fk-login-card-container {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+  }
+  .fk-login-image-column {
+    display: none;
+  }
+  .fk-register-card-container {
+    grid-template-columns: 1fr;
+    max-width: 500px;
+  }
+  .fk-register-left-card {
+    display: none;
   }
 }

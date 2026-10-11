@@ -20,9 +20,15 @@ export const authService = {
   },
 
   async getMe() {
-    return await apiRequest('/api/v1/test/me', {
-      method: 'GET',
-    });
+    try {
+      return await apiRequest('/api/auth/me', {
+        method: 'GET',
+      });
+    } catch {
+      return await apiRequest('/api/v1/test/me', {
+        method: 'GET',
+      });
+    }
   },
 
   logout() {
