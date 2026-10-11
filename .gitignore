@@ -50,3 +50,4 @@ dist/
 build/
 *.timestamp-*.mjs
 package-lock.json
+Docs

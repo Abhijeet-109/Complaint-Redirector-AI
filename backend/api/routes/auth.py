@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from backend.Database.models import User
 from backend.Database.schemas import userCreate,UserResponse, LoginRequest
-from backend.auth.dependencies import get_db
+from backend.auth.dependencies import get_db, get_current_user
 
 
 from backend.auth.security import ( hash_password, verify_password, create_access_token)
