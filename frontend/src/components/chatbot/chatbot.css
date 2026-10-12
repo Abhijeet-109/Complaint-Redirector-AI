@@ -1,0 +1,49 @@
+/* Chatbot RAG Sources and Enhanced Styling */
+.fk-chat-sources {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background-color: #F4F1EA;
+  border-radius: 6px;
+  border-left: 3px solid var(--fk-gold);
+  font-size: 11.5px;
+}
+
+.fk-chat-sources-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  color: var(--fk-text-primary);
+  margin-bottom: 4px;
+}
+
+.fk-chat-sources-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.fk-chat-source-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #FFFFFF;
+  border: 1px solid #E0DDD5;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: #4A5557;
+}
+
+.fk-chat-loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

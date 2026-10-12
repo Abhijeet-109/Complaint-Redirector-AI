@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Send, Bot, X, Sparkles, LogIn, UserPlus } from 'lucide-react';
-import { complaintService } from '../../services/complaintService';
+import { ChevronDown, Send, Bot, X, Sparkles, LogIn, UserPlus, FileText } from 'lucide-react';
+import { chatbotService } from '../../services/chatbotService';
 import { useAuth } from '../../context/AuthContext';
+import './chatbot.css';
 
 export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
   const { user, isAuthenticated } = useAuth();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
-  const [isClassifying, setIsClassifying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
 
   // Initialize or reset messages when authentication state changes
@@ -16,7 +17,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
       setMessages([
         {
           sender: 'bot',
-          text: `Hello ${user?.name ? user.name.split(' ')[0] : ''}! I'm Flatkart's AI Support Assistant. Tell me your issue or complaint, and I will instantly analyze and route it to the right department.`,
+          text: `Hello ${user?.name ? user.name.split(' ')[0] : ''}! I'm Flatkart's AI Assistant. Ask me any question about our store policies, delivery, returns, or services, and I'll find the answer directly from our documents.`,
         },
       ]);
     } else {
@@ -38,7 +39,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
 
   const handleSendMessage = async (customText) => {
     const textToSend = (customText || inputText).trim();
-    if (!textToSend || isClassifying) return;
+    if (!textToSend || isLoading) return;
 
     if (!isAuthenticated) {
       // Guest attempted to send
@@ -59,32 +60,18 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
     const userMsg = { sender: 'user', text: textToSend };
     setMessages((prev) => [...prev, userMsg]);
     setInputText('');
-    setIsClassifying(true);
+    setIsLoading(true);
 
     try {
-      // 1. Call real backend ML classifier
-      const prediction = await complaintService.predictDepartment(textToSend);
-
-      let botResponseText = `I've analyzed your complaint. Based on our AI model, this falls under **${prediction.department}** (Confidence: ${(parseFloat(prediction.confidence) * 100).toFixed(1)}%).`;
-
-      // 2. If user is logged in, optionally register real complaint in DB
-      let complaintId = null;
-      try {
-        const compRes = await complaintService.createComplaint(textToSend);
-        complaintId = compRes.id;
-        botResponseText += `\n\nYour complaint has been logged as Ticket #${complaintId} and routed to the ${prediction.department} team.`;
-      } catch {
-        botResponseText += `\n\nWould you like me to submit an official ticket to ${prediction.department}?`;
-      }
+      // Call document-based RAG endpoint POST /chatbot/ask
+      const result = await chatbotService.askQuestion(textToSend);
 
       setMessages((prev) => [
         ...prev,
         {
           sender: 'bot',
-          text: botResponseText,
-          department: prediction.department,
-          confidence: prediction.confidence,
-          ticketId: complaintId,
+          text: result.answer || 'Information not found in the provided documents.',
+          sources: Array.isArray(result.sources) ? result.sources : [],
         },
       ]);
     } catch (err) {
@@ -92,16 +79,16 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
         ...prev,
         {
           sender: 'bot',
-          text: `We received your request: "${textToSend}". Our support desk is reviewing it. (Note: ${err.message || 'Connecting to classifier'})`,
+          text: `I'm having trouble retrieving answers right now: ${err.message || 'Please check your connection and try again.'}`,
         },
       ]);
     } finally {
-      setIsClassifying(false);
+      setIsLoading(false);
     }
   };
 
-  const handleQuickIssue = (issue) => {
-    handleSendMessage(issue);
+  const handleQuickQuestion = (question) => {
+    handleSendMessage(question);
   };
 
   const handleAuthNavigation = (page) => {
@@ -157,6 +144,32 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                 <div key={idx} className={`fk-chat-bubble ${m.sender}`}>
                   <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.4' }}>{m.text}</div>
 
+                  {/* Document Sources */}
+                  {m.sources && m.sources.length > 0 && (
+                    <div className="fk-chat-sources">
+                      <div className="fk-chat-sources-header">
+                        <FileText size={12} color="var(--fk-gold)" />
+                        <span>Sources ({m.sources.length}):</span>
+                      </div>
+                      <div className="fk-chat-sources-list">
+                        {m.sources.map((src, sIdx) => {
+                          const docName = src.document
+                            ? src.document.split(/[\\/]/).pop()
+                            : 'Flatkart Policy Document';
+                          const pageInfo =
+                            src.page !== null && src.page !== undefined && src.page !== 'N/A'
+                              ? ` (p. ${src.page})`
+                              : '';
+                          return (
+                            <span key={sIdx} className="fk-chat-source-item" title={src.document}>
+                              {docName}{pageInfo}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Guest Login/Register prompt actions */}
                   {m.isGuestPrompt && (
                     <div
@@ -211,21 +224,13 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                       </button>
                     </div>
                   )}
-
-                  {m.department && (
-                    <div className="fk-chat-badge-prediction">
-                      <strong>Assigned Department:</strong> {m.department}
-                      <br />
-                      <strong>Confidence:</strong> {(parseFloat(m.confidence) * 100).toFixed(1)}%
-                    </div>
-                  )}
                 </div>
               ))}
 
-              {isClassifying && (
+              {isLoading && (
                 <div className="fk-chat-bubble bot" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Sparkles size={16} className="animate-spin" color="var(--fk-gold)" />
-                  <span>Analyzing complaint with AI model...</span>
+                  <Sparkles size={16} className="fk-chat-loading-spinner" color="var(--fk-gold)" />
+                  <span>Searching Flatkart documents with AI...</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -253,9 +258,9 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                     whiteSpace: 'nowrap',
                     cursor: 'pointer',
                   }}
-                  onClick={() => handleQuickIssue('My package delivery is delayed, tracking number not updated')}
+                  onClick={() => handleQuickQuestion("What is Flatkart's return and refund policy?")}
                 >
-                  🚚 Delivery Delay
+                  🔄 Return Policy
                 </button>
                 <button
                   style={{
@@ -267,9 +272,9 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                     whiteSpace: 'nowrap',
                     cursor: 'pointer',
                   }}
-                  onClick={() => handleQuickIssue('Money debited from UPI but order status shows payment failed')}
+                  onClick={() => handleQuickQuestion('What are the shipping and delivery options?')}
                 >
-                  💳 Payment Issue
+                  🚚 Delivery Options
                 </button>
                 <button
                   style={{
@@ -281,9 +286,9 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                     whiteSpace: 'nowrap',
                     cursor: 'pointer',
                   }}
-                  onClick={() => handleQuickIssue('Shirt size M is too small, I want to replace with size L')}
+                  onClick={() => handleQuickQuestion('What payment methods are supported?')}
                 >
-                  🔄 Size Replacement
+                  💳 Payment Methods
                 </button>
               </div>
             )}
@@ -300,17 +305,17 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                 className="fk-chatbot-input"
                 placeholder={
                   isAuthenticated
-                    ? 'Describe your issue or complaint...'
+                    ? 'Ask a question about Flatkart policies...'
                     : 'Please log in to chat with AI support...'
                 }
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                disabled={isClassifying}
+                disabled={isLoading}
               />
               <button
                 type="submit"
                 className="fk-chatbot-send-btn"
-                disabled={isClassifying || !inputText.trim()}
+                disabled={isLoading || !inputText.trim()}
                 aria-label="Send Message"
               >
                 <Send size={16} />

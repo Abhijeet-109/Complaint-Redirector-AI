@@ -180,7 +180,7 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
                   className="fk-user-dropdown-item"
                   onClick={() => {
                     setIsUserMenuOpen(false);
-                    if (onOpenOrders) onOpenOrders();
+                    handleNavigate('my-complaints');
                   }}
                 >
                   <Package size={16} /> My Orders & Complaints
