@@ -12,7 +12,9 @@ from backend.api.routes.department import router as department_router
 from backend.api.routes.chatbot import router as chatbot_router
 from backend.api.routes.documents import router as documents_router
 from fastapi.openapi.utils import get_openapi
-
+from backend.api.routes.redirection_analytics import (
+    router as redirection_analytics_router,
+)
 
 
 
@@ -47,6 +49,7 @@ app.include_router(handler_department_router)
 app.include_router(test_auth_router)
 app.include_router(chatbot_router)
 app.include_router(documents_router)
+app.include_router(redirection_analytics_router)
 
 
 def custom_openapi():
