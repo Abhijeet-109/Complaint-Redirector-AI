@@ -1,0 +1,1015 @@
+/* ============================================================
+   Flatkart Chatbot & Pipeline Console Styles
+   Scoped to .fk-pipe-* tokens aligned with Flatkart design tokens
+   ============================================================ */
+
+.fk-pipe-container {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: 100%;
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* ============================================================
+   1. PAGE HEADER & STATUS BADGE
+   ============================================================ */
+.fk-pipe-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.fk-pipe-header-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.fk-pipe-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--fk-text-primary, #1C352F);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.fk-pipe-subtitle {
+  font-size: 13.5px;
+  color: #637073;
+  margin-top: 5px;
+  font-weight: 500;
+}
+
+.fk-pipe-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fk-pipe-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #FAF4E8;
+  color: #8C7536;
+  border: 1px solid #EADBBE;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 6px 14px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.fk-pipe-viewmode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #FFFFFF;
+  color: #556366;
+  border: 1px solid #DDD8CD;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fk-pipe-viewmode-btn:hover {
+  background-color: #F5F2EA;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-viewmode-btn.active {
+  background-color: #EFECE3;
+  color: var(--fk-text-primary, #1C352F);
+  font-weight: 700;
+  border-color: #CBC4B5;
+}
+
+/* ============================================================
+   2. HORIZONTAL PIPELINE TABS
+   ============================================================ */
+.fk-pipe-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #E4DFD3;
+  padding-bottom: 2px;
+  gap: 16px;
+}
+
+.fk-pipe-tabs-list {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  overflow-x: auto;
+}
+
+.fk-pipe-tab-btn {
+  position: relative;
+  background: transparent;
+  border: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #748082;
+  padding: 10px 0 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.fk-pipe-tab-btn:hover {
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-tab-btn.active {
+  color: var(--fk-text-primary, #1C352F);
+  font-weight: 800;
+}
+
+.fk-pipe-tab-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 2.5px;
+  background-color: var(--fk-olive, #8A875D);
+  border-radius: 2px 2px 0 0;
+}
+
+/* ============================================================
+   3. 7-KPI METRICS GRID
+   ============================================================ */
+.fk-pipe-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+.fk-pipe-kpi-card {
+  background-color: #FFFFFF;
+  border: 1px solid #E8E4D8;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 92px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.fk-pipe-kpi-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.04);
+}
+
+.fk-pipe-kpi-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #556366;
+  line-height: 1.3;
+}
+
+.fk-pipe-kpi-val {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--fk-text-primary, #1C352F);
+  margin: 6px 0 4px;
+  line-height: 1;
+}
+
+.fk-pipe-kpi-sub {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #8C989A;
+}
+
+/* ============================================================
+   4. TWO-COLUMN LAYOUTS (Upload + Sources & Indexing + Tech)
+   ============================================================ */
+.fk-pipe-split-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.fk-pipe-panel {
+  background-color: #FFFFFF;
+  border: 1px solid #E8E4D8;
+  border-radius: 10px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+}
+
+.fk-pipe-panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.fk-pipe-panel-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-panel-sub {
+  font-size: 11.5px;
+  color: #849092;
+  font-weight: 500;
+}
+
+/* ============================================================
+   5. DOCUMENT UPLOAD DROPZONE & SELECTED FILES
+   ============================================================ */
+.fk-pipe-dropzone {
+  border: 1.5px dashed #C8C2B4;
+  border-radius: 10px;
+  background-color: #FCFBF8;
+  padding: 30px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.fk-pipe-dropzone:hover,
+.fk-pipe-dropzone.drag-active {
+  background-color: #F8F5EC;
+  border-color: var(--fk-olive, #8A875D);
+}
+
+.fk-pipe-dropzone-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: #F1ECE0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fk-olive, #8A875D);
+  margin-bottom: 10px;
+}
+
+.fk-pipe-dropzone-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-dropzone-hint {
+  font-size: 12px;
+  color: #748082;
+  margin-top: 3px;
+}
+
+.fk-pipe-browse-btn {
+  margin-top: 14px;
+  background-color: #FFFFFF;
+  border: 1px solid #DDD8CD;
+  color: var(--fk-text-primary, #1C352F);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fk-pipe-browse-btn:hover {
+  background-color: #F5F2EA;
+}
+
+/* Selected Files Queue */
+.fk-pipe-file-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.fk-pipe-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #FAF8F3;
+  border: 1px solid #E6E1D4;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-file-name {
+  font-weight: 700;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fk-pipe-file-size {
+  color: #748082;
+  font-size: 11px;
+}
+
+.fk-pipe-badge-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: #EFECE3;
+  color: #637073;
+}
+
+.fk-pipe-badge-tag.valid {
+  background-color: #EBF2E6;
+  color: #4A6E3B;
+  border: 1px solid #D2E2CB;
+}
+
+.fk-pipe-badge-tag.invalid {
+  background-color: #FBECE9;
+  color: #B54A3B;
+  border: 1px solid #F3CFC8;
+}
+
+.fk-pipe-file-remove {
+  background: transparent;
+  border: none;
+  color: #8C989A;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.fk-pipe-file-remove:hover {
+  color: #C03E33;
+}
+
+.fk-pipe-upload-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid #F1ECE2;
+}
+
+.fk-pipe-upload-notice {
+  font-size: 11.5px;
+  color: #849092;
+}
+
+.fk-pipe-upload-btn {
+  background-color: var(--fk-olive, #8A875D);
+  color: #FFFFFF;
+  border: none;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.fk-pipe-upload-btn:hover {
+  background-color: #76734D;
+}
+
+.fk-pipe-upload-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   6. SOURCE CONNECTIONS
+   ============================================================ */
+.fk-pipe-sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fk-pipe-source-card {
+  border: 1px solid #ECE7DB;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: #FFFFFF;
+}
+
+.fk-pipe-source-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fk-pipe-source-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background-color: #F5F1E6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fk-olive, #8A875D);
+}
+
+.fk-pipe-source-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-source-sub {
+  font-size: 11px;
+  color: #8C989A;
+  margin-top: 1px;
+}
+
+.fk-pipe-badge-available {
+  background-color: #EEF4EA;
+  color: #496E3B;
+  border: 1px solid #D4E3CC;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.fk-pipe-badge-pending {
+  background-color: #F8F4EA;
+  color: #8B784E;
+  border: 1px solid #EAE0C7;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.fk-pipe-sources-footnote {
+  font-size: 11px;
+  color: #8C989A;
+  line-height: 1.4;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+/* ============================================================
+   7. KNOWLEDGE DOCUMENTS TABLE
+   ============================================================ */
+.fk-pipe-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.fk-pipe-search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 220px;
+}
+
+.fk-pipe-search-input-wrap input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 34px;
+  border: 1px solid #DDD8CD;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--fk-text-primary, #1C352F);
+  background-color: #FFFFFF;
+  outline: none;
+}
+
+.fk-pipe-search-input-wrap input:focus {
+  border-color: var(--fk-olive, #8A875D);
+}
+
+.fk-pipe-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #909B9D;
+  pointer-events: none;
+}
+
+.fk-pipe-filter-select {
+  height: 36px;
+  padding: 0 28px 0 10px;
+  background-color: #FFFFFF;
+  border: 1px solid #DDD8CD;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--fk-text-primary, #1C352F);
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23748082' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+.fk-pipe-toolbar-hint {
+  font-size: 11px;
+  color: #8C989A;
+  white-space: nowrap;
+}
+
+.fk-pipe-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #EAE6DC;
+  border-radius: 8px;
+}
+
+.fk-pipe-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.fk-pipe-table thead {
+  background-color: #FAF8F4;
+  border-bottom: 1px solid #E8E4D8;
+}
+
+.fk-pipe-table th {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #637073;
+  white-space: nowrap;
+}
+
+.fk-pipe-table tbody tr {
+  border-bottom: 1px solid #F1ECE2;
+  transition: background-color 0.12s;
+}
+
+.fk-pipe-table tbody tr:hover {
+  background-color: #FCFAF6;
+}
+
+.fk-pipe-table td {
+  padding: 11px 12px;
+  font-size: 12.5px;
+  color: var(--fk-text-primary, #1C352F);
+  vertical-align: middle;
+}
+
+.fk-pipe-doc-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.fk-pipe-doc-title {
+  font-weight: 700;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-doc-sub {
+  font-size: 10.5px;
+  color: #8C989A;
+}
+
+/* Status Badges */
+.fk-pipe-badge-saved {
+  background-color: #EFECE4;
+  color: #637073;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+}
+
+.fk-pipe-badge-pending-approval {
+  background-color: #F8EED7;
+  color: #947128;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  border: 1px solid #EDDBB6;
+}
+
+.fk-pipe-badge-approved {
+  background-color: #EEF4EA;
+  color: #496E3B;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  border: 1px solid #D5E4CE;
+}
+
+.fk-pipe-badge-not-indexed {
+  background-color: #EFECE4;
+  color: #637073;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+}
+
+.fk-pipe-badge-indexed {
+  background-color: #EAF3EC;
+  color: #356E42;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2.5px 7px;
+  border-radius: 4px;
+  border: 1px solid #CCE1D2;
+}
+
+.fk-pipe-actions-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fk-pipe-action-btn {
+  background-color: #FFFFFF;
+  border: 1px solid #DDD8CD;
+  color: #556366;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.fk-pipe-action-btn:hover {
+  background-color: #F2EFE8;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-action-btn.danger:hover {
+  background-color: #FBECE9;
+  color: #B54A3B;
+  border-color: #F3CFC8;
+}
+
+.fk-pipe-table-footer {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #8C989A;
+}
+
+/* ============================================================
+   8. INDEXING & RETRIEVAL PANEL
+   ============================================================ */
+.fk-pipe-lifecycle-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 16px 14px;
+  background-color: #FAF8F4;
+  border: 1px solid #EAE6DC;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+
+.fk-pipe-lifecycle-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.fk-pipe-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: #E8E3D7;
+  color: #556366;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fk-pipe-step-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-pipe-step-arrow {
+  color: #B2AAA0;
+  font-size: 13px;
+  user-select: none;
+}
+
+.fk-pipe-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+
+.fk-pipe-btn-secondary {
+  background-color: #FFFFFF;
+  border: 1px solid #DDD8CD;
+  color: var(--fk-text-primary, #1C352F);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fk-pipe-btn-secondary:hover {
+  background-color: #F5F2EA;
+}
+
+.fk-pipe-btn-primary-sm {
+  background-color: var(--fk-olive, #8A875D);
+  border: none;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.fk-pipe-btn-primary-sm:hover {
+  background-color: #76734D;
+}
+
+/* ============================================================
+   9. TECHNICAL CONFIGURATION PANEL
+   ============================================================ */
+.fk-pipe-tech-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fk-pipe-tech-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+}
+
+.fk-pipe-tech-label {
+  color: #748082;
+  font-weight: 500;
+}
+
+.fk-pipe-tech-val {
+  font-weight: 700;
+  color: var(--fk-text-primary, #1C352F);
+  font-family: inherit;
+}
+
+.fk-pipe-tech-val.mono {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+  font-size: 12px;
+}
+
+.fk-pipe-tech-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #A4772E;
+  margin-top: 14px;
+  background-color: #FAF4E8;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #EEDBBD;
+}
+
+.fk-pipe-rebuild-btn {
+  margin-top: 14px;
+  background-color: #FFFFFF;
+  border: 1px solid #DDD8CD;
+  color: #556366;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-start;
+}
+
+.fk-pipe-rebuild-btn:hover {
+  background-color: #F8F5EE;
+  color: #C03E33;
+  border-color: #E8D0CC;
+}
+
+/* ============================================================
+   10. CHATBOT PERFORMANCE & TELEMETRY
+   ============================================================ */
+.fk-pipe-perf-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fk-pipe-chart-box {
+  min-height: 150px;
+  border: 1px dashed #D2CBC0;
+  border-radius: 8px;
+  background-color: #FAF9F6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  margin-bottom: 22px;
+}
+
+.fk-pipe-chart-state-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #748082;
+}
+
+.fk-pipe-chart-state-sub {
+  font-size: 11.5px;
+  color: #9AA5A7;
+}
+
+.fk-pipe-empty-table-msg {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: #8C989A;
+}
+
+.fk-pipe-bottom-preview-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+/* ============================================================
+   11. OVERVIEW TAB CONSOLIDATED VIEW
+   ============================================================ */
+.fk-pipe-flow-card {
+  background-color: #FAF8F4;
+  border: 1px solid #EAE6DC;
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.fk-pipe-flow-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #748082;
+}
+
+.fk-pipe-flow-steps {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fk-pipe-flow-step-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--fk-text-primary, #1C352F);
+  background-color: #FFFFFF;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #DDD8CD;
+}
+
+/* ============================================================
+   12. NOTIFICATION TOAST
+   ============================================================ */
+.fk-pipe-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 28px;
+  z-index: 1000;
+  background-color: #122D29;
+  color: #FFFFFF;
+  border-left: 4px solid var(--fk-olive, #8A875D);
+  padding: 12px 18px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  animation: slideInUp 0.18s ease-out;
+  max-width: 440px;
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.fk-pipe-toast-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.fk-pipe-toast-close:hover {
+  color: #FFFFFF;
+}
+
+/* ============================================================
+   13. RESPONSIVE DESIGN
+   ============================================================ */
+@media (max-width: 1300px) {
+  .fk-pipe-kpi-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 1024px) {
+  .fk-pipe-split-row {
+    grid-template-columns: 1fr;
+  }
+  .fk-pipe-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .fk-pipe-perf-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .fk-pipe-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .fk-pipe-perf-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .fk-pipe-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 500px) {
+  .fk-pipe-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .fk-pipe-perf-grid {
+    grid-template-columns: 1fr;
+  }
+}

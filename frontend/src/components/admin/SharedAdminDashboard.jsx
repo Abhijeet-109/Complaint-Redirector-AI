@@ -18,7 +18,7 @@ import { DepartmentRedirections } from './DepartmentRedirections';
 import { ComplaintsTable } from './ComplaintsTable';
 import { ComplaintDetailsPanel } from './ComplaintDetailsPanel';
 import { ManagementTable } from './ManagementTable';
-import { PipelineConsoleModal } from './PipelineConsoleModal';
+import { PipelineManagementView } from './pipeline/PipelineManagementView';
 
 export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
   // Navigation State
@@ -160,6 +160,7 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
       onSelectView={setCurrentView}
       isSuperAdmin={isSuperAdmin}
       onNavigate={onNavigate}
+      portalTitle={currentView === 'pipeline' ? 'Super Admin / Knowledge Operations' : undefined}
     >
       {/* Toast Alert */}
       {toast && (
@@ -399,34 +400,8 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
               VIEW 8: CHATBOT & PIPELINE (SUPER ADMIN ONLY)
               ======================================================== */}
           {currentView === 'pipeline' && isSuperAdmin && (
-            <>
-              <div className="ad-header-row">
-                <div>
-                  <h1 className="ad-page-heading">Chatbot & Pipeline Console</h1>
-                  <p className="ad-page-subtext">Knowledge base and vector indexing administration.</p>
-                </div>
-              </div>
-              <div className="ad-card-panel" style={{ padding: '36px', textAlign: 'center' }}>
-                <div style={{ maxWidth: '520px', margin: '0 auto' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '8px' }}>
-                    Knowledge Base Management Coming Soon
-                  </h2>
-                  <p style={{ color: '#637073', fontSize: '14px', lineHeight: '1.5', marginBottom: '20px' }}>
-                    Document upload, RAG vector indexing, and pipeline diagnostics will be activated in the next development milestone.
-                  </p>
-                  <button className="ad-btn-primary" onClick={() => setIsPipelineModalOpen(true)}>
-                    Preview Pipeline Architecture
-                  </button>
-                </div>
-              </div>
-            </>
+            <PipelineManagementView />
           )}
-
-          {/* Modal */}
-          <PipelineConsoleModal
-            isOpen={isPipelineModalOpen}
-            onClose={() => setIsPipelineModalOpen(false)}
-          />
         </>
       )}
     </AdminLayout>
