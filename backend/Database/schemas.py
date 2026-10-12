@@ -65,6 +65,12 @@ class DepartmentCreate(BaseModel):
     email: EmailStr
 
 
+class DepartmentUpdate(BaseModel):
+
+    name: str | None = None
+    email: EmailStr | None = None
+
+
 class DepartmentResponse(BaseModel):
 
     id: int

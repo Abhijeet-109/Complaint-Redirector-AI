@@ -259,6 +259,55 @@ def get_my_complaints(
     return _complaint_details(db, complaints)
 
 
+ALLOWED_HANDLER_STATUSES = {"pending", "followed_up", "resolved"}
+
+
+@router.patch(
+    "/handler/complaints/{complaint_id}/status",
+    response_model=HandlerComplaintResponse,
+)
+def update_handler_complaint_status(
+    complaint_id: int,
+    update: ComplaintStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("department_handler")
+    ),
+):
+    """Allow a department handler to update the status of a complaint
+    currently assigned to their department."""
+
+    if update.status not in ALLOWED_HANDLER_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid status '{update.status}'. "
+                   f"Allowed: {', '.join(sorted(ALLOWED_HANDLER_STATUSES))}",
+        )
+
+    complaint = _handler_complaint(db, complaint_id, current_user)
+
+    complaint.status = update.status
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+        logger.exception(
+            "Failed to update status of complaint #%s",
+            complaint.id,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save status update",
+        )
+
+    db.refresh(complaint)
+
+    return _handler_complaint_details(db, [complaint])[0]
+
+
 @router.patch(
     "/handler/complaints/{complaint_id}/redirect",
     response_model=ComplaintRedirectResponse,
@@ -386,11 +435,16 @@ def get_handler_complaint_redirections(
     complaint_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_role("department_handler")
+        require_role("department_handler", "admin", "super_admin")
     ),
 ):
-    # Only a handler in the complaint's current department can view its history.
-    _handler_complaint(db, complaint_id, current_user)
+    if current_user.role == "department_handler":
+        # Only a handler in the complaint's current department can view its history.
+        _handler_complaint(db, complaint_id, current_user)
+    else:
+        complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+        if complaint is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Complaint not found")
 
     history = db.query(ComplaintRedirection).filter(
         ComplaintRedirection.complaint_id == complaint_id

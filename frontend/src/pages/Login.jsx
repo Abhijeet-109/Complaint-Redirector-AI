@@ -25,9 +25,17 @@ export function Login({ onNavigate }) {
 
     setIsLoading(true);
     try {
-      await login(emailOrPhone.trim(), password);
+      const loggedUser = await login(emailOrPhone.trim(), password);
       if (onNavigate) {
-        onNavigate('home');
+        if (loggedUser?.role === 'super_admin') {
+          onNavigate('super-admin-dashboard');
+        } else if (loggedUser?.role === 'admin') {
+          onNavigate('admin-dashboard');
+        } else if (loggedUser?.role === 'department_handler') {
+          onNavigate('handler-dashboard');
+        } else {
+          onNavigate('home');
+        }
       }
     } catch (err) {
       setError(err.message || 'Invalid email or password. Please try again.');

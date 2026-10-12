@@ -180,10 +180,25 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
                   className="fk-user-dropdown-item"
                   onClick={() => {
                     setIsUserMenuOpen(false);
-                    handleNavigate('my-complaints');
+                    if (user?.role === 'super_admin') {
+                      handleNavigate('super-admin-dashboard');
+                    } else if (user?.role === 'admin') {
+                      handleNavigate('admin-dashboard');
+                    } else if (user?.role === 'department_handler') {
+                      handleNavigate('handler-dashboard');
+                    } else {
+                      handleNavigate('my-complaints');
+                    }
                   }}
                 >
-                  <Package size={16} /> My Orders & Complaints
+                  <Package size={16} />{' '}
+                  {user?.role === 'super_admin'
+                    ? 'Super Admin Portal'
+                    : user?.role === 'admin'
+                    ? 'Admin Portal'
+                    : user?.role === 'department_handler'
+                    ? 'Handler Dashboard'
+                    : 'My Orders & Complaints'}
                 </button>
 
                 <button
