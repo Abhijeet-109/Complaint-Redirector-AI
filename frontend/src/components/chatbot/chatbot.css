@@ -1,38 +1,20 @@
-/* Chatbot RAG Sources and Enhanced Styling */
-.fk-chat-sources {
+.fk-chat-message-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fk-chat-message-content p + p,
+.fk-chat-message-content ul + p,
+.fk-chat-message-content p + ul {
   margin-top: 8px;
-  padding: 6px 10px;
-  background-color: #F4F1EA;
-  border-radius: 6px;
-  border-left: 3px solid var(--fk-gold);
-  font-size: 11.5px;
 }
 
-.fk-chat-sources-header {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 700;
-  color: var(--fk-text-primary);
-  margin-bottom: 4px;
+.fk-chat-message-content ul {
+  padding-left: 20px;
 }
 
-.fk-chat-sources-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.fk-chat-source-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background-color: #FFFFFF;
-  border: 1px solid #E0DDD5;
-  border-radius: 4px;
-  padding: 2px 7px;
-  font-size: 11px;
-  color: #4A5557;
+.fk-chat-message-content li + li {
+  margin-top: 3px;
 }
 
 .fk-chat-loading-spinner {

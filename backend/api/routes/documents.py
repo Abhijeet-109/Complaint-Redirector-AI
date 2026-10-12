@@ -1,14 +1,19 @@
 
 import json
+import re
 import shutil
 import uuid
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Annotated
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.chatbot.vector_store import add_documents, get_document_chunk_count
+from backend.chatbot.vector_store import (
+    add_documents,
+    delete_document_vectors,
+    get_document_chunk_count,
+)
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -113,6 +118,10 @@ class IndexRequest(BaseModel):
     stored_names: list[str] = Field(..., min_length=1)
 
 
+class DeleteRequest(BaseModel):
+    stored_names: list[str] = Field(..., min_length=1)
+
+
 @router.post("/index")
 def index_documents(request: IndexRequest):
     manifest = read_manifest()
@@ -174,5 +183,92 @@ def index_documents(request: IndexRequest):
                 "status": "failed",
                 "message": "Indexing failed. Check the backend terminal."
             })
+
+    return {"results": results}
+
+
+@router.post("/delete")
+def delete_documents(request: DeleteRequest):
+    manifest = read_manifest()
+    results = []
+
+    for stored_name in request.stored_names:
+        filename = stored_name
+        if (
+            Path(filename).name != filename
+            or PureWindowsPath(filename).name != filename
+            or re.fullmatch(r"[0-9a-f]{32}\.(?:pdf|docx)", filename) is None
+        ):
+            results.append({
+                "stored_name": stored_name,
+                "status": "failed",
+                "message": "Invalid stored filename.",
+            })
+            continue
+
+        path = UPLOAD_DIR / filename
+        has_file = path.is_file()
+        has_manifest_entry = filename in manifest
+
+        try:
+            existing_chunks = get_document_chunk_count(filename)
+        except Exception:
+            results.append({
+                "stored_name": filename,
+                "status": "failed",
+                "message": "Could not check document vectors; the saved file was left in place.",
+            })
+            continue
+
+        if not has_file and not has_manifest_entry and existing_chunks == 0:
+            results.append({
+                "stored_name": filename,
+                "status": "failed",
+                "message": "Document was not found in storage or ChromaDB.",
+            })
+            continue
+
+        if existing_chunks:
+            try:
+                delete_document_vectors(filename)
+                if get_document_chunk_count(filename) != 0:
+                    raise RuntimeError("Document vectors remain after cleanup.")
+            except Exception:
+                results.append({
+                    "stored_name": filename,
+                    "status": "failed",
+                    "message": "ChromaDB cleanup failed; the saved file was left in place.",
+                })
+                continue
+
+        if has_file:
+            try:
+                path.unlink()
+            except OSError:
+                results.append({
+                    "stored_name": filename,
+                    "status": "failed",
+                    "message": "Vectors were removed, but the saved file could not be removed.",
+                })
+                continue
+
+        updated_manifest = dict(manifest)
+        updated_manifest.pop(filename, None)
+        try:
+            save_manifest(updated_manifest)
+            manifest = updated_manifest
+        except OSError:
+            results.append({
+                "stored_name": filename,
+                "status": "failed",
+                "message": "The file and vectors were removed, but the manifest could not be updated.",
+            })
+            continue
+
+        results.append({
+            "stored_name": filename,
+            "status": "deleted",
+            "removed_chunks": existing_chunks,
+        })
 
     return {"results": results}

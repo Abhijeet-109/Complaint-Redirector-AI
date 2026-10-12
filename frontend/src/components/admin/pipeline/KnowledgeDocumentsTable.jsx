@@ -53,58 +53,49 @@ export const INITIAL_KNOWLEDGE_DOCS = [
   },
 ];
 
+function mapDocument(file, originalNames) {
+  const extension = file.stored_name.split('.').pop().toUpperCase();
+  const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
+  return {
+    id: file.stored_name,
+    stored_name: file.stored_name,
+    name: originalNames[file.stored_name] || file.stored_name,
+    source: 'Local Upload',
+    type: extension,
+    size: `${(file.size_bytes / 1024).toFixed(1)} KB`,
+    approvalStatus: 'saved',
+    approvalLabel: 'Saved',
+    indexStatus,
+    indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not indexed',
+    chunks: file.chunks ?? '—',
+    updated: '—',
+    department: '—',
+    uploadedBy: '—',
+    checksum: '—',
+  };
+}
+
 export function KnowledgeDocumentsTable({
   onOpenReview,
   onOpenDelete,
   onShowNotice,
-  refreshKey = 0,
+  files = [],
+  isLoading = false,
+  loadError = '',
+  refreshDocuments,
   originalNames = {},
 }) {
-  const [documents, setDocuments] = useState([]);
+  const documents = useMemo(() => files.map((file) => mapDocument(file, originalNames)), [files, originalNames]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [isLoading, setIsLoading] = useState(true);
   const [isIndexing, setIsIndexing] = useState(false);
 
   useEffect(() => {
-    let isActive = true;
-    setIsLoading(true);
-    documentService.listDocuments()
-      .then((response) => {
-        if (!isActive) return;
-        setDocuments((response.files || []).map((file) => {
-          const extension = file.stored_name.split('.').pop().toUpperCase();
-          const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
-          return {
-            id: file.stored_name,
-            stored_name: file.stored_name,
-            name: originalNames[file.stored_name] || file.stored_name,
-            source: 'Local Upload',
-            type: extension,
-            size: `${(file.size_bytes / 1024).toFixed(1)} KB`,
-            approvalStatus: 'saved',
-            approvalLabel: 'Saved',
-            indexStatus,
-            indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not indexed',
-            chunks: file.chunks || '—',
-            updated: '—',
-            department: '—',
-            uploadedBy: '—',
-            checksum: '—',
-          };
-        }));
-      })
-      .catch((error) => {
-        if (isActive) onShowNotice?.(error.message || 'Could not load uploaded documents.');
-      })
-      .finally(() => {
-        if (isActive) setIsLoading(false);
-      });
-    return () => { isActive = false; };
-  }, [refreshKey, originalNames, onShowNotice]);
-
+    const currentIds = new Set(files.map((file) => file.stored_name));
+    setSelectedIds((previous) => new Set([...previous].filter((id) => currentIds.has(id))));
+  }, [files]);
   // Local filtering
   const filteredDocuments = useMemo(() => {
     return documents.filter((doc) => {
@@ -113,9 +104,8 @@ export function KnowledgeDocumentsTable({
       let matchesStatus = true;
       if (statusFilter !== 'all') {
         if (statusFilter === 'saved') matchesStatus = doc.approvalStatus === 'saved';
-        else if (statusFilter === 'pending') matchesStatus = doc.approvalStatus === 'pending_approval';
-        else if (statusFilter === 'approved') matchesStatus = doc.approvalStatus === 'approved';
         else if (statusFilter === 'indexed') matchesStatus = doc.indexStatus === 'indexed';
+        else if (statusFilter === 'pending_indexing') matchesStatus = doc.indexStatus !== 'indexed';
       }
 
       let matchesSource = true;
@@ -166,37 +156,14 @@ export function KnowledgeDocumentsTable({
       const results = response.results || [];
       const indexed = results.filter((result) => result.status === 'indexed' || result.status === 'already_indexed').length;
       const failed = results.length - indexed;
+      await refreshDocuments();
       onShowNotice?.(failed ? `${indexed} document(s) indexed; ${failed} failed.` : `${indexed} document(s) indexed.`);
-      await documentService.listDocuments().then((list) => {
-        setDocuments((list.files || []).map((file) => {
-          const extension = file.stored_name.split('.').pop().toUpperCase();
-          const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
-          return {
-            id: file.stored_name,
-            stored_name: file.stored_name,
-            name: originalNames[file.stored_name] || file.stored_name,
-            source: 'Local Upload',
-            type: extension,
-            size: `${(file.size_bytes / 1024).toFixed(1)} KB`,
-            approvalStatus: 'saved',
-            approvalLabel: 'Saved',
-            indexStatus,
-            indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not indexed',
-            chunks: file.chunks || '—',
-            updated: '—',
-            department: '—',
-            uploadedBy: '—',
-            checksum: '—',
-          };
-        }));
-      });
     } catch (error) {
       onShowNotice?.(error.message || 'Document indexing failed.');
     } finally {
       setIsIndexing(false);
     }
   };
-
   const handleIndexSelected = () => {
     const docsToIndex = documents.filter((doc) => selectedIds.has(doc.id));
     indexDocuments(docsToIndex);
@@ -228,7 +195,7 @@ export function KnowledgeDocumentsTable({
             onClick={handleIndexSelected}
             disabled={isIndexing || selectedIds.size === 0}
           >
-            {isIndexing ? 'Indexing…' : 'Index Selected'}
+            {isIndexing ? 'Indexingâ€¦' : 'Index Selected'}
           </button>
           <button
             type="button"
@@ -261,9 +228,8 @@ export function KnowledgeDocumentsTable({
         >
           <option value="all">All statuses</option>
           <option value="saved">Saved</option>
-          <option value="pending">Pending Approval</option>
-          <option value="approved">Approved - example</option>
-          <option value="indexed">Indexed - example</option>
+          <option value="pending_indexing">Pending Indexing</option>
+          <option value="indexed">Indexed</option>
         </select>
 
         <select
@@ -318,7 +284,13 @@ export function KnowledgeDocumentsTable({
             {isLoading ? (
               <tr>
                 <td colSpan={9} style={{ textAlign: 'center', padding: '24px', color: '#8C989A' }}>
-                  Loading documents…
+                  Loading documentsâ€¦
+                </td>
+              </tr>
+            ) : loadError ? (
+              <tr>
+                <td colSpan={9} role="alert" style={{ textAlign: 'center', padding: '24px', color: '#A63227' }}>
+                  {loadError}
                 </td>
               </tr>
             ) : filteredDocuments.length === 0 ? (

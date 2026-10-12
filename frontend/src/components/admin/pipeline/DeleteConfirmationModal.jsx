@@ -1,20 +1,50 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, X, Trash2 } from 'lucide-react';
+import { documentService } from '../../../services/documentService';
 
-export function DeleteConfirmationModal({ documents = [], isOpen, onClose, onShowNotice }) {
+export function DeleteConfirmationModal({
+  documents = [],
+  isOpen,
+  onClose,
+  onShowNotice,
+  onDeleteComplete,
+}) {
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
   if (!isOpen || !documents || documents.length === 0) return null;
 
-  const handleDeleteConfirm = () => {
-    onClose();
-    if (onShowNotice) {
-      onShowNotice('Deletion UI is ready. Backend deletion and ChromaDB cleanup will be implemented in the next phase.');
+  const handleDeleteConfirm = async () => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      const response = await documentService.deleteDocuments(
+        documents.map((document) => document.stored_name).filter(Boolean)
+      );
+      const results = response.results || [];
+      const deletedCount = results.filter((result) => result.status === 'deleted').length;
+      const failures = results.filter((result) => result.status !== 'deleted');
+      await onDeleteComplete?.(results);
+
+      if (failures.length > 0) {
+        setDeleteError(failures.map((result) => result.message).filter(Boolean).join(' ')
+          || `${failures.length} document(s) could not be deleted.`);
+      } else {
+        onShowNotice?.(`${deletedCount} document${deletedCount === 1 ? '' : 's'} deleted.`);
+        onClose();
+      }
+    } catch (error) {
+      setDeleteError(error.message || 'Document deletion failed. Please try again.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   const isMultiple = documents.length > 1;
 
   return (
-    <div className="ad-modal-backdrop" onClick={onClose}>
+    <div className="ad-modal-backdrop" onClick={isDeleting ? undefined : onClose}>
       <div
         className="ad-modal"
         style={{ maxWidth: '520px' }}
@@ -28,7 +58,7 @@ export function DeleteConfirmationModal({ documents = [], isOpen, onClose, onSho
             <AlertTriangle size={18} color="#C03E33" />
             <span>Confirm Document Deletion</span>
           </div>
-          <button className="ad-modal-close" onClick={onClose} aria-label="Close dialog">
+          <button className="ad-modal-close" onClick={onClose} disabled={isDeleting} aria-label="Close dialog">
             <X size={18} />
           </button>
         </div>
@@ -74,22 +104,24 @@ export function DeleteConfirmationModal({ documents = [], isOpen, onClose, onSho
               lineHeight: '1.45',
             }}
           >
-            <strong>System Impact:</strong> Deleting will remove the stored source file and permanently purge all associated vector chunk embeddings from ChromaDB. Backend deletion and ChromaDB cleanup will be implemented in the next phase.
+            <strong>System Impact:</strong> Deleting removes the stored source file and its associated vectors from ChromaDB.
           </div>
+          {deleteError && <p role="alert" style={{ color: '#A63227', fontSize: '12.5px' }}>{deleteError}</p>}
         </div>
 
         <div className="ad-modal-footer">
-          <button type="button" className="ad-btn-secondary" onClick={onClose}>
+          <button type="button" className="ad-btn-secondary" onClick={onClose} disabled={isDeleting}>
             Cancel
           </button>
           <button
             type="button"
             className="ad-btn-danger"
             onClick={handleDeleteConfirm}
+            disabled={isDeleting}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
             <Trash2 size={15} />
-            <span>Delete Document{isMultiple ? 's' : ''}</span>
+            <span>{isDeleting ? 'Deleting…' : `Delete Document${isMultiple ? 's' : ''}`}</span>
           </button>
         </div>
       </div>

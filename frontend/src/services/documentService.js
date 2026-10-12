@@ -67,6 +67,16 @@ export const documentService = {
       body: JSON.stringify({ stored_names: storedNames }),
     });
   },
+
+  /**
+   * Delete saved documents and their indexed chunks by backend storage name.
+   */
+  async deleteDocuments(storedNames) {
+    return await apiRequest('/documents/delete', {
+      method: 'POST',
+      body: JSON.stringify({ stored_names: storedNames }),
+    });
+  },
 };
 
 export default documentService;

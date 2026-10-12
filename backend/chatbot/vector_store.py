@@ -110,3 +110,8 @@ def get_document_chunk_count(source_name):
         include=["metadatas"],
     )
     return len(result.get("ids", []))
+
+
+def delete_document_vectors(source_name):
+    """Delete only chunks whose source metadata matches a stored filename."""
+    vectorstore.delete(where={"source": source_name})

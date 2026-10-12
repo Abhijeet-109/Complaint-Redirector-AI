@@ -551,8 +551,20 @@
 
 .fk-pipe-table {
   width: 100%;
+  min-width: 1000px;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
+}
+
+.fk-pipe-table th:nth-child(2),
+.fk-pipe-table td:nth-child(2) {
+  width: 22%;
+}
+
+.fk-pipe-table th:nth-child(9),
+.fk-pipe-table td:nth-child(9) {
+  width: 205px;
 }
 
 .fk-pipe-table thead {
@@ -589,11 +601,14 @@
 .fk-pipe-doc-cell {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .fk-pipe-doc-title {
   font-weight: 700;
   color: var(--fk-text-primary, #1C352F);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .fk-pipe-doc-sub {
@@ -654,6 +669,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .fk-pipe-action-btn {

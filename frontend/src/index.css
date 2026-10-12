@@ -689,8 +689,10 @@ input, textarea, select {
 }
 
 .fk-chatbot-window {
-  width: 410px;
-  height: 560px;
+  width: min(460px, calc(100vw - 40px));
+  height: min(560px, calc(100vh - 40px));
+  min-width: 0;
+  min-height: 0;
   background-color: #FFFFFF;
   border-radius: 12px;
   box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
@@ -743,6 +745,8 @@ input, textarea, select {
 
 .fk-chatbot-messages {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   padding: 14px;
   overflow-y: auto;
   display: flex;
@@ -752,11 +756,13 @@ input, textarea, select {
 }
 
 .fk-chat-bubble {
-  max-width: 82%;
+  max-width: 88%;
+  min-width: 0;
   padding: 9px 13px;
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .fk-chat-bubble.bot {
@@ -794,6 +800,8 @@ input, textarea, select {
 
 .fk-chatbot-input {
   flex: 1;
+  min-width: 0;
+  width: 100%;
   border: 1px solid #E0DDD5;
   border-radius: 20px;
   padding: 8px 14px;
@@ -817,6 +825,18 @@ input, textarea, select {
   border: none;
   cursor: pointer;
   transition: opacity 0.15s;
+  flex: 0 0 34px;
+}
+
+@media (max-width: 520px) {
+  .fk-chatbot-modal-backdrop {
+    padding: 12px;
+  }
+
+  .fk-chatbot-window {
+    width: calc(100vw - 24px);
+    height: min(560px, calc(100vh - 24px));
+  }
 }
 
 /* ============================================================

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   UploadCloud,
   FileCheck,
@@ -12,13 +12,14 @@ import { PipelineTabs } from './PipelineTabs';
 import { PipelineKpiCards } from './PipelineKpiCards';
 import { DocumentUploadPanel } from './DocumentUploadPanel';
 import { SourceConnectionsPanel } from './SourceConnectionsPanel';
-import { KnowledgeDocumentsTable, INITIAL_KNOWLEDGE_DOCS } from './KnowledgeDocumentsTable';
+import { KnowledgeDocumentsTable } from './KnowledgeDocumentsTable';
 import { IndexingRetrievalPanel } from './IndexingRetrievalPanel';
 import { TechnicalConfigPanel } from './TechnicalConfigPanel';
 import { ChatbotPerformancePanel } from './ChatbotPerformancePanel';
 import { DocumentReviewModal } from './DocumentReviewModal';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { RebuildResetModal } from './RebuildResetModal';
+import { documentService } from '../../../services/documentService';
 
 export function PipelineManagementView() {
   // Navigation & View Mode
@@ -33,8 +34,10 @@ export function PipelineManagementView() {
 
   // Notification Toast state
   const [notice, setNotice] = useState(null);
-  const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
   const [originalDocumentNames, setOriginalDocumentNames] = useState({});
+  const [documents, setDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
+  const [documentsError, setDocumentsError] = useState('');
 
   // Auto-dismiss notice
   useEffect(() => {
@@ -44,16 +47,37 @@ export function PipelineManagementView() {
     }
   }, [notice]);
 
-  const showNotice = (message) => {
+  const showNotice = useCallback((message) => {
     setNotice(message);
-  };
+  }, []);
 
-  const handleUploadComplete = (files) => {
+  const refreshDocuments = useCallback(async () => {
+    setDocumentsLoading(true);
+    try {
+      const response = await documentService.listDocuments();
+      const files = response.files || [];
+      setDocuments(files);
+      setDocumentsError('');
+      return files;
+    } catch (error) {
+      setDocumentsError(error.message || 'Could not load uploaded documents.');
+      return null;
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshDocuments();
+  }, [refreshDocuments]);
+
+  const handleUploadComplete = async (files) => {
     setOriginalDocumentNames((previous) => ({
       ...previous,
       ...Object.fromEntries(files.map((file) => [file.stored_name, file.original_name])),
     }));
-    setDocumentsRefreshKey((key) => key + 1);
+    const refreshed = await refreshDocuments();
+    if (!refreshed) showNotice('Upload succeeded, but the document list could not be refreshed.');
   };
 
   // Handlers for modal interactions
@@ -75,9 +99,17 @@ export function PipelineManagementView() {
     setDeleteModalDocs([]);
   };
 
+  const handleDeleteComplete = async (results) => {
+    const deletedNames = new Set(
+      results.filter((result) => result.status === 'deleted').map((result) => result.stored_name)
+    );
+    setDeleteModalDocs((previous) => previous.filter((document) => !deletedNames.has(document.stored_name)));
+    const refreshed = await refreshDocuments();
+    if (!refreshed) showNotice('Deletion completed, but the document list could not be refreshed.');
+  };
+
   const handlePreviewDeleteModal = () => {
-    // Open delete confirmation with sample document matching reference
-    handleOpenDelete([INITIAL_KNOWLEDGE_DOCS[0]]);
+    if (documents.length > 0) handleOpenDelete([documents[0]]);
   };
 
   return (
@@ -116,7 +148,7 @@ export function PipelineManagementView() {
            ============================================================ */
         <>
           {/* Row 1: 7 KPI Cards */}
-          <PipelineKpiCards />
+          <PipelineKpiCards documents={documents} isLoading={documentsLoading} error={documentsError} />
 
           {/* Row 2: Document Upload & Source Connections */}
           <div className="fk-pipe-split-row">
@@ -129,7 +161,10 @@ export function PipelineManagementView() {
             onOpenReview={handleOpenReview}
             onOpenDelete={handleOpenDelete}
             onShowNotice={showNotice}
-            refreshKey={documentsRefreshKey}
+            files={documents}
+            isLoading={documentsLoading}
+            loadError={documentsError}
+            refreshDocuments={refreshDocuments}
             originalNames={originalDocumentNames}
           />
 
@@ -151,7 +186,7 @@ export function PipelineManagementView() {
           {activeTab === 'overview' && (
             <>
               {/* 7 KPI Cards */}
-              <PipelineKpiCards />
+              <PipelineKpiCards documents={documents} isLoading={documentsLoading} error={documentsError} />
 
               {/* Explanatory Pipeline Lifecycle Overview (Section 7) */}
               <div className="fk-pipe-flow-card">
@@ -246,7 +281,10 @@ export function PipelineManagementView() {
                 onOpenReview={handleOpenReview}
                 onOpenDelete={handleOpenDelete}
                 onShowNotice={showNotice}
-                refreshKey={documentsRefreshKey}
+                files={documents}
+                isLoading={documentsLoading}
+                loadError={documentsError}
+                refreshDocuments={refreshDocuments}
                 originalNames={originalDocumentNames}
               />
             </>
@@ -281,6 +319,7 @@ export function PipelineManagementView() {
         isOpen={isDeleteModalOpen}
         onClose={handleCloseDelete}
         onShowNotice={showNotice}
+        onDeleteComplete={handleDeleteComplete}
       />
 
       {/* 6. Rebuild / Reset Vector Index Modal */}

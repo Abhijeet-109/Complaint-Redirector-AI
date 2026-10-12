@@ -1,8 +1,47 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Send, Bot, X, Sparkles, LogIn, UserPlus, FileText } from 'lucide-react';
+import { ChevronDown, Send, Bot, X, Sparkles, LogIn, UserPlus } from 'lucide-react';
 import { chatbotService } from '../../services/chatbotService';
 import { useAuth } from '../../context/AuthContext';
 import './chatbot.css';
+
+function renderInlineMarkdown(text, keyPrefix) {
+  return text.split(/(\*\*[^*\n]+\*\*)/g).map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+function renderMessageMarkdown(text) {
+  return text.split(/\n{2,}/).map((block, blockIndex) => {
+    const lines = block.split('\n');
+    const listItems = lines.map((line) => line.match(/^\s*[-*]\s+(.+)$/));
+
+    if (listItems.every(Boolean)) {
+      return (
+        <ul key={`list-${blockIndex}`}>
+          {listItems.map((match, itemIndex) => (
+            <li key={`item-${itemIndex}`}>
+              {renderInlineMarkdown(match[1], `list-${blockIndex}-${itemIndex}`)}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
+    return (
+      <p key={`paragraph-${blockIndex}`}>
+        {lines.map((line, lineIndex) => (
+          <React.Fragment key={`line-${lineIndex}`}>
+            {lineIndex > 0 && <br />}
+            {renderInlineMarkdown(line, `paragraph-${blockIndex}-${lineIndex}`)}
+          </React.Fragment>
+        ))}
+      </p>
+    );
+  });
+}
 
 export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
   const { user, isAuthenticated } = useAuth();
@@ -17,7 +56,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
       setMessages([
         {
           sender: 'bot',
-          text: `Hello ${user?.name ? user.name.split(' ')[0] : ''}! I'm Flatkart's AI Assistant. Ask me any question about our store policies, delivery, returns, or services, and I'll find the answer directly from our documents.`,
+          text: "Hi! I'm Flatkart's AI Assistant. How can I help you today?",
         },
       ]);
     } else {
@@ -71,7 +110,6 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
         {
           sender: 'bot',
           text: result.answer || 'Information not found in the provided documents.',
-          sources: Array.isArray(result.sources) ? result.sources : [],
         },
       ]);
     } catch (err) {
@@ -142,33 +180,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
             <div className="fk-chatbot-messages">
               {messages.map((m, idx) => (
                 <div key={idx} className={`fk-chat-bubble ${m.sender}`}>
-                  <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.4' }}>{m.text}</div>
-
-                  {/* Document Sources */}
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="fk-chat-sources">
-                      <div className="fk-chat-sources-header">
-                        <FileText size={12} color="var(--fk-gold)" />
-                        <span>Sources ({m.sources.length}):</span>
-                      </div>
-                      <div className="fk-chat-sources-list">
-                        {m.sources.map((src, sIdx) => {
-                          const docName = src.document
-                            ? src.document.split(/[\\/]/).pop()
-                            : 'Flatkart Policy Document';
-                          const pageInfo =
-                            src.page !== null && src.page !== undefined && src.page !== 'N/A'
-                              ? ` (p. ${src.page})`
-                              : '';
-                          return (
-                            <span key={sIdx} className="fk-chat-source-item" title={src.document}>
-                              {docName}{pageInfo}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                  <div className="fk-chat-message-content">{renderMessageMarkdown(m.text)}</div>
 
                   {/* Guest Login/Register prompt actions */}
                   {m.isGuestPrompt && (
@@ -244,7 +256,8 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                   background: '#F4F1EA',
                   display: 'flex',
                   gap: '6px',
-                  overflowX: 'auto',
+                  flexWrap: 'wrap',
+                  minWidth: 0,
                   borderTop: '1px solid #EFECE4',
                 }}
               >
@@ -255,7 +268,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                     background: '#FFFFFF',
                     border: '1px solid #D8D4C8',
                     borderRadius: '12px',
-                    whiteSpace: 'nowrap',
+                    whiteSpace: 'normal',
                     cursor: 'pointer',
                   }}
                   onClick={() => handleQuickQuestion("What is Flatkart's return and refund policy?")}
@@ -269,7 +282,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                     background: '#FFFFFF',
                     border: '1px solid #D8D4C8',
                     borderRadius: '12px',
-                    whiteSpace: 'nowrap',
+                    whiteSpace: 'normal',
                     cursor: 'pointer',
                   }}
                   onClick={() => handleQuickQuestion('What are the shipping and delivery options?')}
@@ -283,7 +296,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                     background: '#FFFFFF',
                     border: '1px solid #D8D4C8',
                     borderRadius: '12px',
-                    whiteSpace: 'nowrap',
+                    whiteSpace: 'normal',
                     cursor: 'pointer',
                   }}
                   onClick={() => handleQuickQuestion('What payment methods are supported?')}
