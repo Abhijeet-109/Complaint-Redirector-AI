@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.chatbot.vector_store import add_documents
+from backend.chatbot.vector_store import add_documents, get_document_chunk_count
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -138,15 +138,22 @@ def index_documents(request: IndexRequest):
                 detail=f"Saved document not found: {filename}"
             )
 
-        if manifest.get(filename, {}).get("status") == "indexed":
-            results.append({
-                "stored_name": filename,
-                "status": "already_indexed",
-                "chunks": manifest[filename].get("chunks", 0)
-            })
-            continue
-
         try:
+            existing_chunks = get_document_chunk_count(filename)
+            record = manifest.get(filename, {})
+
+            if (
+                record.get("status") == "indexed"
+                and existing_chunks > 0
+                and existing_chunks == record.get("chunks")
+            ):
+                results.append({
+                    "stored_name": filename,
+                    "status": "already_indexed",
+                    "chunks": existing_chunks
+                })
+                continue
+
             chunk_count = add_documents([str(path)])
 
             manifest[filename] = {

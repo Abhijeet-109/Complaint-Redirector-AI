@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Info, CheckSquare, Square } from 'lucide-react';
+import { documentService } from '../../../services/documentService';
 
 export const INITIAL_KNOWLEDGE_DOCS = [
   {
@@ -56,12 +57,53 @@ export function KnowledgeDocumentsTable({
   onOpenReview,
   onOpenDelete,
   onShowNotice,
+  refreshKey = 0,
+  originalNames = {},
 }) {
-  const [documents, setDocuments] = useState(INITIAL_KNOWLEDGE_DOCS);
+  const [documents, setDocuments] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [isLoading, setIsLoading] = useState(true);
+  const [isIndexing, setIsIndexing] = useState(false);
+
+  useEffect(() => {
+    let isActive = true;
+    setIsLoading(true);
+    documentService.listDocuments()
+      .then((response) => {
+        if (!isActive) return;
+        setDocuments((response.files || []).map((file) => {
+          const extension = file.stored_name.split('.').pop().toUpperCase();
+          const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
+          return {
+            id: file.stored_name,
+            stored_name: file.stored_name,
+            name: originalNames[file.stored_name] || file.stored_name,
+            source: 'Local Upload',
+            type: extension,
+            size: `${(file.size_bytes / 1024).toFixed(1)} KB`,
+            approvalStatus: 'saved',
+            approvalLabel: 'Saved',
+            indexStatus,
+            indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not indexed',
+            chunks: file.chunks || '—',
+            updated: '—',
+            department: '—',
+            uploadedBy: '—',
+            checksum: '—',
+          };
+        }));
+      })
+      .catch((error) => {
+        if (isActive) onShowNotice?.(error.message || 'Could not load uploaded documents.');
+      })
+      .finally(() => {
+        if (isActive) setIsLoading(false);
+      });
+    return () => { isActive = false; };
+  }, [refreshKey, originalNames, onShowNotice]);
 
   // Local filtering
   const filteredDocuments = useMemo(() => {
@@ -111,12 +153,53 @@ export function KnowledgeDocumentsTable({
   };
 
   // Bulk actions
-  const handleIndexSelected = () => {
-    if (selectedIds.size === 0) {
-      onShowNotice('Please select at least one document to index.');
+  const indexDocuments = async (docs) => {
+    if (isIndexing) return;
+    const storedNames = docs.map((doc) => doc.stored_name).filter(Boolean);
+    if (storedNames.length === 0) {
+      onShowNotice?.('Select at least one uploaded document to index.');
       return;
     }
-    onShowNotice('Document-indexing integration is pending.');
+    setIsIndexing(true);
+    try {
+      const response = await documentService.indexDocuments(storedNames);
+      const results = response.results || [];
+      const indexed = results.filter((result) => result.status === 'indexed' || result.status === 'already_indexed').length;
+      const failed = results.length - indexed;
+      onShowNotice?.(failed ? `${indexed} document(s) indexed; ${failed} failed.` : `${indexed} document(s) indexed.`);
+      await documentService.listDocuments().then((list) => {
+        setDocuments((list.files || []).map((file) => {
+          const extension = file.stored_name.split('.').pop().toUpperCase();
+          const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
+          return {
+            id: file.stored_name,
+            stored_name: file.stored_name,
+            name: originalNames[file.stored_name] || file.stored_name,
+            source: 'Local Upload',
+            type: extension,
+            size: `${(file.size_bytes / 1024).toFixed(1)} KB`,
+            approvalStatus: 'saved',
+            approvalLabel: 'Saved',
+            indexStatus,
+            indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not indexed',
+            chunks: file.chunks || '—',
+            updated: '—',
+            department: '—',
+            uploadedBy: '—',
+            checksum: '—',
+          };
+        }));
+      });
+    } catch (error) {
+      onShowNotice?.(error.message || 'Document indexing failed.');
+    } finally {
+      setIsIndexing(false);
+    }
+  };
+
+  const handleIndexSelected = () => {
+    const docsToIndex = documents.filter((doc) => selectedIds.has(doc.id));
+    indexDocuments(docsToIndex);
   };
 
   const handleDeleteSelected = () => {
@@ -135,7 +218,7 @@ export function KnowledgeDocumentsTable({
         <div>
           <h2 className="fk-pipe-panel-title">Knowledge Documents</h2>
           <span className="fk-pipe-panel-sub">
-            Illustrative records · not fetched from the backend
+            Uploaded documents from the backend
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -143,8 +226,9 @@ export function KnowledgeDocumentsTable({
             type="button"
             className="fk-pipe-btn-secondary"
             onClick={handleIndexSelected}
+            disabled={isIndexing || selectedIds.size === 0}
           >
-            Index Selected
+            {isIndexing ? 'Indexing…' : 'Index Selected'}
           </button>
           <button
             type="button"
@@ -193,7 +277,7 @@ export function KnowledgeDocumentsTable({
           <option value="Google Drive">Google Drive</option>
         </select>
 
-        <span className="fk-pipe-toolbar-hint">Filters apply to examples only</span>
+        <span className="fk-pipe-toolbar-hint">Filters apply to uploaded documents</span>
       </div>
 
       {/* Table */}
@@ -231,10 +315,16 @@ export function KnowledgeDocumentsTable({
             </tr>
           </thead>
           <tbody>
-            {filteredDocuments.length === 0 ? (
+            {isLoading ? (
               <tr>
                 <td colSpan={9} style={{ textAlign: 'center', padding: '24px', color: '#8C989A' }}>
-                  No illustrative documents match the specified criteria.
+                  Loading documents…
+                </td>
+              </tr>
+            ) : filteredDocuments.length === 0 ? (
+              <tr>
+                <td colSpan={9} style={{ textAlign: 'center', padding: '24px', color: '#8C989A' }}>
+                  No uploaded documents match the specified criteria.
                 </td>
               </tr>
             ) : (
@@ -260,7 +350,7 @@ export function KnowledgeDocumentsTable({
                     <td>
                       <div className="fk-pipe-doc-cell">
                         <span className="fk-pipe-doc-title">{doc.name}</span>
-                        <span className="fk-pipe-doc-sub">Example UI only</span>
+                        <span className="fk-pipe-doc-sub">{doc.stored_name}</span>
                       </div>
                     </td>
 
@@ -308,7 +398,8 @@ export function KnowledgeDocumentsTable({
                         <button
                           type="button"
                           className="fk-pipe-action-btn"
-                          onClick={() => onShowNotice('Document-indexing integration is pending.')}
+                          onClick={() => indexDocuments([doc])}
+                          disabled={isIndexing}
                         >
                           {doc.indexStatus === 'indexed' ? 'Re-index' : 'Index'}
                         </button>
@@ -331,7 +422,7 @@ export function KnowledgeDocumentsTable({
 
       {/* Footer */}
       <div className="fk-pipe-table-footer">
-        {selectedIds.size} example documents selected · actions API pending
+        {selectedIds.size} document(s) selected
       </div>
     </div>
   );

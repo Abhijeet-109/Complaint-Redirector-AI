@@ -1,5 +1,8 @@
 
+import hashlib
+import json
 import os
+from collections import Counter
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -66,7 +69,44 @@ def add_documents(file_paths):
     if not chunks:
         raise ValueError("No text chunks were created")
 
-    # Store chunks and their embeddings
-    vectorstore.add_documents(chunks)
+    # Match existing chunks first, including legacy chunks with generated IDs.
+    existing_chunks = Counter()
+    for source_name in {chunk.metadata.get("source", "") for chunk in chunks}:
+        stored = vectorstore.get(
+            where={"source": source_name},
+            include=["documents", "metadatas"],
+        )
+        for content, metadata in zip(
+            stored.get("documents", []), stored.get("metadatas", [])
+        ):
+            key = (content, json.dumps(metadata or {}, sort_keys=True, default=str))
+            existing_chunks[key] += 1
+
+    missing_chunks = []
+    missing_ids = []
+    for index, chunk in enumerate(chunks):
+        metadata_key = json.dumps(chunk.metadata, sort_keys=True, default=str)
+        content_key = (chunk.page_content, metadata_key)
+        if existing_chunks[content_key] > 0:
+            existing_chunks[content_key] -= 1
+            continue
+
+        missing_chunks.append(chunk)
+        missing_ids.append(hashlib.sha256(
+            f"{chunk.metadata.get('source', '')}:{chunk.metadata.get('page', '')}:{index}:{chunk.page_content}".encode("utf-8")
+        ).hexdigest())
+
+    if missing_chunks:
+        # Stable IDs make retries upsert the same newly added chunks.
+        vectorstore.add_documents(missing_chunks, ids=missing_ids)
 
     return len(chunks)
+
+
+def get_document_chunk_count(source_name):
+    """Return the number of stored chunks for a source filename."""
+    result = vectorstore.get(
+        where={"source": source_name},
+        include=["metadatas"],
+    )
+    return len(result.get("ids", []))

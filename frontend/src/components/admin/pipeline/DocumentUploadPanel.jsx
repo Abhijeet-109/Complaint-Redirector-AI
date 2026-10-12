@@ -1,24 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, FileText, X } from 'lucide-react';
-
-const INITIAL_DEMO_FILES = [
-  {
-    id: 'demo-1',
-    name: 'Returns Policy.pdf',
-    sizeFormatted: '248 KB',
-    status: 'example',
-    statusLabel: 'Example - valid type',
-    isValid: true,
-  },
-  {
-    id: 'demo-2',
-    name: 'Delivery Policy.docx',
-    sizeFormatted: '86 KB',
-    status: 'example',
-    statusLabel: 'Example - valid type',
-    isValid: true,
-  },
-];
+import { documentService } from '../../../services/documentService';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 Bytes';
@@ -28,13 +10,15 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-export function DocumentUploadPanel({ onShowNotice }) {
-  const [selectedFiles, setSelectedFiles] = useState(INITIAL_DEMO_FILES);
+export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef(null);
 
   const processIncomingFiles = (fileList) => {
-    if (!fileList || fileList.length === 0) return;
+    if (isUploading || !fileList || fileList.length === 0) return;
 
     const newFiles = [];
     const existingNames = new Set(selectedFiles.map((f) => f.name.toLowerCase()));
@@ -87,7 +71,7 @@ export function DocumentUploadPanel({ onShowNotice }) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    if (e.dataTransfer && e.dataTransfer.files) {
+    if (!isUploading && e.dataTransfer && e.dataTransfer.files) {
       processIncomingFiles(e.dataTransfer.files);
     }
   };
@@ -105,16 +89,29 @@ export function DocumentUploadPanel({ onShowNotice }) {
   };
 
   const handleUploadClick = () => {
-    if (onShowNotice) {
-      onShowNotice('Upload UI is ready. Backend integration will be added in the next phase.');
-    }
+    const files = selectedFiles.filter((file) => file.isValid && file.fileObject);
+    if (files.length === 0 || isUploading) return;
+
+    setIsUploading(true);
+    setUploadError('');
+    documentService.uploadDocuments(files.map((file) => file.fileObject))
+      .then((response) => {
+        const uploadedFiles = response.files || [];
+        setSelectedFiles([]);
+        onUploadComplete?.(uploadedFiles);
+        onShowNotice?.(`${uploadedFiles.length} document${uploadedFiles.length === 1 ? '' : 's'} uploaded successfully.`);
+      })
+      .catch((error) => {
+        setUploadError(error.message || 'Upload failed. Please try again.');
+      })
+      .finally(() => setIsUploading(false));
   };
 
   return (
     <div className="fk-pipe-panel">
       <div className="fk-pipe-panel-header">
         <h2 className="fk-pipe-panel-title">Document upload</h2>
-        <span className="fk-pipe-panel-sub">Local selection preview · API pending</span>
+        <span className="fk-pipe-panel-sub">Upload PDF or DOCX documents</span>
       </div>
 
       {/* Hidden File Input */}
@@ -122,6 +119,7 @@ export function DocumentUploadPanel({ onShowNotice }) {
         type="file"
         ref={fileInputRef}
         onChange={handleFileInputChange}
+        disabled={isUploading}
         style={{ display: 'none' }}
         multiple
         accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -134,13 +132,13 @@ export function DocumentUploadPanel({ onShowNotice }) {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+        onClick={() => !isUploading && fileInputRef.current && fileInputRef.current.click()}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            fileInputRef.current && fileInputRef.current.click();
+            !isUploading && fileInputRef.current && fileInputRef.current.click();
           }
         }}
       >
@@ -181,6 +179,7 @@ export function DocumentUploadPanel({ onShowNotice }) {
               <button
                 type="button"
                 className="fk-pipe-file-remove"
+                disabled={isUploading}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleRemoveFile(f.id);
@@ -199,18 +198,19 @@ export function DocumentUploadPanel({ onShowNotice }) {
       <div className="fk-pipe-upload-footer">
         <span className="fk-pipe-upload-notice">
           {selectedFiles.length > 0
-            ? `Files are not sent or saved in this reference (${selectedFiles.length} selected).`
-            : 'Files are not sent or saved in this reference.'}
+            ? `${selectedFiles.filter((file) => file.isValid && file.fileObject).length} valid file(s) selected.`
+            : 'Selected files will be saved to the document store.'}
         </span>
         <button
           type="button"
           className="fk-pipe-upload-btn"
           onClick={handleUploadClick}
-          disabled={selectedFiles.length === 0}
+          disabled={isUploading || !selectedFiles.some((file) => file.isValid && file.fileObject)}
         >
-          Upload Documents
+          {isUploading ? 'Uploading…' : 'Upload Documents'}
         </button>
       </div>
+      {uploadError && <div className="fk-pipe-upload-notice" role="alert">{uploadError}</div>}
     </div>
   );
 }

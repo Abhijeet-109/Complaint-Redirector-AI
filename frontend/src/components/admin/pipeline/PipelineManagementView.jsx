@@ -33,6 +33,8 @@ export function PipelineManagementView() {
 
   // Notification Toast state
   const [notice, setNotice] = useState(null);
+  const [documentsRefreshKey, setDocumentsRefreshKey] = useState(0);
+  const [originalDocumentNames, setOriginalDocumentNames] = useState({});
 
   // Auto-dismiss notice
   useEffect(() => {
@@ -44,6 +46,14 @@ export function PipelineManagementView() {
 
   const showNotice = (message) => {
     setNotice(message);
+  };
+
+  const handleUploadComplete = (files) => {
+    setOriginalDocumentNames((previous) => ({
+      ...previous,
+      ...Object.fromEntries(files.map((file) => [file.stored_name, file.original_name])),
+    }));
+    setDocumentsRefreshKey((key) => key + 1);
   };
 
   // Handlers for modal interactions
@@ -110,7 +120,7 @@ export function PipelineManagementView() {
 
           {/* Row 2: Document Upload & Source Connections */}
           <div className="fk-pipe-split-row">
-            <DocumentUploadPanel onShowNotice={showNotice} />
+            <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
             <SourceConnectionsPanel />
           </div>
 
@@ -119,6 +129,8 @@ export function PipelineManagementView() {
             onOpenReview={handleOpenReview}
             onOpenDelete={handleOpenDelete}
             onShowNotice={showNotice}
+            refreshKey={documentsRefreshKey}
+            originalNames={originalDocumentNames}
           />
 
           {/* Row 4: Indexing & Retrieval + Technical Config */}
@@ -226,7 +238,7 @@ export function PipelineManagementView() {
           {activeTab === 'documents' && (
             <>
               <div className="fk-pipe-split-row">
-                <DocumentUploadPanel onShowNotice={showNotice} />
+                <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
                 <SourceConnectionsPanel />
               </div>
 
@@ -234,6 +246,8 @@ export function PipelineManagementView() {
                 onOpenReview={handleOpenReview}
                 onOpenDelete={handleOpenDelete}
                 onShowNotice={showNotice}
+                refreshKey={documentsRefreshKey}
+                originalNames={originalDocumentNames}
               />
             </>
           )}

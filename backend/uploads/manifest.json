@@ -1,6 +1,34 @@
 {
   "594df3c4a70f4dc191204e984c9289a1.pdf": {
     "status": "indexed",
-    "chunks": 11
+    "chunks": 20
+  },
+  "50c46f45d9e14d2ca56e6a1bc7fe3e2b.pdf": {
+    "status": "indexed",
+    "chunks": 15
+  },
+  "5e0a437a6b18465e8c7ec26e9f0577c4.pdf": {
+    "status": "indexed",
+    "chunks": 16
+  },
+  "63b85695381b4a3e8bedd85eb30a4e17.pdf": {
+    "status": "indexed",
+    "chunks": 15
+  },
+  "68ced56e64ea406093b334586cb7edc2.pdf": {
+    "status": "indexed",
+    "chunks": 16
+  },
+  "b6c7fbe66a6247f08f0afa893ced87dc.docx": {
+    "status": "indexed",
+    "chunks": 15
+  },
+  "d46b5b86dda648da9b2b54149526f4f2.docx": {
+    "status": "indexed",
+    "chunks": 15
+  },
+  "da952c1ba49c4b9dbb269f2c9b4b2d97.docx": {
+    "status": "indexed",
+    "chunks": 15
   }
 }
