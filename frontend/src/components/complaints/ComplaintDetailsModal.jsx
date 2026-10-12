@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatConfidence } from '../../utils/formatConfidence';
 import { X, Calendar, Building2, Sparkles, FileText, CheckCircle2 } from 'lucide-react';
 import { ComplaintStatusBadge } from './ComplaintStatusBadge';
 
@@ -86,14 +87,14 @@ export function ComplaintDetailsModal({ complaint, onClose }) {
               </div>
             )}
 
-            {complaint.confidence && (
+            {complaint.confidence !== null && complaint.confidence !== undefined && complaint.confidence !== '' && (
               <div className="fk-complaint-meta-item">
                 <div className="fk-meta-label">
                   <Sparkles size={14} color="var(--fk-gold)" />
                   <span>Routing Confidence</span>
                 </div>
                 <div className="fk-meta-val">
-                  {(parseFloat(complaint.confidence) * 100).toFixed(1)}%
+                  {formatConfidence(complaint.confidence) || 'Confidence unavailable'}
                 </div>
               </div>
             )}

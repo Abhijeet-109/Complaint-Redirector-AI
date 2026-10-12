@@ -61,11 +61,15 @@ export const documentService = {
    * POST /documents/index
    * Body: { stored_names: string[] }
    */
-  async indexDocuments(storedNames) {
+  async indexDocuments(storedNames, reindex = false) {
     return await apiRequest('/documents/index', {
       method: 'POST',
-      body: JSON.stringify({ stored_names: storedNames }),
+      body: JSON.stringify({ stored_names: storedNames, reindex }),
     });
+  },
+
+  async getPipelineConfig() {
+    return await apiRequest('/documents/config', { method: 'GET' });
   },
 
   /**

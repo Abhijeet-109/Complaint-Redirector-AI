@@ -31,7 +31,7 @@ export function SourceConnectionsPanel() {
             </div>
             <div>
               <div className="fk-pipe-source-title">Google Drive</div>
-              <div className="fk-pipe-source-sub">Cloud folder synchronization</div>
+              <div className="fk-pipe-source-sub">Not connected in this phase</div>
             </div>
           </div>
           <span className="fk-pipe-badge-pending">Coming later · Not connected</span>
@@ -39,7 +39,7 @@ export function SourceConnectionsPanel() {
       </div>
 
       <div className="fk-pipe-sources-footnote">
-        Connection labels describe the intended product UI; no integration is active here.
+          Local PDF/DOCX uploads are active. Google Drive is not connected.
       </div>
     </div>
   );

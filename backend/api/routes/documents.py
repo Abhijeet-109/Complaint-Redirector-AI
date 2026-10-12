@@ -1,21 +1,30 @@
 
 import json
+import logging
 import re
 import shutil
 import uuid
 from pathlib import Path, PureWindowsPath
 from typing import Annotated
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.chatbot.vector_store import (
     add_documents,
     delete_document_vectors,
     get_document_chunk_count,
+    reindex_document,
+    COLLECTION_NAME,
+    EMBEDDING_MODEL_NAME,
+    CHUNK_SIZE,
+    CHUNK_OVERLAP,
+    CHROMA_PATH,
 )
+from backend.auth.dependencies import require_role
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+logger = logging.getLogger("flatkart.documents")
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -58,9 +67,11 @@ async def upload_documents(
         raise HTTPException(status_code=400, detail="No files selected.")
 
     uploaded_files = []
+    manifest = read_manifest()
 
     for file in files:
-        original_name = Path(file.filename or "").name
+        original_name = Path(PureWindowsPath(file.filename or "").name).name
+        original_name = re.sub(r"[\x00-\x1f]", "", original_name)[:255]
         extension = Path(original_name).suffix.lower()
 
         if extension not in ALLOWED_EXTENSIONS:
@@ -83,8 +94,19 @@ async def upload_documents(
                 "stored_name": stored_name,
                 "status": "saved"
             })
+            manifest[stored_name] = {
+                "original_name": original_name,
+                "status": "saved",
+                "chunks": 0,
+            }
         finally:
             await file.close()
+
+    try:
+        save_manifest(manifest)
+    except OSError as exc:
+        logger.exception("Could not save uploaded document metadata")
+        raise HTTPException(status_code=500, detail="Documents were uploaded but their metadata could not be saved.") from exc
 
     return {
         "message": "Documents saved. They have not been indexed.",
@@ -104,11 +126,24 @@ def list_documents():
 
         record = manifest.get(path.name, {})
 
+        try:
+            actual_chunks = get_document_chunk_count(path.name)
+        except Exception as exc:
+            logger.exception("Could not read ChromaDB status for %s", path.name)
+            raise HTTPException(
+                status_code=503,
+                detail="Document index status is temporarily unavailable.",
+            ) from exc
+
         files.append({
             "stored_name": path.name,
+            "original_name": record.get("original_name") or path.name,
             "size_bytes": path.stat().st_size,
-            "status": record.get("status", "saved"),
-            "chunks": record.get("chunks", 0)
+            "status": "indexed" if actual_chunks > 0 else (
+                "failed" if record.get("status") == "failed" else "saved"
+            ),
+            "chunks": actual_chunks,
+            "error": record.get("error"),
         })
 
     return {"count": len(files), "files": files}
@@ -116,6 +151,7 @@ def list_documents():
 
 class IndexRequest(BaseModel):
     stored_names: list[str] = Field(..., min_length=1)
+    reindex: bool = False
 
 
 class DeleteRequest(BaseModel):
@@ -130,7 +166,11 @@ def index_documents(request: IndexRequest):
     for stored_name in request.stored_names:
         filename = Path(stored_name).name
 
-        if filename != stored_name:
+        if (
+            filename != stored_name
+            or PureWindowsPath(stored_name).name != stored_name
+            or re.fullmatch(r"[0-9a-f]{32}\.(?:pdf|docx)", filename) is None
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid stored filename."
@@ -152,6 +192,8 @@ def index_documents(request: IndexRequest):
             record = manifest.get(filename, {})
 
             if (
+                not request.reindex
+                and
                 record.get("status") == "indexed"
                 and existing_chunks > 0
                 and existing_chunks == record.get("chunks")
@@ -163,11 +205,13 @@ def index_documents(request: IndexRequest):
                 })
                 continue
 
-            chunk_count = add_documents([str(path)])
+            chunk_count = reindex_document(str(path)) if request.reindex else add_documents([str(path)])
 
             manifest[filename] = {
+                **record,
                 "status": "indexed",
-                "chunks": chunk_count
+                "chunks": chunk_count,
+                "error": None,
             }
             save_manifest(manifest)
 
@@ -177,14 +221,42 @@ def index_documents(request: IndexRequest):
                 "chunks": chunk_count
             })
 
-        except Exception:
+        except Exception as exc:
+            logger.exception("Indexing failed for %s", filename)
+            try:
+                remaining_chunks = get_document_chunk_count(filename)
+                manifest[filename] = {
+                    **record,
+                    "status": "failed",
+                    "chunks": remaining_chunks,
+                    "error": "Indexing failed. Retry the operation or check backend logs.",
+                }
+                save_manifest(manifest)
+            except Exception:
+                logger.exception("Could not persist indexing failure for %s", filename)
             results.append({
                 "stored_name": filename,
                 "status": "failed",
-                "message": "Indexing failed. Check the backend terminal."
+                "message": str(exc)[:240] or "Indexing failed. Check backend logs."
             })
 
     return {"results": results}
+
+
+@router.get("/config")
+def document_pipeline_config(
+    _current_user=Depends(require_role("admin", "super_admin")),
+):
+    return {
+        "collection_name": COLLECTION_NAME,
+        "embedding_model": EMBEDDING_MODEL_NAME,
+        "chunk_size": CHUNK_SIZE,
+        "chunk_overlap": CHUNK_OVERLAP,
+        "persistent_storage": (
+            "Local persistent ChromaDB storage configured"
+            if CHROMA_PATH else "Persistent storage is not configured"
+        ),
+    }
 
 
 @router.post("/delete")

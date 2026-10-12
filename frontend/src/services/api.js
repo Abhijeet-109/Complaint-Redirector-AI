@@ -20,10 +20,15 @@ export async function apiRequest(endpoint, options = {}) {
   if (!response.ok) {
     let errorDetail = 'API request failed';
     try {
-      const errorData = await response.json();
-      errorDetail = errorData.detail || errorData.message || errorDetail;
+      const responseText = await response.text();
+      try {
+        const errorData = JSON.parse(responseText);
+        errorDetail = errorData.detail || errorData.message || responseText || errorDetail;
+      } catch {
+        errorDetail = responseText.trim().slice(0, 300) || `${response.status} ${response.statusText}` || errorDetail;
+      }
     } catch {
-      // ignore
+      errorDetail = `${response.status} ${response.statusText}` || errorDetail;
     }
     throw new Error(errorDetail);
   }

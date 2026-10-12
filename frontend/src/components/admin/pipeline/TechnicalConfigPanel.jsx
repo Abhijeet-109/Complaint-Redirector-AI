@@ -1,40 +1,42 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { documentService } from '../../../services/documentService';
 
-export function TechnicalConfigPanel({ onOpenRebuildModal }) {
+export function TechnicalConfigPanel() {
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    documentService.getPipelineConfig()
+      .then((result) => { if (active) { setConfig(result); setError(''); } })
+      .catch((requestError) => { if (active) setError(requestError.message || 'Technical configuration is unavailable.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const rows = [
+    ['ChromaDB collection', config?.collection_name],
+    ['Embedding model', config?.embedding_model],
+    ['Chunk size', config?.chunk_size],
+    ['Chunk overlap', config?.chunk_overlap],
+    ['Persistent storage', config?.persistent_storage],
+  ];
+
   return (
     <div className="fk-pipe-panel">
-      <div className="fk-pipe-panel-header">
-        <h2 className="fk-pipe-panel-title">Technical configuration</h2>
-      </div>
-
-      <div className="fk-pipe-tech-list">
-        <div className="fk-pipe-tech-item">
-          <span className="fk-pipe-tech-label">ChromaDB collection</span>
-          <span className="fk-pipe-tech-val mono">flatkart_documents</span>
-        </div>
-        <div className="fk-pipe-tech-item">
-          <span className="fk-pipe-tech-label">Embedding model</span>
-          <span className="fk-pipe-tech-val mono">all-MiniLM-L6-v2</span>
-        </div>
-        <div className="fk-pipe-tech-item">
-          <span className="fk-pipe-tech-label">Chunking configuration</span>
-          <span className="fk-pipe-tech-val">Read from backend</span>
-        </div>
-      </div>
-
-      <div className="fk-pipe-tech-warning">
-        <AlertTriangle size={14} flexShrink={0} />
-        <span>Future rebuild/reset requires confirmation.</span>
-      </div>
-
-      <button
-        type="button"
-        className="fk-pipe-rebuild-btn"
-        onClick={onOpenRebuildModal}
-      >
-        Rebuild / reset · future
-      </button>
+      <div className="fk-pipe-panel-header"><h2 className="fk-pipe-panel-title">Technical configuration</h2></div>
+      {loading ? <p className="fk-pipe-panel-sub" role="status">Loading backend configuration…</p>
+        : error ? <p className="fk-pipe-config-error" role="alert">{error}</p>
+          : <div className="fk-pipe-tech-list">{rows.map(([label, value]) => (
+            <div className="fk-pipe-tech-item" key={label}>
+              <span className="fk-pipe-tech-label">{label}</span>
+              <span className="fk-pipe-tech-val">{value ?? 'Unavailable'}</span>
+            </div>
+          ))}</div>}
+      <div className="fk-pipe-tech-warning"><AlertTriangle size={14} /><span>Rebuild and reset are unavailable until a protected recovery operation is implemented.</span></div>
+      <button type="button" className="fk-pipe-rebuild-btn" disabled title="No safe backend rebuild or reset operation is available">Rebuild / reset unavailable</button>
     </div>
   );
 }

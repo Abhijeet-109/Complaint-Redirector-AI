@@ -67,6 +67,10 @@ export const adminService = {
   async getRedirectionKpis() {
     return await apiRequest('/api/v1/admin/redirection-kpis', { method: 'GET' });
   },
+
+  async getChatbotPerformance() {
+    return await apiRequest('/chatbot/performance', { method: 'GET' });
+  },
 };
 
 export default adminService;

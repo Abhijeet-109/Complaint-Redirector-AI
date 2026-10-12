@@ -24,15 +24,22 @@ CHROMA_PATH = os.path.join(
 )
 
 
+# Vector-store configuration exposed by the read-only admin status endpoint.
+COLLECTION_NAME = "flatkart_documents"
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+CHUNK_SIZE = 600
+CHUNK_OVERLAP = 200
+
+
 # Embedding model
 embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+    model_name=EMBEDDING_MODEL_NAME
 )
 
 
 # ChromaDB
 vectorstore = Chroma(
-    collection_name="flatkart_documents",
+    collection_name=COLLECTION_NAME,
     persist_directory=CHROMA_PATH,
     embedding_function=embedding_model
 )
@@ -60,8 +67,8 @@ def add_documents(file_paths):
 
     # Split text into smaller chunks
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=600,
-        chunk_overlap=200
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP
     )
 
     chunks = splitter.split_documents(documents)
@@ -100,6 +107,43 @@ def add_documents(file_paths):
         # Stable IDs make retries upsert the same newly added chunks.
         vectorstore.add_documents(missing_chunks, ids=missing_ids)
 
+    return len(chunks)
+
+
+def reindex_document(file_path):
+    """Upsert current document chunks, then remove stale chunks for its source."""
+    extracted_sections = load_document(file_path)
+    documents = [
+        Document(page_content=section["page_content"], metadata=section["metadata"])
+        for section in extracted_sections
+    ]
+    if not documents:
+        raise ValueError("No readable document content found")
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+    )
+    chunks = splitter.split_documents(documents)
+    if not chunks:
+        raise ValueError("No text chunks were created")
+
+    source_name = chunks[0].metadata.get("source", "")
+    ids = [
+        hashlib.sha256(
+            f"{source_name}:{chunk.metadata.get('page', '')}:{index}:{chunk.page_content}".encode("utf-8")
+        ).hexdigest()
+        for index, chunk in enumerate(chunks)
+    ]
+    existing = vectorstore.get(
+        where={"source": source_name},
+        include=["metadatas"],
+    )
+    # Upsert first so a failed embedding operation leaves the existing index intact.
+    vectorstore.add_documents(chunks, ids=ids)
+    stale_ids = [stored_id for stored_id in existing.get("ids", []) if stored_id not in set(ids)]
+    if stale_ids:
+        vectorstore.delete(ids=stale_ids)
     return len(chunks)
 
 

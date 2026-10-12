@@ -1,7 +1,6 @@
 import React from 'react';
 
 const UNAVAILABLE_METRICS = [
-  { id: 'indexing_failures', label: 'Indexing Failures' },
   { id: 'chatbot_queries', label: 'Chatbot Queries' },
 ];
 
@@ -37,6 +36,12 @@ export function PipelineKpiCards({ documents = [], isLoading = false, error = ''
       label: 'Indexed Chunks',
       value: indexedDocuments.reduce((total, document) => total + (Number(document.chunks) || 0), 0),
       subtext: 'From indexed document status',
+    },
+    {
+      id: 'indexing_failures',
+      label: 'Indexing Failures',
+      value: documents.filter((document) => Boolean(document.error)).length,
+      subtext: 'Documents with a recorded latest indexing failure',
     },
     ...UNAVAILABLE_METRICS.map((metric) => ({ ...metric, value: 'Unavailable', subtext: 'No backend metric available' })),
   ];

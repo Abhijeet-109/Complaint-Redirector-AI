@@ -1,5 +1,9 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.admin import router as admin_router
@@ -15,6 +19,21 @@ from fastapi.openapi.utils import get_openapi
 from backend.api.routes.redirection_analytics import (
     router as redirection_analytics_router,
 )
+from backend.Database.connection import engine
+from backend.Database.models import ChatbotTelemetry
+
+
+logger = logging.getLogger("flatkart.startup")
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    # Create only the telemetry table when absent; preserve all existing data.
+    try:
+        ChatbotTelemetry.__table__.create(bind=engine, checkfirst=True)
+    except SQLAlchemyError:
+        logger.exception("Could not initialize the chatbot telemetry table")
+    yield
 
 
 
@@ -23,6 +42,7 @@ app = FastAPI(
     title="Flatkart Complaint Redirector API",
     description="API for complaint classification and routing",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

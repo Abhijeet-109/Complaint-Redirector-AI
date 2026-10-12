@@ -16,9 +16,7 @@ import { KnowledgeDocumentsTable } from './KnowledgeDocumentsTable';
 import { IndexingRetrievalPanel } from './IndexingRetrievalPanel';
 import { TechnicalConfigPanel } from './TechnicalConfigPanel';
 import { ChatbotPerformancePanel } from './ChatbotPerformancePanel';
-import { DocumentReviewModal } from './DocumentReviewModal';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
-import { RebuildResetModal } from './RebuildResetModal';
 import { documentService } from '../../../services/documentService';
 
 export function PipelineManagementView() {
@@ -27,14 +25,14 @@ export function PipelineManagementView() {
   const [viewMode, setViewMode] = useState('all'); // default to all sections matching the full screenshot layout!
 
   // Modals state
-  const [reviewModalDoc, setReviewModalDoc] = useState(null);
   const [deleteModalDocs, setDeleteModalDocs] = useState([]);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isRebuildModalOpen, setIsRebuildModalOpen] = useState(false);
 
   // Notification Toast state
   const [notice, setNotice] = useState(null);
-  const [originalDocumentNames, setOriginalDocumentNames] = useState({});
+  const [selectedDocumentNames, setSelectedDocumentNames] = useState(new Set());
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [indexingResults, setIndexingResults] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [documentsError, setDocumentsError] = useState('');
@@ -71,24 +69,12 @@ export function PipelineManagementView() {
     refreshDocuments();
   }, [refreshDocuments]);
 
-  const handleUploadComplete = async (files) => {
-    setOriginalDocumentNames((previous) => ({
-      ...previous,
-      ...Object.fromEntries(files.map((file) => [file.stored_name, file.original_name])),
-    }));
+  const handleUploadComplete = async () => {
     const refreshed = await refreshDocuments();
     if (!refreshed) showNotice('Upload succeeded, but the document list could not be refreshed.');
   };
 
   // Handlers for modal interactions
-  const handleOpenReview = (doc) => {
-    setReviewModalDoc(doc);
-  };
-
-  const handleCloseReview = () => {
-    setReviewModalDoc(null);
-  };
-
   const handleOpenDelete = (docs) => {
     setDeleteModalDocs(Array.isArray(docs) ? docs : [docs]);
     setIsDeleteModalOpen(true);
@@ -108,8 +94,24 @@ export function PipelineManagementView() {
     if (!refreshed) showNotice('Deletion completed, but the document list could not be refreshed.');
   };
 
-  const handlePreviewDeleteModal = () => {
-    if (documents.length > 0) handleOpenDelete([documents[0]]);
+  const handleIndexDocuments = async (storedNames, reindex = false) => {
+    const names = storedNames.filter(Boolean);
+    if (!names.length || isIndexing) return;
+    setIsIndexing(true);
+    setIndexingResults([]);
+    try {
+      const response = await documentService.indexDocuments(names, reindex);
+      const results = response.results || [];
+      setIndexingResults(results);
+      await refreshDocuments();
+      const failed = results.filter((result) => result.status === 'failed').length;
+      showNotice(`${results.length - failed} document(s) indexed or already current; ${failed} failed. See per-document results below.`);
+    } catch (error) {
+      setIndexingResults([{ status: 'failed', message: error.message || 'Document indexing failed.' }]);
+      showNotice(error.message || 'Document indexing failed.');
+    } finally {
+      setIsIndexing(false);
+    }
   };
 
   return (
@@ -124,8 +126,8 @@ export function PipelineManagementView() {
         </div>
 
         <div className="fk-pipe-header-right">
-          <span className="fk-pipe-status-pill" title="UI PREVIEW · BACKEND INTEGRATION PENDING">
-            Design reference · API pending
+          <span className="fk-pipe-status-pill">
+            Admin console
           </span>
         </div>
       </div>
@@ -158,24 +160,26 @@ export function PipelineManagementView() {
 
           {/* Row 3: Knowledge Documents Table */}
           <KnowledgeDocumentsTable
-            onOpenReview={handleOpenReview}
             onOpenDelete={handleOpenDelete}
             onShowNotice={showNotice}
             files={documents}
             isLoading={documentsLoading}
             loadError={documentsError}
             refreshDocuments={refreshDocuments}
-            originalNames={originalDocumentNames}
+            selectedIds={selectedDocumentNames}
+            onSelectionChange={setSelectedDocumentNames}
+            onIndexDocuments={handleIndexDocuments}
+            isIndexing={isIndexing}
           />
 
           {/* Row 4: Indexing & Retrieval + Technical Config */}
           <div className="fk-pipe-split-row">
-            <IndexingRetrievalPanel onShowNotice={showNotice} />
-            <TechnicalConfigPanel onOpenRebuildModal={() => setIsRebuildModalOpen(true)} />
+            <IndexingRetrievalPanel documents={documents} selectedCount={selectedDocumentNames.size} isLoading={documentsLoading} loadError={documentsError} isIndexing={isIndexing} results={indexingResults} onRefresh={refreshDocuments} onIndex={() => handleIndexDocuments([...selectedDocumentNames], false)} onReindex={() => handleIndexDocuments([...selectedDocumentNames], true)} />
+            <TechnicalConfigPanel />
           </div>
 
           {/* Row 5 & 6: Chatbot Performance & Recent Queries */}
-          <ChatbotPerformancePanel onPreviewDeleteModal={handlePreviewDeleteModal} />
+          <ChatbotPerformancePanel />
         </>
       ) : (
         /* ============================================================
@@ -187,22 +191,6 @@ export function PipelineManagementView() {
             <>
               {/* 7 KPI Cards */}
               <PipelineKpiCards documents={documents} isLoading={documentsLoading} error={documentsError} />
-
-              {/* Explanatory Pipeline Lifecycle Overview (Section 7) */}
-              <div className="fk-pipe-flow-card">
-                <div className="fk-pipe-flow-title">Pipeline Architecture Flow</div>
-                <div className="fk-pipe-flow-steps">
-                  <div className="fk-pipe-flow-step-item">1. Upload</div>
-                  <span className="fk-pipe-step-arrow">→</span>
-                  <div className="fk-pipe-flow-step-item">2. Approval</div>
-                  <span className="fk-pipe-step-arrow">→</span>
-                  <div className="fk-pipe-flow-step-item">3. Indexing</div>
-                  <span className="fk-pipe-step-arrow">→</span>
-                  <div className="fk-pipe-flow-step-item">4. Retrieval</div>
-                  <span className="fk-pipe-step-arrow">→</span>
-                  <div className="fk-pipe-flow-step-item">5. Answer</div>
-                </div>
-              </div>
 
               {/* Quick Jump Panels */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '4px' }}>
@@ -218,7 +206,7 @@ export function PipelineManagementView() {
                     </h3>
                   </div>
                   <p style={{ fontSize: '12.5px', color: '#637073', lineHeight: '1.45', flex: 1 }}>
-                    Ingest policy PDFs and DOCX files. Validate formats and review document queues.
+                    Upload supported PDF and DOCX files, check stored files, and manage their index.
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: '700', color: 'var(--fk-olive, #8A875D)', marginTop: '12px' }}>
                     <span>Open Documents</span>
@@ -238,7 +226,7 @@ export function PipelineManagementView() {
                     </h3>
                   </div>
                   <p style={{ fontSize: '12.5px', color: '#637073', lineHeight: '1.45', flex: 1 }}>
-                    Monitor the 6-stage document lifecycle and configure ChromaDB embedding collections.
+                    Check live document index status and manage indexing in ChromaDB.
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: '700', color: 'var(--fk-olive, #8A875D)', marginTop: '12px' }}>
                     <span>Inspect Pipeline</span>
@@ -258,7 +246,7 @@ export function PipelineManagementView() {
                     </h3>
                   </div>
                   <p style={{ fontSize: '12.5px', color: '#637073', lineHeight: '1.45', flex: 1 }}>
-                    Telemetry metrics, response latencies, source tracking, and recent assistant query logs.
+                    Persisted chatbot request outcomes and response latency for the last 30 days.
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: '700', color: 'var(--fk-olive, #8A875D)', marginTop: '12px' }}>
                     <span>View Telemetry</span>
@@ -278,14 +266,16 @@ export function PipelineManagementView() {
               </div>
 
               <KnowledgeDocumentsTable
-                onOpenReview={handleOpenReview}
                 onOpenDelete={handleOpenDelete}
                 onShowNotice={showNotice}
                 files={documents}
                 isLoading={documentsLoading}
                 loadError={documentsError}
                 refreshDocuments={refreshDocuments}
-                originalNames={originalDocumentNames}
+                selectedIds={selectedDocumentNames}
+                onSelectionChange={setSelectedDocumentNames}
+                onIndexDocuments={handleIndexDocuments}
+                isIndexing={isIndexing}
               />
             </>
           )}
@@ -293,25 +283,17 @@ export function PipelineManagementView() {
           {/* TAB 3: INDEXING & RETRIEVAL */}
           {activeTab === 'indexing' && (
             <div className="fk-pipe-split-row">
-              <IndexingRetrievalPanel onShowNotice={showNotice} />
-              <TechnicalConfigPanel onOpenRebuildModal={() => setIsRebuildModalOpen(true)} />
+              <IndexingRetrievalPanel documents={documents} selectedCount={selectedDocumentNames.size} isLoading={documentsLoading} loadError={documentsError} isIndexing={isIndexing} results={indexingResults} onRefresh={refreshDocuments} onIndex={() => handleIndexDocuments([...selectedDocumentNames], false)} onReindex={() => handleIndexDocuments([...selectedDocumentNames], true)} />
+              <TechnicalConfigPanel />
             </div>
           )}
 
           {/* TAB 4: CHATBOT PERFORMANCE */}
           {activeTab === 'performance' && (
-            <ChatbotPerformancePanel onPreviewDeleteModal={handlePreviewDeleteModal} />
+            <ChatbotPerformancePanel />
           )}
         </>
       )}
-
-      {/* 4. Document Review & Approval Modal */}
-      <DocumentReviewModal
-        document={reviewModalDoc}
-        isOpen={Boolean(reviewModalDoc)}
-        onClose={handleCloseReview}
-        onShowNotice={showNotice}
-      />
 
       {/* 5. Delete Confirmation Modal */}
       <DeleteConfirmationModal
@@ -320,12 +302,6 @@ export function PipelineManagementView() {
         onClose={handleCloseDelete}
         onShowNotice={showNotice}
         onDeleteComplete={handleDeleteComplete}
-      />
-
-      {/* 6. Rebuild / Reset Vector Index Modal */}
-      <RebuildResetModal
-        isOpen={isRebuildModalOpen}
-        onClose={() => setIsRebuildModalOpen(false)}
       />
 
       {/* 7. Notification Toast */}

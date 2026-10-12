@@ -1,401 +1,140 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Info, CheckSquare, Square } from 'lucide-react';
-import { documentService } from '../../../services/documentService';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Search, CheckSquare, Square, RefreshCw } from 'lucide-react';
 
-export const INITIAL_KNOWLEDGE_DOCS = [
-  {
-    id: 'doc-1',
-    name: 'Returns Policy.pdf',
-    source: 'Local Upload',
-    type: 'PDF',
-    size: '248 KB',
-    approvalStatus: 'saved',
-    approvalLabel: 'Saved',
-    indexStatus: 'not_indexed',
-    indexLabel: 'Not indexed',
-    chunks: '—',
-    updated: 'Example date',
-    department: 'Customer Support / Logistics',
-    uploadedBy: 'admin_ops@flatkart.com',
-    checksum: 'e7b8a1...49c2',
-  },
-  {
-    id: 'doc-2',
-    name: 'Delivery Policy.docx',
-    source: 'Local Upload',
-    type: 'DOCX',
-    size: '86 KB',
-    approvalStatus: 'pending_approval',
-    approvalLabel: 'Pending Approval',
-    indexStatus: 'not_indexed',
-    indexLabel: 'Not indexed',
-    chunks: '—',
-    updated: 'Example date',
-    department: 'Shipping & Delivery',
-    uploadedBy: 'logistics_lead@flatkart.com',
-    checksum: 'c4f2d9...83a1',
-  },
-  {
-    id: 'doc-3',
-    name: 'Seller Guidelines.pdf',
-    source: 'Local Upload',
-    type: 'PDF',
-    size: '412 KB',
-    approvalStatus: 'approved',
-    approvalLabel: 'Approved - example',
-    indexStatus: 'indexed',
-    indexLabel: 'Indexed - example',
-    chunks: '—',
-    updated: 'Example date',
-    department: 'Merchant Services',
-    uploadedBy: 'merchant_ops@flatkart.com',
-    checksum: '9a31b7...62e4',
-  },
-];
-
-function mapDocument(file, originalNames) {
-  const extension = file.stored_name.split('.').pop().toUpperCase();
+function mapDocument(file) {
   const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
   return {
     id: file.stored_name,
     stored_name: file.stored_name,
-    name: originalNames[file.stored_name] || file.stored_name,
+    name: file.original_name || file.stored_name,
     source: 'Local Upload',
-    type: extension,
-    size: `${(file.size_bytes / 1024).toFixed(1)} KB`,
-    approvalStatus: 'saved',
-    approvalLabel: 'Saved',
+    type: file.stored_name.split('.').pop().toUpperCase(),
+    size: `${(Number(file.size_bytes || 0) / 1024).toFixed(1)} KB`,
     indexStatus,
-    indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not indexed',
+    indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not Indexed',
+    indexError: file.error || '',
     chunks: file.chunks ?? '—',
-    updated: '—',
-    department: '—',
-    uploadedBy: '—',
-    checksum: '—',
   };
 }
 
 export function KnowledgeDocumentsTable({
-  onOpenReview,
   onOpenDelete,
   onShowNotice,
   files = [],
   isLoading = false,
   loadError = '',
   refreshDocuments,
-  originalNames = {},
+  selectedIds = new Set(),
+  onSelectionChange,
+  onIndexDocuments,
+  isIndexing = false,
 }) {
-  const documents = useMemo(() => files.map((file) => mapDocument(file, originalNames)), [files, originalNames]);
+  const documents = useMemo(() => files.map(mapDocument), [files]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
-  const [selectedIds, setSelectedIds] = useState(new Set());
-  const [isIndexing, setIsIndexing] = useState(false);
 
   useEffect(() => {
     const currentIds = new Set(files.map((file) => file.stored_name));
-    setSelectedIds((previous) => new Set([...previous].filter((id) => currentIds.has(id))));
+    onSelectionChange?.(new Set([...selectedIds].filter((id) => currentIds.has(id))));
   }, [files]);
-  // Local filtering
-  const filteredDocuments = useMemo(() => {
-    return documents.filter((doc) => {
-      const matchesSearch = doc.name.toLowerCase().includes(searchQuery.trim().toLowerCase());
-      
-      let matchesStatus = true;
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'saved') matchesStatus = doc.approvalStatus === 'saved';
-        else if (statusFilter === 'indexed') matchesStatus = doc.indexStatus === 'indexed';
-        else if (statusFilter === 'pending_indexing') matchesStatus = doc.indexStatus !== 'indexed';
-      }
 
-      let matchesSource = true;
-      if (sourceFilter !== 'all') {
-        matchesSource = doc.source === sourceFilter;
-      }
+  const filteredDocuments = useMemo(() => documents.filter((doc) => {
+    const matchesSearch = `${doc.name} ${doc.stored_name}`.toLowerCase().includes(searchQuery.trim().toLowerCase());
+    const matchesStatus = statusFilter === 'all'
+      || (statusFilter === 'saved' && doc.indexStatus === 'not_indexed' && !doc.indexError)
+      || (statusFilter === 'failed' && Boolean(doc.indexError))
+      || (statusFilter === 'indexed' && doc.indexStatus === 'indexed');
+    return matchesSearch && matchesStatus && (sourceFilter === 'all' || sourceFilter === doc.source);
+  }), [documents, searchQuery, statusFilter, sourceFilter]);
 
-      return matchesSearch && matchesStatus && matchesSource;
-    });
-  }, [documents, searchQuery, statusFilter, sourceFilter]);
-
-  // Checkbox handlers
-  const allFilteredSelected =
-    filteredDocuments.length > 0 &&
-    filteredDocuments.every((d) => selectedIds.has(d.id));
-
-  const handleToggleSelectAll = () => {
-    if (allFilteredSelected) {
-      setSelectedIds(new Set());
-    } else {
-      const next = new Set(selectedIds);
-      filteredDocuments.forEach((d) => next.add(d.id));
-      setSelectedIds(next);
-    }
-  };
-
-  const handleToggleRow = (id) => {
+  const allFilteredSelected = filteredDocuments.length > 0 && filteredDocuments.every((doc) => selectedIds.has(doc.id));
+  const toggleSelectAll = () => onSelectionChange?.(allFilteredSelected
+    ? new Set()
+    : new Set([...selectedIds, ...filteredDocuments.map((doc) => doc.id)]));
+  const toggleRow = (id) => {
     const next = new Set(selectedIds);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    setSelectedIds(next);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onSelectionChange?.(next);
   };
 
-  // Bulk actions
-  const indexDocuments = async (docs) => {
-    if (isIndexing) return;
-    const storedNames = docs.map((doc) => doc.stored_name).filter(Boolean);
-    if (storedNames.length === 0) {
-      onShowNotice?.('Select at least one uploaded document to index.');
-      return;
-    }
-    setIsIndexing(true);
-    try {
-      const response = await documentService.indexDocuments(storedNames);
-      const results = response.results || [];
-      const indexed = results.filter((result) => result.status === 'indexed' || result.status === 'already_indexed').length;
-      const failed = results.length - indexed;
-      await refreshDocuments();
-      onShowNotice?.(failed ? `${indexed} document(s) indexed; ${failed} failed.` : `${indexed} document(s) indexed.`);
-    } catch (error) {
-      onShowNotice?.(error.message || 'Document indexing failed.');
-    } finally {
-      setIsIndexing(false);
-    }
+  const refresh = async () => {
+    const result = await refreshDocuments?.();
+    onShowNotice?.(result ? 'Document and index status refreshed.' : 'Could not refresh document and index status.');
   };
-  const handleIndexSelected = () => {
-    const docsToIndex = documents.filter((doc) => selectedIds.has(doc.id));
-    indexDocuments(docsToIndex);
-  };
-
-  const handleDeleteSelected = () => {
-    if (selectedIds.size === 0) {
-      onShowNotice('Please select at least one document to delete.');
-      return;
-    }
-    const docsToDelete = documents.filter((d) => selectedIds.has(d.id));
-    onOpenDelete(docsToDelete);
+  const deleteSelected = () => {
+    const docs = documents.filter((doc) => selectedIds.has(doc.id));
+    if (docs.length) onOpenDelete?.(docs);
+    else onShowNotice?.('Select at least one document to delete.');
   };
 
   return (
     <div className="fk-pipe-panel">
-      {/* Header */}
       <div className="fk-pipe-panel-header">
         <div>
           <h2 className="fk-pipe-panel-title">Knowledge Documents</h2>
-          <span className="fk-pipe-panel-sub">
-            Uploaded documents from the backend
-          </span>
+          <span className="fk-pipe-panel-sub">Uploaded documents from the backend</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            type="button"
-            className="fk-pipe-btn-secondary"
-            onClick={handleIndexSelected}
-            disabled={isIndexing || selectedIds.size === 0}
-          >
-            {isIndexing ? 'Indexingâ€¦' : 'Index Selected'}
+          <button type="button" className="fk-pipe-btn-secondary" onClick={refresh} disabled={isLoading || isIndexing}>
+            <RefreshCw size={14} /> Refresh Status
           </button>
-          <button
-            type="button"
-            className="fk-pipe-btn-secondary"
-            onClick={handleDeleteSelected}
-          >
+          <button type="button" className="fk-pipe-btn-secondary" onClick={() => onIndexDocuments?.([...selectedIds], false)} disabled={isIndexing || selectedIds.size === 0}>
+            {isIndexing ? 'Indexing…' : 'Index Selected'}
+          </button>
+          <button type="button" className="fk-pipe-btn-secondary" onClick={deleteSelected} disabled={isIndexing || selectedIds.size === 0}>
             Delete Selected
           </button>
         </div>
       </div>
 
-      {/* Toolbar */}
       <div className="fk-pipe-table-toolbar">
         <div className="fk-pipe-search-input-wrap">
           <Search size={15} className="fk-pipe-search-icon" />
-          <input
-            type="text"
-            placeholder="Search documents"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search knowledge documents"
-          />
+          <input type="text" placeholder="Search documents" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} aria-label="Search knowledge documents" />
         </div>
-
-        <select
-          className="fk-pipe-filter-select"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          aria-label="Filter by approval status"
-        >
+        <select className="fk-pipe-filter-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter by index status">
           <option value="all">All statuses</option>
-          <option value="saved">Saved</option>
-          <option value="pending_indexing">Pending Indexing</option>
+          <option value="saved">Saved · not indexed</option>
+          <option value="failed">Latest indexing attempt failed</option>
           <option value="indexed">Indexed</option>
         </select>
-
-        <select
-          className="fk-pipe-filter-select"
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          aria-label="Filter by document source"
-        >
+        <select className="fk-pipe-filter-select" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} aria-label="Filter by document source">
           <option value="all">All sources</option>
           <option value="Local Upload">Local Upload</option>
-          <option value="Google Drive">Google Drive</option>
         </select>
-
-        <span className="fk-pipe-toolbar-hint">Filters apply to uploaded documents</span>
+        <span className="fk-pipe-toolbar-hint">Google Drive is not connected</span>
       </div>
 
-      {/* Table */}
       <div className="fk-pipe-table-wrapper">
         <table className="fk-pipe-table">
-          <thead>
-            <tr>
-              <th style={{ width: '40px', textAlign: 'center' }}>
-                <button
-                  type="button"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}
-                  onClick={handleToggleSelectAll}
-                  title="Select all"
-                  aria-label="Select all documents"
-                >
-                  {allFilteredSelected ? (
-                    <CheckSquare size={16} color="var(--fk-olive, #8A875D)" />
-                  ) : (
-                    <Square size={16} color="#A29C90" />
-                  )}
-                </button>
-              </th>
-              <th>Document</th>
-              <th>Source</th>
-              <th>Type / Size</th>
-              <th>Approval Status</th>
-              <th>Index Status</th>
-              <th>Chunks</th>
-              <th>Updated</th>
-              <th>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  Actions <Info size={13} color="#8C989A" />
-                </span>
-              </th>
-            </tr>
-          </thead>
+          <thead><tr>
+            <th style={{ width: '40px', textAlign: 'center' }}><button type="button" className="fk-pipe-select-all" onClick={toggleSelectAll} title="Select all" aria-label="Select all documents">{allFilteredSelected ? <CheckSquare size={16} /> : <Square size={16} />}</button></th>
+            <th>Document</th><th>Source</th><th>Type / Size</th><th>Index Status</th><th>Chunks</th><th>Updated</th><th>Actions</th>
+          </tr></thead>
           <tbody>
-            {isLoading ? (
-              <tr>
-                <td colSpan={9} style={{ textAlign: 'center', padding: '24px', color: '#8C989A' }}>
-                  Loading documentsâ€¦
-                </td>
-              </tr>
-            ) : loadError ? (
-              <tr>
-                <td colSpan={9} role="alert" style={{ textAlign: 'center', padding: '24px', color: '#A63227' }}>
-                  {loadError}
-                </td>
-              </tr>
-            ) : filteredDocuments.length === 0 ? (
-              <tr>
-                <td colSpan={9} style={{ textAlign: 'center', padding: '24px', color: '#8C989A' }}>
-                  No uploaded documents match the specified criteria.
-                </td>
-              </tr>
-            ) : (
-              filteredDocuments.map((doc) => {
-                const isSelected = selectedIds.has(doc.id);
-                return (
-                  <tr key={doc.id} style={{ backgroundColor: isSelected ? '#FAF7F0' : undefined }}>
-                    <td style={{ textAlign: 'center' }}>
-                      <button
-                        type="button"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}
-                        onClick={() => handleToggleRow(doc.id)}
-                        aria-label={`Select document ${doc.name}`}
-                      >
-                        {isSelected ? (
-                          <CheckSquare size={16} color="var(--fk-olive, #8A875D)" />
-                        ) : (
-                          <Square size={16} color="#A29C90" />
-                        )}
-                      </button>
-                    </td>
-
-                    <td>
-                      <div className="fk-pipe-doc-cell">
-                        <span className="fk-pipe-doc-title">{doc.name}</span>
-                        <span className="fk-pipe-doc-sub">{doc.stored_name}</span>
-                      </div>
-                    </td>
-
-                    <td>{doc.source}</td>
-                    <td>{doc.type} · {doc.size}</td>
-
-                    <td>
-                      <span
-                        className={
-                          doc.approvalStatus === 'pending_approval'
-                            ? 'fk-pipe-badge-pending-approval'
-                            : doc.approvalStatus === 'approved'
-                            ? 'fk-pipe-badge-approved'
-                            : 'fk-pipe-badge-saved'
-                        }
-                      >
-                        {doc.approvalLabel}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          doc.indexStatus === 'indexed'
-                            ? 'fk-pipe-badge-indexed'
-                            : 'fk-pipe-badge-not-indexed'
-                        }
-                      >
-                        {doc.indexLabel}
-                      </span>
-                    </td>
-
-                    <td>{doc.chunks}</td>
-                    <td>{doc.updated}</td>
-
-                    <td>
-                      <div className="fk-pipe-actions-cell">
-                        <button
-                          type="button"
-                          className="fk-pipe-action-btn"
-                          onClick={() => onOpenReview(doc)}
-                        >
-                          Review/Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="fk-pipe-action-btn"
-                          onClick={() => indexDocuments([doc])}
-                          disabled={isIndexing}
-                        >
-                          {doc.indexStatus === 'indexed' ? 'Re-index' : 'Index'}
-                        </button>
-                        <button
-                          type="button"
-                          className="fk-pipe-action-btn danger"
-                          onClick={() => onOpenDelete([doc])}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
+            {isLoading ? <tr><td colSpan={8} className="fk-pipe-empty-table-msg">Loading documents…</td></tr>
+              : loadError ? <tr><td colSpan={8} role="alert" className="fk-pipe-empty-table-msg">{loadError}</td></tr>
+                : filteredDocuments.length === 0 ? <tr><td colSpan={8} className="fk-pipe-empty-table-msg">No uploaded documents match the selected filters.</td></tr>
+                  : filteredDocuments.map((doc) => {
+                    const selected = selectedIds.has(doc.id);
+                    return <tr key={doc.id} style={{ backgroundColor: selected ? '#FAF7F0' : undefined }}>
+                      <td style={{ textAlign: 'center' }}><button type="button" className="fk-pipe-row-select" onClick={() => toggleRow(doc.id)} aria-label={`Select document ${doc.name}`}>{selected ? <CheckSquare size={16} /> : <Square size={16} />}</button></td>
+                      <td><div className="fk-pipe-doc-cell"><strong className="fk-pipe-doc-title">{doc.name}</strong><span className="fk-pipe-doc-sub">{doc.stored_name}</span></div></td>
+                      <td>{doc.source}</td><td>{doc.type} · {doc.size}</td>
+                      <td><span className={`fk-pipe-index-status ${doc.indexStatus === 'indexed' ? 'is-indexed' : 'is-not-indexed'}${doc.indexError ? ' has-error' : ''}`} title={doc.indexError || undefined}>{doc.indexLabel}</span></td>
+                      <td>{doc.chunks}</td><td>—</td>
+                      <td><div className="fk-pipe-actions-cell">
+                        <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], doc.indexStatus === 'indexed')} disabled={isIndexing}>{doc.indexStatus === 'indexed' ? 'Re-index' : 'Index'}</button>
+                        <button type="button" className="fk-pipe-action-btn danger" onClick={() => onOpenDelete?.([doc])} disabled={isIndexing}>Delete</button>
+                      </div></td>
+                    </tr>;
+                  })}
           </tbody>
         </table>
       </div>
-
-      {/* Footer */}
-      <div className="fk-pipe-table-footer">
-        {selectedIds.size} document(s) selected
-      </div>
+      <div className="fk-pipe-table-footer">{selectedIds.size} document(s) selected</div>
     </div>
   );
 }

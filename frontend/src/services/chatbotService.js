@@ -23,6 +23,7 @@ export const chatbotService = {
       method: 'GET',
     });
   },
+
 };
 
 export default chatbotService;

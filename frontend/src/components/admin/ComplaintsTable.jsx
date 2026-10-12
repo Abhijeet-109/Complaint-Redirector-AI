@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search } from 'lucide-react';
 import { ComplaintStatusBadge } from '../complaints/ComplaintStatusBadge';
+import { formatConfidence } from '../../utils/formatConfidence';
 
 export function ComplaintsTable({
   complaints = [],
@@ -150,13 +151,14 @@ export function ComplaintsTable({
                     <td>
                       <div>{item.user_name || 'Customer'}</div>
                       <div style={{ fontSize: '11px', color: '#909B9D' }}>
-                        {item.user_email || `User #${item.user_id}`}
+                        {item.user_email || 'Email unavailable'}
                       </div>
                     </td>
                     <td><strong>{item.current_department || '—'}</strong></td>
                     <td style={{ whiteSpace: 'nowrap' }}>{formatDate(item.create_at)}</td>
                     <td>
                       <ComplaintStatusBadge status={item.status} />
+                      {formatConfidence(item.confidence) && <div className="ad-complaint-confidence">{formatConfidence(item.confidence)}</div>}
                     </td>
                     <td>
                       <button

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { adminService } from '../../services/adminService';
 import { ComplaintStatusBadge } from '../complaints/ComplaintStatusBadge';
+import { formatConfidence } from '../../utils/formatConfidence';
 
 export function ComplaintDetailsPanel({ complaint, onClose }) {
   const [redirectionHistory, setRedirectionHistory] = useState([]);
@@ -67,7 +68,7 @@ export function ComplaintDetailsPanel({ complaint, onClose }) {
           <span className="ad-detail-value">
             <strong>{complaint.user_name || 'Registered Customer'}</strong>
             <div style={{ fontSize: '12px', color: '#637073' }}>
-              {complaint.user_email || `User #${complaint.user_id}`}
+              {complaint.user_email || 'Email unavailable'}
             </div>
           </span>
         </div>
@@ -92,7 +93,7 @@ export function ComplaintDetailsPanel({ complaint, onClose }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px' }}>
             <ComplaintStatusBadge status={complaint.status} />
             <span style={{ fontSize: '12px', color: '#637073' }}>
-              {complaint.confidence ? `${complaint.confidence} confidence` : 'No confidence score'}
+              {formatConfidence(complaint.confidence) || 'No confidence score'}
             </span>
           </div>
         </div>

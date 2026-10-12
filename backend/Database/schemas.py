@@ -99,6 +99,12 @@ class HandlerComplaintResponse(ComplaintDetailResponse):
     user_email: EmailStr | None
 
 
+class AdminComplaintDetailResponse(ComplaintDetailResponse):
+    user_id: int | None = None
+    user_name: str | None = None
+    user_email: str | None = None
+
+
 class ComplaintRedirectResponse(ComplaintDetailResponse):
     handler_id: int | None
 

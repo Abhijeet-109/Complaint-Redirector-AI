@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { handlerService } from '../../services/handlerService';
+import { formatConfidence } from '../../utils/formatConfidence';
 import './HandlerDashboard.css';
 
 export function HandlerDashboard({ onNavigate }) {
@@ -554,7 +555,7 @@ export function HandlerDashboard({ onNavigate }) {
                         <div className="hd-meta-item">
                           <span className="hd-meta-label">AI Confidence</span>
                           <span className="hd-meta-value">
-                            {selectedComplaint.confidence || 'N/A'}
+                            {formatConfidence(selectedComplaint.confidence) || 'N/A'}
                           </span>
                         </div>
                         <div className="hd-meta-item">

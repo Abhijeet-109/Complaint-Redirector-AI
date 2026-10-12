@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime,ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float, Boolean
 from sqlalchemy.sql import func
 
 
@@ -170,3 +170,16 @@ class ComplaintRedirection(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class ChatbotTelemetry(Base):
+    __tablename__ = "chatbot_telemetry"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
+    question_preview = Column(String(240), nullable=False)
+    outcome = Column(String(16), nullable=False, index=True)
+    fallback = Column(Boolean, nullable=False, default=False)
+    source_names = Column(JSON, nullable=False, default=list)
+    source_count = Column(Integer, nullable=False, default=0)
+    latency_ms = Column(Float, nullable=False)

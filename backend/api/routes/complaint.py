@@ -14,6 +14,7 @@ from backend.Database.models import Complaint, Department, User, ComplaintRedire
 from backend.Database.schemas import (
     ComplaintCreate,
     ComplaintDetailResponse,
+    AdminComplaintDetailResponse,
     ComplaintRedirectResponse,
     ComplaintResponse,
     ComplaintRedirectionHistoryResponse,
@@ -509,7 +510,7 @@ def get_handler_complaint_redirections(
 
 @router.get(
     "/admin/complaints",
-    response_model=list[ComplaintDetailResponse]
+    response_model=list[AdminComplaintDetailResponse]
 )
 def get_admin_complaints(
     db: Session = Depends(get_db),
@@ -518,7 +519,7 @@ def get_admin_complaints(
     complaints = db.query(Complaint).order_by(
         Complaint.create_at.desc(), Complaint.id.desc()
     ).all()
-    return _complaint_details(db, complaints)
+    return _handler_complaint_details(db, complaints)
 
 
 @router.get("/complaints/{complaint_id}/department-email")

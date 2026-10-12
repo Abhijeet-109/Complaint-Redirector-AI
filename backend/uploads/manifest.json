@@ -1,6 +1,20 @@
 {
-  "7b6db912aaf5443dacc4589cf9c2f2db.pdf": {
+  "527bc47fb29245718d966708738d7a8b.pdf": {
+    "original_name": "dummy_company_policy_rag_test.pdf",
     "status": "indexed",
-    "chunks": 15
+    "chunks": 15,
+    "error": null
+  },
+  "97fb6575c05d43f7abd0370c06cce312.pdf": {
+    "original_name": "dummy_company_policy_rag_test.pdf",
+    "status": "indexed",
+    "chunks": 15,
+    "error": null
+  },
+  "b8a10320e2ef4ad89833a187147c970f.pdf": {
+    "original_name": "dummy_company_policy_rag_test.pdf",
+    "status": "indexed",
+    "chunks": 15,
+    "error": null
   }
 }
