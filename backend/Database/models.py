@@ -131,4 +131,42 @@ class Complaint(Base):
     )
 
 
+class ComplaintRedirection(Base):
+    """One record for every department-to-department complaint transfer."""
 
+    __tablename__ = "complaint_redirections"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    complaint_id = Column(
+        Integer,
+        ForeignKey("complaints.id"),
+        nullable=False,
+        index=True,
+    )
+
+    from_department_id = Column(
+        Integer,
+        ForeignKey("departments.id"),
+        nullable=False,
+    )
+
+    to_department_id = Column(
+        Integer,
+        ForeignKey("departments.id"),
+        nullable=False,
+    )
+
+    redirected_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    reason = Column(String, nullable=False)
+
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        nullable=False,
+    )

@@ -20,7 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.main import app
 from backend.Database.connection import Base
-from backend.Database.models import Complaint, Department, User
+from backend.Database.models import Complaint, Department, User, ComplaintRedirection
 from backend.auth.dependencies import get_db
 from backend.auth.security import hash_password
 
@@ -149,24 +149,65 @@ class HandlerSupportAPITests(unittest.TestCase):
         self.assertEqual(rows[0]["user_email"], "rahul@example.com")
         self.assertNotIn("password", rows[0])
 
-    def test_redirect_updates_department_and_clears_handler(self):
+
+
+    def test_redirect_updates_department_clears_handler_and_saves_reason(self):
         response = self.client.patch(
             f"/api/v1/handler/complaints/{self.complaint_id}/redirect",
             headers=self._headers("handler@example.com"),
-            json={"department_id": self.department_b_id},
+            json={
+                "department_id": self.department_b_id,
+                "reason": "model_fault",
+            },
         )
+
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["department_id"], self.department_b_id)
-        self.assertEqual(response.json()["current_department"], "Payments")
-        self.assertEqual(response.json()["status"], "pending")
-        self.assertIsNone(response.json()["handler_id"])
-        self.assertNotIn("user_email", response.json())
+
+        body = response.json()
+
+        self.assertEqual(
+            body["department_id"],
+            self.department_b_id,
+        )
+        self.assertEqual(body["current_department"], "Payments")
+        self.assertEqual(body["status"], "pending")
+        self.assertIsNone(body["handler_id"])
+        self.assertEqual(body["redirection_reason"], "model_fault")
+        self.assertNotIn("user_email", body)
+
+        db = self.Session()
+
+        try:
+            history = db.query(ComplaintRedirection).filter_by(
+                complaint_id=self.complaint_id
+            ).all()
+
+            self.assertEqual(len(history), 1)
+            self.assertEqual(
+                history[0].from_department_id,
+                self.department_a_id,
+            )
+            self.assertEqual(
+                history[0].to_department_id,
+                self.department_b_id,
+            )
+            self.assertEqual(
+                history[0].redirected_by_user_id,
+                self.handler.id,
+            )
+            self.assertEqual(history[0].reason, "model_fault")
+        finally:
+            db.close()
+        
 
     def test_handler_cannot_redirect_complaint_from_other_department(self):
         response = self.client.patch(
             f"/api/v1/handler/complaints/{self.other_complaint_id}/redirect",
             headers=self._headers("handler@example.com"),
-            json={"department_id": self.department_a_id},
+            json={
+    "department_id": self.department_a_id,
+    "reason": "further_processing",
+},
         )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Complaint not found")
@@ -214,6 +255,31 @@ class HandlerSupportAPITests(unittest.TestCase):
             for row in response.json():
                 self.assertNotIn("user_name", row)
                 self.assertNotIn("user_email", row)
+
+
+    def test_redirect_requires_reason(self):
+        response = self.client.patch(
+            f"/api/v1/handler/complaints/{self.complaint_id}/redirect",
+            headers=self._headers("handler@example.com"),
+            json={
+                "department_id": self.department_b_id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+
+    def test_redirect_rejects_invalid_reason(self):
+        response = self.client.patch(
+            f"/api/v1/handler/complaints/{self.complaint_id}/redirect",
+            headers=self._headers("handler@example.com"),
+            json={
+                "department_id": self.department_b_id,
+                "reason": "wrong_reason",
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
 
 
 if __name__ == "__main__":

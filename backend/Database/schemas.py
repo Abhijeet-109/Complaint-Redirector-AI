@@ -96,6 +96,33 @@ class HandlerComplaintResponse(ComplaintDetailResponse):
 class ComplaintRedirectResponse(ComplaintDetailResponse):
     handler_id: int | None
 
+    redirection_reason: Literal[
+        "model_fault",
+        "further_processing",
+    ]
+
+    email_sent: bool
+
+
+class ComplaintRedirectionHistoryResponse(BaseModel):
+    id: int
+    complaint_id: int
+
+    from_department_id: int
+    from_department: str
+
+    to_department_id: int
+    to_department: str
+
+    redirected_by_user_id: int
+    redirected_by_name: str
+
+    reason: Literal[
+        "model_fault",
+        "further_processing",
+    ]
+
+    created_at: datetime | None
 
 
 

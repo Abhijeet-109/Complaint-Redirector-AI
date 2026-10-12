@@ -8,14 +8,19 @@ from backend.router import send_complaint_email, send_redirect_email
 
 from sqlalchemy.orm import Session
 
-from backend.Database.models import Complaint, Department, User
+from typing import Literal
+
+from backend.Database.models import Complaint, Department, User, ComplaintRedirection
 from backend.Database.schemas import (
     ComplaintCreate,
     ComplaintDetailResponse,
     ComplaintRedirectResponse,
     ComplaintResponse,
+    ComplaintRedirectionHistoryResponse,
     HandlerComplaintResponse,
 )
+
+
 from backend.auth.dependencies import (
     get_db,
     get_current_user,
@@ -42,6 +47,11 @@ class ComplaintStatusUpdate(BaseModel):
 
 class ComplaintRedirectRequest(BaseModel):
     department_id: int
+
+    reason: Literal[
+        "model_fault",
+        "further_processing",
+    ]
 
 
 def _complaint_details(db: Session, complaints: list[Complaint]):
@@ -250,76 +260,102 @@ def get_my_complaints(
 
 
 @router.patch(
-    "/handler/complaints/{complaint_id}/status",
-    response_model=ComplaintDetailResponse
-)
-def update_handler_complaint_status(
-    complaint_id: int,
-    update: ComplaintStatusUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("department_handler"))
-):
-    if update.status not in {"pending", "followed_up", "processed"}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Status must be pending, followed_up, or processed"
-        )
-
-    complaint = _handler_complaint(db, complaint_id, current_user)
-    complaint.status = update.status
-    complaint.handler_id = current_user.id
-    db.commit()
-    db.refresh(complaint)
-
-    return _complaint_details(db, [complaint])[0]
-
-
-@router.patch(
     "/handler/complaints/{complaint_id}/redirect",
-    response_model=ComplaintRedirectResponse
+    response_model=ComplaintRedirectResponse,
 )
 def redirect_handler_complaint(
     complaint_id: int,
     redirect: ComplaintRedirectRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("department_handler"))
+    current_user: User = Depends(
+        require_role("department_handler")
+    ),
 ):
-    complaint = _handler_complaint(db, complaint_id, current_user)
+    # A handler can redirect only a complaint assigned to their department.
+    complaint = _handler_complaint(
+        db,
+        complaint_id,
+        current_user,
+    )
 
-    # Resolve the previous department name before changing
-    prev_department = db.query(Department).filter(
+    previous_department = db.query(Department).filter(
         Department.id == complaint.department_id
     ).first()
-    prev_department_name = prev_department.name if prev_department else "Unknown"
 
-    # Resolve predicted department name
     predicted_department = db.query(Department).filter(
         Department.id == complaint.predicted_department_id
     ).first()
-    predicted_department_name = predicted_department.name if predicted_department else "Unknown"
 
     target_department = db.query(Department).filter(
         Department.id == redirect.department_id
     ).first()
+
     if target_department is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Target department not found"
+            detail="Target department not found",
         )
 
+    if target_department.id == complaint.department_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Complaint is already assigned to the target department",
+        )
+
+    previous_department_name = (
+        previous_department.name
+        if previous_department
+        else "Unknown"
+    )
+
+    predicted_department_name = (
+        predicted_department.name
+        if predicted_department
+        else "Unknown"
+    )
+
+    # Create a permanent record of this transfer.
+    redirection = ComplaintRedirection(
+        complaint_id=complaint.id,
+        from_department_id=complaint.department_id,
+        to_department_id=target_department.id,
+        redirected_by_user_id=current_user.id,
+        reason=redirect.reason,
+    )
+
+    db.add(redirection)
+
+    # Update the complaint's current assignment.
     complaint.department_id = target_department.id
     complaint.handler_id = None
     complaint.status = "pending"
-    db.commit()
+
+    # Save the history row and current assignment together.
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+        logger.exception(
+            "Failed to redirect complaint #%s",
+            complaint.id,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save complaint redirection",
+        )
+
     db.refresh(complaint)
 
-    # --- Send redirect email notification to target department ---
+    # Preserve the existing email notification workflow.
     email_sent = True
+
     try:
         send_redirect_email(
             complaint_text=complaint.complaint_text,
             complaint_id=complaint.id,
-            previous_department=prev_department_name,
+            previous_department=previous_department_name,
             new_department=target_department.name,
             predicted_department=predicted_department_name,
             confidence=complaint.confidence,
@@ -328,19 +364,93 @@ def redirect_handler_complaint(
         )
     except Exception as exc:
         email_sent = False
+
         logger.warning(
             "Complaint #%s redirected but email notification failed: %s",
             complaint.id,
             exc,
         )
 
-    result = {
+    return {
         **_complaint_details(db, [complaint])[0],
         "handler_id": complaint.handler_id,
+        "redirection_reason": redirect.reason,
         "email_sent": email_sent,
     }
 
-    return result
+@router.get(
+    "/handler/complaints/{complaint_id}/redirections",
+    response_model=list[ComplaintRedirectionHistoryResponse],
+)
+def get_handler_complaint_redirections(
+    complaint_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("department_handler")
+    ),
+):
+    # Only a handler in the complaint's current department can view its history.
+    _handler_complaint(db, complaint_id, current_user)
+
+    history = db.query(ComplaintRedirection).filter(
+        ComplaintRedirection.complaint_id == complaint_id
+    ).order_by(
+        ComplaintRedirection.created_at,
+        ComplaintRedirection.id,
+    ).all()
+
+    department_ids = {
+        department_id
+        for item in history
+        for department_id in (
+            item.from_department_id,
+            item.to_department_id,
+        )
+    }
+
+    departments = {
+        department.id: department.name
+        for department in db.query(Department).filter(
+            Department.id.in_(department_ids)
+        ).all()
+    } if department_ids else {}
+
+    actor_ids = {
+        item.redirected_by_user_id
+        for item in history
+    }
+
+    actors = {
+        user.id: user.name
+        for user in db.query(User).filter(
+            User.id.in_(actor_ids)
+        ).all()
+    } if actor_ids else {}
+
+    return [
+        {
+            "id": item.id,
+            "complaint_id": item.complaint_id,
+            "from_department_id": item.from_department_id,
+            "from_department": departments.get(
+                item.from_department_id,
+                "Unknown",
+            ),
+            "to_department_id": item.to_department_id,
+            "to_department": departments.get(
+                item.to_department_id,
+                "Unknown",
+            ),
+            "redirected_by_user_id": item.redirected_by_user_id,
+            "redirected_by_name": actors.get(
+                item.redirected_by_user_id,
+                "Unknown",
+            ),
+            "reason": item.reason,
+            "created_at": item.created_at,
+        }
+        for item in history
+    ]
 
 
 @router.get(
