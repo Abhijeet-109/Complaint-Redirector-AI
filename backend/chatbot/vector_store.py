@@ -57,7 +57,7 @@ def add_documents(file_paths):
 
     # Split text into smaller chunks
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
+        chunk_size=600,
         chunk_overlap=200
     )
 
