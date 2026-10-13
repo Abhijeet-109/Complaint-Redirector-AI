@@ -109,9 +109,13 @@ def consume_oauth_state(state):
     )
 
 
-def exchange_authorization_code(authorization_response, state):
+
+def exchange_authorization_code(code: str, state: str):
     flow = create_oauth_flow(state=state)
-    flow.fetch_token(authorization_response=authorization_response)
+
+    # Exchange the authorization code directly.
+    # The callback already validates the one-time OAuth state.
+    flow.fetch_token(code=code)
 
     credentials = flow.credentials
     save_credentials(credentials)

@@ -133,19 +133,22 @@ def drive_callback(
             detail="Invalid or expired OAuth state. Start the connection again.",
         )
 
+   
     try:
-        # Google redirects back to this exact configured callback URL.
-        from urllib.parse import urlencode
-
-        authorization_response = (
-            f"{create_oauth_flow(state=state).redirect_uri}"
-            f"?{urlencode({'code': code, 'state': state})}"
-        )
-
         exchange_authorization_code(
-            authorization_response=authorization_response,
+            code=code,
             state=state,
         )
+
+    except Exception as exc:
+        logger.exception("Google Drive OAuth callback failed")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Google Drive authorization failed. "
+                "Check the backend terminal for the actual error."
+            ),
+        ) from exc
 
     except Exception as exc:
         logger.exception("Google Drive OAuth callback failed")
