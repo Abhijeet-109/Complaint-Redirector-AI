@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -33,7 +33,7 @@ function isFolder(file) {
   return file.mimeType === DRIVE_FOLDER_MIME;
 }
 
-export function SourceConnectionsPanel({ onImportComplete }) {
+export function SourceConnectionsPanel({ onImportComplete, onShowNotice }) {
   const [status, setStatus] = useState(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState('');
@@ -52,6 +52,7 @@ export function SourceConnectionsPanel({ onImportComplete }) {
   const [importResults, setImportResults] = useState([]);
   const [importFeedback, setImportFeedback] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
+  const importInFlightRef = useRef(false);
 
   const refreshStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -197,7 +198,8 @@ export function SourceConnectionsPanel({ onImportComplete }) {
   };
 
   const importSelected = async () => {
-    if (selectedIds.size === 0 || isImporting) return;
+    if (selectedIds.size === 0 || importInFlightRef.current) return;
+    importInFlightRef.current = true;
     setIsImporting(true);
     setImportFeedback(null);
     setImportResults([]);
@@ -205,19 +207,33 @@ export function SourceConnectionsPanel({ onImportComplete }) {
       const response = await driveService.importFiles([...selectedIds]);
       const results = Array.isArray(response.results) ? response.results : [];
       setImportResults(results);
-      const hasFailure = results.some((result) => result.status === 'failed');
+      const importedCount = Number(response.imported_count) || 0;
+      const alreadyImportedCount = Number(response.already_imported_count) || 0;
+      const failedCount = results.filter((result) => result.status === 'failed').length;
+      const hasFailure = failedCount > 0;
       setImportFeedback({
         type: hasFailure ? 'error' : 'success',
-        text: `Imported ${response.imported_count ?? 0}; already imported ${response.already_imported_count ?? 0}.`,
+        text: `Imported and indexed ${importedCount}; already indexed ${alreadyImportedCount}${hasFailure ? `; ${failedCount} failed` : ''}.`,
       });
-      if ((response.imported_count || 0) > 0) {
-        await onImportComplete?.();
+      if (importedCount > 0) {
+        const listRefreshed = await onImportComplete?.();
         await loadImportStatuses();
+        const message = `${importedCount} Google Drive document${importedCount === 1 ? '' : 's'} imported and indexed successfully.`
+          + (hasFailure ? ` ${failedCount} file${failedCount === 1 ? '' : 's'} failed; see import results.` : '')
+          + (listRefreshed === false ? ' The document list could not be refreshed.' : '');
+        onShowNotice?.(message, hasFailure || listRefreshed === false ? 'warning' : 'success');
+      } else if (failedCount > 0) {
+        onShowNotice?.(`${failedCount} Google Drive file${failedCount === 1 ? '' : 's'} could not be imported. See import results.`, 'error');
+      } else if (alreadyImportedCount > 0) {
+        onShowNotice?.(`No new files were imported; ${alreadyImportedCount} document${alreadyImportedCount === 1 ? ' was' : 's were'} already indexed.`, 'info');
       }
       setSelectedIds(new Set());
     } catch (error) {
-      setImportFeedback({ type: 'error', text: error.message || 'Could not import the selected Drive files.' });
+      const message = error.message || 'Could not import the selected Drive files.';
+      setImportFeedback({ type: 'error', text: message });
+      onShowNotice?.(message, 'error');
     } finally {
+      importInFlightRef.current = false;
       setIsImporting(false);
     }
   };

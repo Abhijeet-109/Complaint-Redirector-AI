@@ -68,7 +68,10 @@ def chatbot_health():
 
 
 @router.post("/ask")
-def ask_chatbot(request: ChatRequest):
+def ask_chatbot(
+    request: ChatRequest,
+    _current_user=Depends(require_role("user")),
+):
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Question cannot be empty.")

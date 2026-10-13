@@ -3,7 +3,7 @@ import hashlib
 import json
 import os
 from collections import Counter
-
+import logging
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -11,7 +11,7 @@ from langchain_chroma import Chroma
 
 from backend.chatbot.document_loader import load_document
 
-
+logger = logging.getLogger(__name__)
 # Persistent database location
 BASE_DIR = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,6 +36,7 @@ embedding_model = HuggingFaceEmbeddings(
     model_name=EMBEDDING_MODEL_NAME
 )
 
+logger.info("Embedding model loaded")
 
 # ChromaDB
 vectorstore = Chroma(
@@ -43,9 +44,10 @@ vectorstore = Chroma(
     persist_directory=CHROMA_PATH,
     embedding_function=embedding_model
 )
+logger.info("Chromadb created")
 
 
-# Load, chunk, and store documents
+# Load, chunk, and store documents\
 def add_documents(file_paths):
 
     documents = []
@@ -139,6 +141,8 @@ def reindex_document(file_path):
         where={"source": source_name},
         include=["metadatas"],
     )
+
+    #Debug the add documets
     # Upsert first so a failed embedding operation leaves the existing index intact.
     vectorstore.add_documents(chunks, ids=ids)
     stale_ids = [stored_id for stored_id in existing.get("ids", []) if stored_id not in set(ids)]

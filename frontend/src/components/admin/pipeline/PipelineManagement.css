@@ -1263,6 +1263,18 @@
   max-width: 440px;
 }
 
+.fk-pipe-toast.success {
+  border-left-color: #8AAB78;
+}
+
+.fk-pipe-toast.warning {
+  border-left-color: var(--fk-gold, #C2A15A);
+}
+
+.fk-pipe-toast.error {
+  border-left-color: #D87869;
+}
+
 @keyframes slideInUp {
   from { transform: translateY(16px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

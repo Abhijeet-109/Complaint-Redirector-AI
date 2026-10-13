@@ -1,0 +1,77 @@
+.fk-site-footer {
+  margin-top: auto;
+  padding: 32px 44px 18px;
+  color: #F7F6F1;
+  background: #122D29;
+}
+
+.fk-site-footer-main,
+.fk-site-footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.fk-site-footer-brand {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: #FFFFFF;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+.fk-site-footer-main p {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+}
+
+.fk-site-footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.fk-site-footer-nav a {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fk-site-footer-nav a:hover,
+.fk-site-footer-nav a:focus-visible {
+  color: #C2A15A;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.fk-site-footer-bottom {
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 11px;
+}
+
+.fk-site-footer-signature {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 700px) {
+  .fk-site-footer {
+    padding: 26px 18px 16px;
+  }
+
+  .fk-site-footer-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .fk-site-footer-nav {
+    gap: 12px 18px;
+  }
+}

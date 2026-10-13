@@ -1,23 +1,12 @@
 import React, { useState } from 'react';
 import { MapPin } from 'lucide-react';
+import { CATEGORIES } from '../../data/categories';
 
 export function CategoryNav({ activeCategory, onSelectCategory }) {
   const [currentPostal, setCurrentPostal] = useState('560001 Bengaluru');
   const [isEditingPostal, setIsEditingPostal] = useState(false);
 
-  const navItems = [
-    'Home',
-    'Men',
-    'Women',
-    'Kids',
-    'Home & Living',
-    'Beauty',
-    'Electronics',
-    'Spara',
-    'Boaliss',
-    'Jr',
-    'Dvala',
-  ];
+  const navItems = ['Home', ...CATEGORIES.map((category) => category.name)];
 
   return (
     <nav className="fk-secondary-nav">

@@ -86,8 +86,10 @@ export function FeaturedCollectionBanner({ onExplore }) {
 
         <div style={{ height: '100%', position: 'relative', overflow: 'hidden' }}>
           <img
-            src="/assets/hero-lifestyle.png"
-            alt="Editorial collection lifestyle"
+            src="/assets/auth_register_bg.jpg"
+            alt="A stack of books and thoughtful reading essentials for everyday routines"
+            loading="lazy"
+            decoding="async"
             style={{
               width: '100%',
               height: '100%',

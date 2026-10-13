@@ -269,6 +269,23 @@
   font-weight: 500;
 }
 
+.hd-history-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.hd-history-header > div {
+  min-width: 0;
+}
+
+.hd-history-back {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
 .hd-table-filters {
   display: flex;
   align-items: center;
@@ -897,6 +914,13 @@
 }
 
 @media (max-width: 520px) {
+  .hd-history-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .hd-history-back {
+    align-self: flex-start;
+  }
   .hd-kpi-row {
     grid-template-columns: 1fr;
   }

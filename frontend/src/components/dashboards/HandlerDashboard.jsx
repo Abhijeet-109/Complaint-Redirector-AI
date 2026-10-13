@@ -337,7 +337,7 @@ export function HandlerDashboard({ onNavigate }) {
           ) : activeTab === 'history' ? (
             /* History Tab View */
             <div className="hd-table-panel">
-              <div className="hd-table-header">
+              <div className="hd-table-header hd-history-header">
                 <div>
                   <h2 className="hd-table-title">
                     {selectedComplaint
@@ -351,7 +351,8 @@ export function HandlerDashboard({ onNavigate }) {
                   </span>
                 </div>
                 <button
-                  className="hd-status-btn"
+                  type="button"
+                  className="hd-status-btn hd-history-back"
                   onClick={() => setActiveTab('complaints')}
                 >
                   Back to Complaints

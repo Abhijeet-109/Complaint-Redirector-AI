@@ -14,15 +14,33 @@ import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { OrdersModal } from '../components/common/OrdersModal';
+import { useAuth } from '../context/AuthContext';
+import { isCustomerRole } from '../utils/roleAccess';
+import { Footer } from '../components/layout/Footer';
+import { CATEGORIES } from '../data/categories';
 
 export function Home({ onNavigate }) {
+  const { user } = useAuth();
   const [activeCategory, setActiveCategory] = useState('Home');
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
 
   const handleSelectCategory = (catName) => {
     setActiveCategory(catName);
-    window.scrollTo({ top: 380, behavior: 'smooth' });
+    if (catName === 'Home') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const category = CATEGORIES.find((item) => item.name === catName);
+    if (category) {
+      window.requestAnimationFrame(() => {
+        document.getElementById(`fk-category-${category.id}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      });
+    }
   };
 
   const handleSelectProduct = (product) => {
@@ -71,12 +89,16 @@ export function Home({ onNavigate }) {
       {/* 11. Section F: Why Flatkart (Trust and Support) */}
       <WhyFlatkart />
 
+      <Footer onNavigate={onNavigate} />
+
       {/* 12. Floating Help / AI Assistant Widget */}
-      <ChatbotWidget
-        isOpen={isChatbotOpen}
-        onToggle={() => setIsChatbotOpen(!isChatbotOpen)}
-        onNavigate={onNavigate}
-      />
+      {(!user || isCustomerRole(user.role)) && (
+        <ChatbotWidget
+          isOpen={isChatbotOpen}
+          onToggle={() => setIsChatbotOpen(!isChatbotOpen)}
+          onNavigate={onNavigate}
+        />
+      )}
 
       {/* Drawers & Modals */}
       <CartDrawer />

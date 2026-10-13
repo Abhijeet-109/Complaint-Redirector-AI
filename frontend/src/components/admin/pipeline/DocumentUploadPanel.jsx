@@ -16,6 +16,7 @@ export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const fileInputRef = useRef(null);
+  const uploadInFlightRef = useRef(false);
 
   const processIncomingFiles = (fileList) => {
     if (isUploading || !fileList || fileList.length === 0) return;
@@ -88,23 +89,50 @@ export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
     setSelectedFiles((prev) => prev.filter((f) => f.id !== fileId));
   };
 
-  const handleUploadClick = () => {
+  const handleUploadClick = async () => {
     const files = selectedFiles.filter((file) => file.isValid && file.fileObject);
-    if (files.length === 0 || isUploading) return;
+    if (files.length === 0 || uploadInFlightRef.current) return;
 
+    uploadInFlightRef.current = true;
     setIsUploading(true);
     setUploadError('');
-    documentService.uploadDocuments(files.map((file) => file.fileObject))
-      .then((response) => {
-        const uploadedFiles = response.files || [];
-        setSelectedFiles([]);
-        onUploadComplete?.(uploadedFiles);
-        onShowNotice?.(`${uploadedFiles.length} document${uploadedFiles.length === 1 ? '' : 's'} uploaded successfully.`);
-      })
-      .catch((error) => {
-        setUploadError(error.message || 'Upload failed. Please try again.');
-      })
-      .finally(() => setIsUploading(false));
+    try {
+      const response = await documentService.uploadDocuments(files.map((file) => file.fileObject));
+      const uploadedFiles = Array.isArray(response.files) ? response.files : [];
+      const uploadedCount = Number.isInteger(response.uploaded_count)
+        ? response.uploaded_count
+        : uploadedFiles.length;
+      const errors = Array.isArray(response.errors) ? response.errors : [];
+      const rejectedLocalFiles = selectedFiles.filter((file) => !file.isValid);
+      const failedCount = Math.max(Number(response.failed_count) || 0, errors.length) + rejectedLocalFiles.length;
+      const failureDetails = [
+        ...errors.map((item) => `${item.original_name || 'File'}: ${item.message || 'Upload failed.'}`),
+        ...rejectedLocalFiles.map((file) => `${file.name}: PDF or DOCX files only.`),
+      ];
+
+      setSelectedFiles([]);
+
+      if (uploadedCount > 0) {
+        const listRefreshed = await onUploadComplete?.(uploadedFiles);
+        const message = `${uploadedCount} document${uploadedCount === 1 ? '' : 's'} uploaded successfully.`
+          + (failedCount ? ` ${failedCount} file${failedCount === 1 ? '' : 's'} failed.` : '')
+          + (listRefreshed === false ? ' The document list could not be refreshed.' : '');
+        onShowNotice?.(message, failedCount || listRefreshed === false ? 'warning' : 'success');
+      } else {
+        const message = failureDetails.join(' ') || 'No documents were uploaded successfully.';
+        setUploadError(message);
+        onShowNotice?.(message, 'error');
+      }
+
+      if (failureDetails.length > 0) setUploadError(failureDetails.join(' '));
+    } catch (error) {
+      const message = error.message || 'Upload failed. Please try again.';
+      setUploadError(message);
+      onShowNotice?.(message, 'error');
+    } finally {
+      uploadInFlightRef.current = false;
+      setIsUploading(false);
+    }
   };
 
   return (

@@ -1,14 +1,38 @@
-import React, { useState } from 'react';
-import { ShoppingCart, Eye, EyeOff, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ShoppingCart, Eye, EyeOff, ArrowLeft, AlertCircle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { LOGIN_SLIDES } from '../data/loginSlides';
 
 export function Login({ onNavigate }) {
   const { login } = useAuth();
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [isSliderPaused, setIsSliderPaused] = useState(false);
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotionPreference = () => setPrefersReducedMotion(motionPreference.matches);
+    updateMotionPreference();
+    motionPreference.addEventListener?.('change', updateMotionPreference);
+    return () => motionPreference.removeEventListener?.('change', updateMotionPreference);
+  }, []);
+
+  useEffect(() => {
+    if (prefersReducedMotion || isSliderPaused) return undefined;
+    const interval = window.setInterval(() => {
+      setActiveSlide((current) => (current + 1) % LOGIN_SLIDES.length);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [isSliderPaused, prefersReducedMotion]);
+
+  const moveSlide = (direction) => {
+    setActiveSlide((current) => (current + direction + LOGIN_SLIDES.length) % LOGIN_SLIDES.length);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -76,12 +100,45 @@ export function Login({ onNavigate }) {
       <main className="fk-login-main-section">
         <div className="fk-login-card-container">
           {/* Left Column: High-Resolution Aesthetic Lifestyle Image */}
-          <div className="fk-login-image-column">
-            <img
-              src="/assets/login_rich_1.jpg"
-              alt="Flatkart everyday lifestyle essentials"
-              className="fk-login-lifestyle-img"
-            />
+          <div
+            className="fk-login-image-column"
+            role="region"
+            aria-roledescription="carousel"
+            aria-label="Flatkart shopping highlights"
+            onMouseEnter={() => setIsSliderPaused(true)}
+            onMouseLeave={() => setIsSliderPaused(false)}
+            onFocusCapture={() => setIsSliderPaused(true)}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setIsSliderPaused(false);
+            }}
+          >
+            {LOGIN_SLIDES.map((slide, index) => (
+              <img
+                key={slide.src}
+                src={slide.src}
+                alt={index === activeSlide ? slide.alt : ''}
+                aria-hidden={index !== activeSlide}
+                className={`fk-login-lifestyle-img fk-login-slide${index === activeSlide ? ' is-active' : ''}`}
+              />
+            ))}
+            <button type="button" className="fk-login-slide-arrow previous" onClick={() => moveSlide(-1)} aria-label="Show previous image">
+              <ChevronLeft size={20} />
+            </button>
+            <button type="button" className="fk-login-slide-arrow next" onClick={() => moveSlide(1)} aria-label="Show next image">
+              <ChevronRight size={20} />
+            </button>
+            <div className="fk-login-slide-dots" aria-label="Choose an image">
+              {LOGIN_SLIDES.map((slide, index) => (
+                <button
+                  key={slide.src}
+                  type="button"
+                  className={`fk-login-slide-dot${index === activeSlide ? ' is-active' : ''}`}
+                  onClick={() => setActiveSlide(index)}
+                  aria-label={`Show image ${index + 1} of ${LOGIN_SLIDES.length}`}
+                  aria-current={index === activeSlide ? 'true' : undefined}
+                />
+              ))}
+            </div>
           </div>
 
           {/* Right Column: Balanced Form Box */}

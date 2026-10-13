@@ -23,7 +23,11 @@ from backend.chatbot.vector_store import (
 )
 from backend.auth.dependencies import require_role
 
-router = APIRouter(prefix="/documents", tags=["Documents"])
+router = APIRouter(
+    prefix="/documents",
+    tags=["Documents"],
+    dependencies=[Depends(require_role("super_admin"))],
+)
 logger = logging.getLogger("flatkart.documents")
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -67,6 +71,7 @@ async def upload_documents(
         raise HTTPException(status_code=400, detail="No files selected.")
 
     uploaded_files = []
+    failed_files = []
     manifest = read_manifest()
 
     for file in files:
@@ -76,11 +81,12 @@ async def upload_documents(
 
         if extension not in ALLOWED_EXTENSIONS:
             await file.close()
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type: {original_name}. "
-                       "Upload PDF or DOCX only."
-            )
+            failed_files.append({
+                "original_name": original_name or "Unnamed file",
+                "status": "failed",
+                "message": "Unsupported file type. Upload PDF or DOCX only.",
+            })
+            continue
 
         stored_name = f"{uuid.uuid4().hex}{extension}"
         destination = UPLOAD_DIR / stored_name
@@ -99,19 +105,41 @@ async def upload_documents(
                 "status": "saved",
                 "chunks": 0,
             }
+        except Exception:
+            logger.exception("Could not save uploaded document %s", original_name)
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError:
+                logger.exception("Could not remove incomplete upload %s", destination)
+            failed_files.append({
+                "original_name": original_name or "Unnamed file",
+                "status": "failed",
+                "message": "Could not save this document.",
+            })
         finally:
             await file.close()
 
-    try:
-        save_manifest(manifest)
-    except OSError as exc:
-        logger.exception("Could not save uploaded document metadata")
-        raise HTTPException(status_code=500, detail="Documents were uploaded but their metadata could not be saved.") from exc
+    if uploaded_files:
+        try:
+            save_manifest(manifest)
+        except OSError as exc:
+            logger.exception("Could not save uploaded document metadata")
+            for item in uploaded_files:
+                try:
+                    (UPLOAD_DIR / item["stored_name"]).unlink(missing_ok=True)
+                except OSError:
+                    logger.exception("Could not roll back upload %s", item["stored_name"])
+            raise HTTPException(
+                status_code=500,
+                detail="Documents could not be saved because their metadata was unavailable.",
+            ) from exc
 
     return {
         "message": "Documents saved. They have not been indexed.",
         "uploaded_count": len(uploaded_files),
-        "files": uploaded_files
+        "failed_count": len(failed_files),
+        "files": uploaded_files,
+        "errors": failed_files,
     }
 
 

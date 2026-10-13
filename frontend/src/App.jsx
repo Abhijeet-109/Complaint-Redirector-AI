@@ -8,6 +8,7 @@ import { MyComplaints } from './pages/MyComplaints';
 import { HandlerDashboardPage } from './pages/HandlerDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { SuperAdminDashboardPage } from './pages/SuperAdminDashboardPage';
+import { resolveAuthorizedPage } from './utils/roleAccess';
 
 function AppContent() {
   const { user, isAuthenticated, loading } = useAuth();
@@ -56,65 +57,43 @@ function AppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Auth guards & role-aware redirects
+  const authorizedPage = resolveAuthorizedPage(currentPage, user?.role, isAuthenticated);
+
+  // Keep the address bar in sync with the page allowed by the authenticated role.
   useEffect(() => {
-    if (!loading) {
-      const protectedPages = [
-        'my-complaints',
-        'handler-dashboard',
-        'admin-dashboard',
-        'super-admin-dashboard',
-      ];
+    if (!loading && authorizedPage !== currentPage) navigateTo(authorizedPage);
+  }, [loading, authorizedPage, currentPage, navigateTo]);
 
-      // If unauthenticated trying to access protected dashboards
-      if (protectedPages.includes(currentPage) && !isAuthenticated) {
-        navigateTo('login');
-        return;
-      }
+  // Do not render role-specific pages while the server is validating saved auth state.
+  if (loading) {
+    return (
+      <main className="fk-app-loading" role="status" aria-live="polite">
+        Loading your Flatkart account…
+      </main>
+    );
+  }
 
-      if (isAuthenticated && user?.role) {
-        if (user.role === 'super_admin') {
-          if (['my-complaints', 'handler-dashboard', 'admin-dashboard'].includes(currentPage)) {
-            navigateTo('super-admin-dashboard');
-          }
-        } else if (user.role === 'admin') {
-          if (['my-complaints', 'handler-dashboard', 'super-admin-dashboard'].includes(currentPage)) {
-            navigateTo('admin-dashboard');
-          }
-        } else if (user.role === 'department_handler') {
-          if (['my-complaints', 'admin-dashboard', 'super-admin-dashboard'].includes(currentPage)) {
-            navigateTo('handler-dashboard');
-          }
-        } else if (user.role === 'user') {
-          if (['handler-dashboard', 'admin-dashboard', 'super-admin-dashboard'].includes(currentPage)) {
-            navigateTo('my-complaints');
-          }
-        }
-      }
-    }
-  }, [loading, currentPage, isAuthenticated, user]);
-
-  if (currentPage === 'login') {
+  if (authorizedPage === 'login') {
     return <Login onNavigate={navigateTo} />;
   }
 
-  if (currentPage === 'register') {
+  if (authorizedPage === 'register') {
     return <Register onNavigate={navigateTo} />;
   }
 
-  if (currentPage === 'my-complaints') {
+  if (authorizedPage === 'my-complaints') {
     return <MyComplaints onNavigate={navigateTo} />;
   }
 
-  if (currentPage === 'handler-dashboard') {
+  if (authorizedPage === 'handler-dashboard') {
     return <HandlerDashboardPage onNavigate={navigateTo} />;
   }
 
-  if (currentPage === 'admin-dashboard') {
+  if (authorizedPage === 'admin-dashboard') {
     return <AdminDashboardPage onNavigate={navigateTo} />;
   }
 
-  if (currentPage === 'super-admin-dashboard') {
+  if (authorizedPage === 'super-admin-dashboard') {
     return <SuperAdminDashboardPage onNavigate={navigateTo} />;
   }
 

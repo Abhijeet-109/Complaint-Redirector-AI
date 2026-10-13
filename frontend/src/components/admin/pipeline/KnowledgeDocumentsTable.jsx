@@ -111,12 +111,12 @@ export function KnowledgeDocumentsTable({
         <table className="fk-pipe-table">
           <thead><tr>
             <th style={{ width: '40px', textAlign: 'center' }}><button type="button" className="fk-pipe-select-all" onClick={toggleSelectAll} title="Select all" aria-label="Select all documents">{allFilteredSelected ? <CheckSquare size={16} /> : <Square size={16} />}</button></th>
-            <th>Document</th><th>Source</th><th>Type / Size</th><th>Index Status</th><th>Chunks</th><th>Updated</th><th>Actions</th>
+            <th>Document</th><th>Source</th><th>Type / Size</th><th>Index Status</th><th>Chunks</th><th>Actions</th>
           </tr></thead>
           <tbody>
-            {isLoading ? <tr><td colSpan={8} className="fk-pipe-empty-table-msg">Loading documents…</td></tr>
-              : loadError ? <tr><td colSpan={8} role="alert" className="fk-pipe-empty-table-msg">{loadError}</td></tr>
-                : filteredDocuments.length === 0 ? <tr><td colSpan={8} className="fk-pipe-empty-table-msg">No uploaded documents match the selected filters.</td></tr>
+            {isLoading ? <tr><td colSpan={7} className="fk-pipe-empty-table-msg">Loading documents…</td></tr>
+              : loadError ? <tr><td colSpan={7} role="alert" className="fk-pipe-empty-table-msg">{loadError}</td></tr>
+                : filteredDocuments.length === 0 ? <tr><td colSpan={7} className="fk-pipe-empty-table-msg">No uploaded documents match the selected filters.</td></tr>
                   : filteredDocuments.map((doc) => {
                     const selected = selectedIds.has(doc.id);
                     return <tr key={doc.id} style={{ backgroundColor: selected ? '#FAF7F0' : undefined }}>
@@ -124,7 +124,7 @@ export function KnowledgeDocumentsTable({
                       <td><div className="fk-pipe-doc-cell"><strong className="fk-pipe-doc-title">{doc.name}</strong><span className="fk-pipe-doc-sub">{doc.stored_name}</span></div></td>
                       <td>{doc.source}</td><td>{doc.type} · {doc.size}</td>
                       <td><span className={`fk-pipe-index-status ${doc.indexStatus === 'indexed' ? 'is-indexed' : 'is-not-indexed'}${doc.indexError ? ' has-error' : ''}`} title={doc.indexError || undefined}>{doc.indexLabel}</span></td>
-                      <td>{doc.chunks}</td><td>—</td>
+                      <td>{doc.chunks}</td>
                       <td><div className="fk-pipe-actions-cell">
                         {doc.indexStatus !== 'indexed' && <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], false)} disabled={isIndexing}>Index</button>}
                         <button type="button" className="fk-pipe-action-btn danger" onClick={() => onOpenDelete?.([doc])} disabled={isIndexing}>Delete</button>

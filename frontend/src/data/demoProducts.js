@@ -59,7 +59,7 @@ export const TRENDING_PRODUCTS = [
     rawPrice: 2199,
     subtext: 'Pure Linen &bull; Regular fit',
     priceColor: 'coral',
-    image: '/assets/cat_men_hi.jpg',
+    image: '/assets/cat_men.png',
     department: 'Product & Quality',
   },
   {
@@ -83,7 +83,7 @@ export const TRENDING_PRODUCTS = [
     rawPrice: 899,
     subtext: 'Cold-pressed organic',
     priceColor: 'coral',
-    image: '/assets/cat_beauty_hi.jpg',
+    image: '/assets/cat_beauty.png',
     department: 'Order & Delivery',
   },
   {
@@ -146,7 +146,7 @@ export const FRESH_ARRIVALS = [
     rawPrice: 2899,
     subtext: '100% Cotton non-stretch',
     priceColor: 'ochre',
-    image: '/assets/prod_roadster_hi.jpg',
+    image: '/assets/cat_men_hi.jpg',
     department: 'Order & Delivery',
   },
 ];

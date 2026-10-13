@@ -1,0 +1,183 @@
+"""Focused API authorization tests for customer chat and Knowledge Operations."""
+
+import importlib
+import os
+import sys
+import types
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+os.environ.setdefault("DATABASE_URL", "sqlite://")
+
+# Keep these route tests independent of model downloads and persistent ChromaDB.
+_stubs = {
+    "backend.chatbot.answer_pipeline": types.ModuleType("backend.chatbot.answer_pipeline"),
+    "backend.chatbot.vector_store": types.ModuleType("backend.chatbot.vector_store"),
+}
+_stubs["backend.chatbot.answer_pipeline"].answer_question = lambda question: {
+    "answer": "Test answer",
+    "sources": [],
+}
+_vector_store = _stubs["backend.chatbot.vector_store"]
+_vector_store.add_documents = lambda paths: 1
+_vector_store.delete_document_vectors = lambda name: None
+_vector_store.get_document_chunk_count = lambda name: 0
+_vector_store.reindex_document = lambda path: 1
+_vector_store.COLLECTION_NAME = "test_documents"
+_vector_store.EMBEDDING_MODEL_NAME = "test_embeddings"
+_vector_store.CHUNK_SIZE = 600
+_vector_store.CHUNK_OVERLAP = 200
+_vector_store.CHROMA_PATH = "test_chroma"
+
+_module_names = (
+    "backend.chatbot.answer_pipeline",
+    "backend.chatbot.vector_store",
+)
+_previous_modules = {name: sys.modules.get(name) for name in _module_names}
+sys.modules.update(_stubs)
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from backend.auth.dependencies import get_current_user
+
+_chatbot = importlib.import_module("backend.api.routes.chatbot")
+_documents = importlib.import_module("backend.api.routes.documents")
+_drive = importlib.import_module("backend.api.routes.drive")
+
+for _name, _previous in _previous_modules.items():
+    if _previous is None:
+        sys.modules.pop(_name, None)
+    else:
+        sys.modules[_name] = _previous
+
+# Allow later tests or application imports to load the real route modules.
+for _name in (
+    "backend.api.routes.chatbot",
+    "backend.api.routes.documents",
+    "backend.api.routes.drive",
+):
+    sys.modules.pop(_name, None)
+
+app = FastAPI()
+app.include_router(_chatbot.router)
+app.include_router(_documents.router)
+app.include_router(_drive.router)
+
+
+class CustomerRoleAccessTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        app.dependency_overrides.clear()
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+
+    def _as_role(self, role):
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role=role)
+
+    def test_only_customers_can_call_customer_chat(self):
+        with patch.object(_chatbot, "answer_question", return_value={"answer": "Test answer", "sources": []}), \
+                patch.object(_chatbot, "_record_telemetry"):
+            for role in ("department_handler", "admin", "super_admin"):
+                with self.subTest(role=role):
+                    self._as_role(role)
+                    response = self.client.post("/chatbot/ask", json={"question": "Where is my order?"})
+                    self.assertEqual(response.status_code, 403)
+
+            self._as_role("user")
+            response = self.client.post("/chatbot/ask", json={"question": "Where is my order?"})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["answer"], "Test answer")
+
+    def test_missing_authentication_is_rejected_for_chat_and_pipeline_routes(self):
+        app.dependency_overrides.clear()
+        chat_response = self.client.post(
+            "/chatbot/ask",
+            json={"question": "Where is my order?"},
+        )
+        documents_response = self.client.get("/documents")
+        self.assertIn(chat_response.status_code, (401, 403))
+        self.assertIn(documents_response.status_code, (401, 403))
+
+    def test_customer_roles_cannot_read_or_mutate_pipeline_documents(self):
+        requests = (
+            ("get", "/documents", None),
+            ("post", "/documents/upload", {"files": [("files", ("policy.pdf", b"%PDF-test", "application/pdf"))]}),
+            ("post", "/documents/index", {"json": {"stored_names": ["a" * 32 + ".pdf"]}}),
+            ("post", "/documents/delete", {"json": {"stored_names": ["a" * 32 + ".pdf"]}}),
+            ("get", "/documents/config", None),
+        )
+        for role in ("user", "department_handler", "admin"):
+            for method, path, kwargs in requests:
+                with self.subTest(role=role, method=method, path=path):
+                    self._as_role(role)
+                    response = getattr(self.client, method)(path, **(kwargs or {}))
+                    self.assertEqual(response.status_code, 403)
+
+    def test_super_admin_can_use_knowledge_operations_document_apis(self):
+        self._as_role("super_admin")
+        upload_dir = Path(__file__).resolve().parent / ".test_uploads"
+        upload_dir.mkdir(exist_ok=True)
+        for old_file in upload_dir.iterdir():
+            if old_file.is_file():
+                old_file.unlink()
+        try:
+            manifest_path = upload_dir / "manifest.json"
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "get_document_chunk_count", return_value=0), \
+                    patch.object(_documents, "add_documents", return_value=2):
+                upload = self.client.post(
+                    "/documents/upload",
+                    files=[
+                        ("files", ("guide.pdf", b"%PDF-test", "application/pdf")),
+                        ("files", ("notes.txt", b"not supported", "text/plain")),
+                    ],
+                )
+                self.assertEqual(upload.status_code, 200)
+                self.assertEqual(upload.json()["uploaded_count"], 1)
+                self.assertEqual(upload.json()["failed_count"], 1)
+
+                listing = self.client.get("/documents")
+                self.assertEqual(listing.status_code, 200)
+                stored_name = upload.json()["files"][0]["stored_name"]
+
+                indexed = self.client.post(
+                    "/documents/index",
+                    json={"stored_names": [stored_name]},
+                )
+                self.assertEqual(indexed.status_code, 200)
+                self.assertEqual(indexed.json()["results"][0]["status"], "indexed")
+
+                deleted = self.client.post(
+                    "/documents/delete",
+                    json={"stored_names": [stored_name]},
+                )
+                self.assertEqual(deleted.status_code, 200)
+                self.assertEqual(deleted.json()["results"][0]["status"], "deleted")
+
+                config = self.client.get("/documents/config")
+                self.assertEqual(config.status_code, 200)
+        finally:
+            for test_file in upload_dir.iterdir():
+                if test_file.is_file():
+                    test_file.unlink()
+
+    def test_only_super_admin_can_access_drive_management(self):
+        for role in ("user", "department_handler", "admin"):
+            with self.subTest(role=role):
+                self._as_role(role)
+                response = self.client.get("/drive/status")
+                self.assertEqual(response.status_code, 403)
+
+        self._as_role("super_admin")
+        with patch.object(_drive, "get_connection_status", return_value={"connected": False}):
+            response = self.client.get("/drive/status")
+        self.assertEqual(response.status_code, 200)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -49,8 +49,8 @@ export function PipelineManagementView() {
     }
   }, [notice]);
 
-  const showNotice = useCallback((message) => {
-    setNotice(message);
+  const showNotice = useCallback((message, type = 'info') => {
+    setNotice({ message, type });
   }, []);
 
   const refreshDocuments = useCallback(async () => {
@@ -92,7 +92,7 @@ export function PipelineManagementView() {
 
   const handleUploadComplete = async () => {
     const refreshed = await refreshDocuments();
-    if (!refreshed) showNotice('Upload succeeded, but the document list could not be refreshed.');
+    return Boolean(refreshed);
   };
 
   // Handlers for modal interactions
@@ -176,7 +176,7 @@ export function PipelineManagementView() {
           {/* Row 2: Document Upload & Source Connections */}
           <div className="fk-pipe-split-row">
             <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
-            <SourceConnectionsPanel onImportComplete={handleUploadComplete} />
+            <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} />
           </div>
 
           {/* Row 3: Knowledge Documents Table */}
@@ -283,7 +283,7 @@ export function PipelineManagementView() {
             <>
               <div className="fk-pipe-split-row">
                 <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
-                <SourceConnectionsPanel onImportComplete={handleUploadComplete} />
+                <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} />
               </div>
 
               <KnowledgeDocumentsTable
@@ -327,9 +327,9 @@ export function PipelineManagementView() {
 
       {/* 7. Notification Toast */}
       {notice && (
-        <div className="fk-pipe-toast" role="status" aria-live="polite">
+        <div className={`fk-pipe-toast ${notice.type}`} role={notice.type === 'error' ? 'alert' : 'status'} aria-live={notice.type === 'error' ? 'assertive' : 'polite'}>
           <Info size={17} color="var(--fk-gold, #C2A15A)" flexShrink={0} />
-          <span style={{ flex: 1 }}>{notice}</span>
+          <span style={{ flex: 1 }}>{notice.message}</span>
           <button
             type="button"
             className="fk-pipe-toast-close"

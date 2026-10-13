@@ -1,32 +1,32 @@
 {
-  "2b02828699d44da7824761551159b0fd.pdf": {
+  "c049f47bc7ea402592226626da3e8c6c.pdf": {
     "original_name": "01_Privacy_Policy.pdf",
     "status": "indexed",
     "chunks": 3,
-    "error": null
+    "error": null,
+    "source": "google_drive",
+    "drive_file_id": "1SWhj3wuF51b-4Ox4hrBygHQpLMDoVUn2",
+    "drive_mime_type": "application/pdf",
+    "modified_time": "2026-10-13T05:28:32.714Z"
   },
-  "9bbdee69d83d4aaa8e99ebd389a08dc6.pdf": {
+  "1ea75d99eb034236a1b2d869e4d1c00a.pdf": {
     "original_name": "02_Terms_and_Conditions.pdf",
     "status": "indexed",
     "chunks": 3,
-    "error": null
+    "error": null,
+    "source": "google_drive",
+    "drive_file_id": "14FaC0RNg72xSxTymaDZWMw4DaaQJKGa_",
+    "drive_mime_type": "application/pdf",
+    "modified_time": "2026-10-13T05:28:32.733Z"
   },
-  "bf75533d59c74fd79f13e02fd750276e.pdf": {
+  "9fb5a32941a549ce8b3eb8322ad3b607.pdf": {
     "original_name": "03_Return_and_Replacement_Policy.pdf",
     "status": "indexed",
     "chunks": 3,
-    "error": null
-  },
-  "189380f4f2ca4e83bf2f84a0857cbbf3.pdf": {
-    "original_name": "04_Refund_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "error": null
-  },
-  "43749b35aee64a2f9bb8353cdbe53d7c.pdf": {
-    "original_name": "05_Shipping_and_Delivery_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "error": null
+    "error": null,
+    "source": "google_drive",
+    "drive_file_id": "1neUkGUDjhnSFUdj2dqrIgPZY0c8AOhml",
+    "drive_mime_type": "application/pdf",
+    "modified_time": "2026-10-13T05:28:32.744Z"
   }
 }

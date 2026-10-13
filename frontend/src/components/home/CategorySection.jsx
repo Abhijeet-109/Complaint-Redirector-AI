@@ -9,6 +9,7 @@ export function CategorySection({ onSelectCategory }) {
         {CATEGORIES.map((cat) => (
           <div
             key={cat.id}
+            id={`fk-category-${cat.id}`}
             className="fk-category-card"
             onClick={() => onSelectCategory && onSelectCategory(cat.name)}
           >
