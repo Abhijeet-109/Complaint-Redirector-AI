@@ -1,6 +1,7 @@
 import logging
 import os
 import smtplib
+from html import escape
 
 from email.message import EmailMessage
 from dotenv import load_dotenv
@@ -73,6 +74,11 @@ def send_complaint_email(
 
     sender, password, smtp_server, smtp_port = _smtp_config()
 
+    safe_department = escape(str(department))
+    safe_user_name = escape(str(user_name or ""))
+    safe_user_email = escape(str(user_email or ""))
+    safe_complaint = escape(str(complaint)).replace("\n", "<br>")
+
     message = EmailMessage()
 
     message["Subject"] = (
@@ -116,13 +122,13 @@ FlatKart Complaint Redirector
             customer_rows += f"""
                 <tr>
                   <td style="padding-bottom: 12px; color: #64748b; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; width: 45%;">Customer Name</td>
-                  <td style="padding-bottom: 12px; color: #111827; font-size: 15px; font-weight: 600;">{user_name}</td>
+                  <td style="padding-bottom: 12px; color: #111827; font-size: 15px; font-weight: 600;">{safe_user_name}</td>
                 </tr>"""
         if user_email:
             customer_rows += f"""
                 <tr>
                   <td style="padding-bottom: 12px; color: #64748b; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; width: 45%;">Customer Email</td>
-                  <td style="padding-bottom: 12px; color: #111827; font-size: 15px; font-weight: 600;">{user_email}</td>
+                  <td style="padding-bottom: 12px; color: #111827; font-size: 15px; font-weight: 600;">{safe_user_email}</td>
                 </tr>"""
         customer_html = f"""
             <div style="background-color: #f8fafc; border-radius: 12px; padding: 24px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
@@ -160,7 +166,7 @@ FlatKart Complaint Redirector
                 {complaint_id_html}
                 <tr>
                   <td style="padding-bottom: 16px; color: #64748b; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; width: 45%;">Target Department</td>
-                  <td style="padding-bottom: 16px; color: #111827; font-size: 16px; font-weight: 700;">{department}</td>
+                  <td style="padding-bottom: 16px; color: #111827; font-size: 16px; font-weight: 700;">{safe_department}</td>
                 </tr>
                 <tr>
                   <td style="color: #64748b; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">AI Confidence</td>
@@ -178,7 +184,7 @@ FlatKart Complaint Redirector
             </div>
             
             <div style="background-color: #ffffff; padding: 20px 24px; color: #334155; font-size: 15px; line-height: 1.6; border-radius: 12px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); border: 1px solid #e2e8f0; border-left-width: 4px; border-left-color: #3b82f6;">
-              {complaint}
+              {safe_complaint}
             </div>
             
           </div>

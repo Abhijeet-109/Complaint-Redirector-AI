@@ -43,6 +43,7 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 seed_super_admin.py
+!backend/Database/seed_super_admin.py
 
 # Node.js and Frontend
 node_modules/
@@ -50,7 +51,8 @@ dist/
 build/
 *.timestamp-*.mjs
 package-lock.json
-Docs
+Docs/*
+!Docs/security_hardening_progress.md
 backend\uploads
 # Google Drive OAuth credentials and state
 /backend/data/

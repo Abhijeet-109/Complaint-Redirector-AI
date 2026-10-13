@@ -8,6 +8,7 @@ from docx import Document as WordDocument
 from pypdf import PdfReader
 from pdf2image import convert_from_path
 from PIL import Image
+from backend.chatbot.document_validation import MAX_PDF_PAGES
 
 
 def load_document(file_path):
@@ -22,6 +23,11 @@ def load_document(file_path):
 
         reader = PdfReader(file_path)
         pages = reader.pages
+
+        if len(pages) > MAX_PDF_PAGES:
+            raise ValueError(
+                f"PDF exceeds the {MAX_PDF_PAGES}-page processing limit"
+            )
 
         # Extract text from every PDF page
         page_texts = [

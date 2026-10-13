@@ -1,11 +1,4 @@
 {
-  "26d63796416448a5bef30b6b2720c554.pdf": {
-    "original_name": "01_Privacy_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "source": "local_upload",
-    "error": null
-  },
   "a6d03f64704a4c018002825537ccc46b.pdf": {
     "original_name": "02_Terms_and_Conditions.pdf",
     "status": "indexed",
@@ -32,5 +25,12 @@
     "drive_file_id": "1joEeNI_geDWbFqiJLle50QF_wDzdpb7u",
     "drive_mime_type": "application/pdf",
     "modified_time": "2026-10-13T05:28:32.754Z"
+  },
+  "794f47f6cccc4f8083c4967d228d9c5b.pdf": {
+    "original_name": "06_Cancellation_Policy.pdf",
+    "status": "indexed",
+    "chunks": 3,
+    "source": "local_upload",
+    "error": null
   }
 }

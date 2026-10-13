@@ -38,7 +38,7 @@ export function TrendingNow({ onSelectProduct }) {
               <div className={`fk-product-price ${product.priceColor}`}>
                 {product.price}
               </div>
-              <div className="fk-product-subtext" dangerouslySetInnerHTML={{ __html: product.subtext }} />
+              <div className="fk-product-subtext">{product.subtext}</div>
             </div>
           </div>
         ))}

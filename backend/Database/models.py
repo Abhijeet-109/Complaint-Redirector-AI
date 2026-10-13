@@ -74,6 +74,17 @@ class User(Base):
     )
 
 
+class LoginThrottle(Base):
+    """Persistent, hashed-identity counters for failed login protection."""
+
+    __tablename__ = "login_throttles"
+
+    scope = Column(String(16), primary_key=True)
+    identity_digest = Column(String(64), primary_key=True)
+    failure_count = Column(Integer, nullable=False, default=0)
+    window_started_at = Column(DateTime, nullable=False, server_default=func.now())
+    locked_until = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
 class Complaint(Base):

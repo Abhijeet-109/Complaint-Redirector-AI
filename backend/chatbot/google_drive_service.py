@@ -12,6 +12,10 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
+from backend.chatbot.document_validation import (
+    MAX_DOCUMENT_BYTES,
+    validate_document_file,
+)
 
 
 logger = logging.getLogger("flatkart.google_drive")
@@ -105,8 +109,8 @@ def consume_oauth_state(state):
         states = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         if not isinstance(states, dict):
             return None
-    except (json.JSONDecodeError, OSError):
-        logger.exception("Could not read Google OAuth state file")
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Could not read Google OAuth state file (%s)", type(exc).__name__)
         return None
 
     item = states.pop(state, None)
@@ -116,8 +120,8 @@ def consume_oauth_state(state):
     try:
         temporary_file.write_text(json.dumps(states), encoding="utf-8")
         temporary_file.replace(STATE_FILE)
-    except OSError:
-        logger.exception("Could not update Google OAuth state file")
+    except OSError as exc:
+        logger.error("Could not update Google OAuth state file (%s)", type(exc).__name__)
         return None
 
     if not isinstance(item, dict):
@@ -176,16 +180,16 @@ def load_credentials():
             str(TOKEN_FILE),
             SCOPES,
         )
-    except (ValueError, OSError):
-        logger.exception("Could not load Google Drive credentials")
+    except (ValueError, OSError) as exc:
+        logger.error("Could not load Google Drive credentials (%s)", type(exc).__name__)
         return None
 
     if credentials.expired and credentials.refresh_token:
         try:
             credentials.refresh(Request())
             save_credentials(credentials)
-        except Exception:
-            logger.exception("Could not refresh Google Drive credentials")
+        except Exception as exc:
+            logger.error("Could not refresh Google Drive credentials (%s)", type(exc).__name__)
             return None
 
     if not credentials.valid:
@@ -284,6 +288,9 @@ def download_drive_file(file_id, destination):
 
     mime_type = metadata.get("mimeType", "")
     original_name = metadata.get("name", "drive_document")
+    declared_size = metadata.get("size")
+    if declared_size is not None and int(declared_size) > MAX_DOCUMENT_BYTES:
+        raise ValueError("The Drive file exceeds the 25 MB limit.")
 
     request = _download_request(service, file_id, mime_type)
 
@@ -298,8 +305,15 @@ def download_drive_file(file_id, destination):
     done = False
     while not done:
         _, done = downloader.next_chunk()
+        if buffer.tell() > MAX_DOCUMENT_BYTES:
+            raise ValueError("The Drive file exceeds the 25 MB limit.")
 
     destination.write_bytes(buffer.getvalue())
+    try:
+        validate_document_file(destination)
+    except ValueError:
+        destination.unlink(missing_ok=True)
+        raise
 
     return {
         "stored_name": destination.name,

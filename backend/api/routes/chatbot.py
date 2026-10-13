@@ -47,19 +47,25 @@ def _record_telemetry(question, outcome, latency_ms, sources=None, fallback=Fals
             )),
         ))
         db.commit()
-    except Exception:
+    except Exception as exc:
         if db is not None:
             try:
                 db.rollback()
-            except Exception:
-                logger.exception("Could not roll back chatbot telemetry session")
-        logger.exception("Could not persist chatbot telemetry event")
+            except Exception as rollback_exc:
+                logger.error(
+                    "Could not roll back chatbot telemetry session (%s)",
+                    type(rollback_exc).__name__,
+                )
+        logger.error("Could not persist chatbot telemetry event (%s)", type(exc).__name__)
     finally:
         if db is not None:
             try:
                 db.close()
-            except Exception:
-                logger.exception("Could not close chatbot telemetry database session")
+            except Exception as close_exc:
+                logger.error(
+                    "Could not close chatbot telemetry database session (%s)",
+                    type(close_exc).__name__,
+                )
 
 
 @router.get("/health")
@@ -120,10 +126,10 @@ def chatbot_performance(
             ChatbotTelemetry.created_at.desc(), ChatbotTelemetry.id.desc()
         ).offset(offset).limit(limit).all()
     except SQLAlchemyError as exc:
-        logger.exception("Could not load chatbot performance telemetry")
+        logger.error("Could not load chatbot performance telemetry (%s)", type(exc).__name__)
         raise HTTPException(
             status_code=503,
-            detail="Chatbot telemetry storage is unavailable. Check the database connection and chatbot_telemetry table.",
+            detail="Chatbot telemetry storage is unavailable.",
         ) from exc
     return {
         "range_days": 30,

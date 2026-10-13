@@ -24,10 +24,13 @@ export const authService = {
       return await apiRequest('/api/auth/me', {
         method: 'GET',
       });
-    } catch {
-      return await apiRequest('/api/v1/test/me', {
-        method: 'GET',
-      });
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        return await apiRequest('/api/v1/test/me', {
+          method: 'GET',
+        });
+      }
+      throw error;
     }
   },
 

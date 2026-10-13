@@ -107,7 +107,7 @@ def connect_drive(
         }
 
     except Exception as exc:
-        logger.exception("Could not start Google Drive OAuth")
+        logger.error("Could not start Google Drive OAuth (%s)", type(exc).__name__)
         raise HTTPException(
             status_code=500,
             detail="Could not start Google Drive connection.",
@@ -121,9 +121,10 @@ def drive_callback(
     error: str | None = None,
 ):
     if error:
+        logger.warning("Google Drive authorization was declined or failed")
         raise HTTPException(
             status_code=400,
-            detail=f"Google authorization failed: {error}",
+            detail="Google authorization was not completed.",
         )
 
     if not code or not state:
@@ -149,7 +150,10 @@ def drive_callback(
         )
 
     except Exception as exc:
-        logger.exception("Google Drive OAuth callback failed")
+        logger.error(
+            "Google Drive OAuth callback failed (%s)",
+            type(exc).__name__,
+        )
         raise HTTPException(
             status_code=400,
             detail=(
@@ -181,11 +185,11 @@ def drive_files(
     except RuntimeError as exc:
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
+            detail="Google Drive could not complete the requested operation.",
         ) from exc
 
     except Exception as exc:
-        logger.exception("Could not list Google Drive files")
+        logger.error("Could not list Google Drive files (%s)", type(exc).__name__)
         raise HTTPException(
             status_code=502,
             detail="Could not retrieve files from Google Drive.",
@@ -286,42 +290,46 @@ def import_drive_files(
             })
 
         except Exception as exc:
-            logger.exception(
-                "Google Drive import failed for file ID %s",
+            logger.error(
+                "Google Drive import failed for file ID %s (%s)",
                 file_id,
+                type(exc).__name__,
             )
 
             if stored_path is not None and vectors_added:
                 try:
                     delete_document_vectors(stored_path.name)
-                except Exception:
-                    logger.exception(
-                        "Could not remove partial vectors for %s",
+                except Exception as cleanup_exc:
+                    logger.error(
+                        "Could not remove partial vectors for %s (%s)",
                         stored_path.name,
+                        type(cleanup_exc).__name__,
                     )
 
             if stored_path is not None and stored_path.exists():
                 try:
                     stored_path.unlink()
-                except OSError:
-                    logger.exception(
-                        "Could not remove failed Drive download %s",
-                        stored_path,
+                except OSError as cleanup_exc:
+                    logger.error(
+                        "Could not remove failed Drive download %s (%s)",
+                        stored_path.name,
+                        type(cleanup_exc).__name__,
                     )
 
             if stored_path is not None:
                 manifest.pop(stored_path.name, None)
                 try:
                     save_manifest(manifest)
-                except OSError:
-                    logger.exception(
-                        "Could not update manifest after import failure"
+                except OSError as cleanup_exc:
+                    logger.error(
+                        "Could not update manifest after import failure (%s)",
+                        type(cleanup_exc).__name__,
                     )
 
             results.append({
                 "file_id": file_id,
                 "status": "failed",
-                "message": str(exc)[:240] or "Import failed. Check backend logs.",
+                "message": "Import failed. Check backend logs.",
             })
 
     return {
@@ -371,7 +379,7 @@ def disconnect_google_drive(
         return disconnect_drive()
 
     except OSError as exc:
-        logger.exception("Could not disconnect Google Drive")
+        logger.error("Could not disconnect Google Drive (%s)", type(exc).__name__)
         raise HTTPException(
             status_code=500,
             detail="Could not remove saved Google Drive credentials.",

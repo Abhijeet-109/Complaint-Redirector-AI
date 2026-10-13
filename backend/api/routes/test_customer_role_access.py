@@ -92,7 +92,7 @@ class CustomerRoleAccessTests(unittest.TestCase):
         app.dependency_overrides.clear()
 
     def _as_role(self, role):
-        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(role=role)
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, role=role)
 
     def test_only_customers_can_call_customer_chat(self):
         with patch.object(_chatbot, "answer_question", return_value={"answer": "Test answer", "sources": []}), \
@@ -181,6 +181,48 @@ class CustomerRoleAccessTests(unittest.TestCase):
             for test_file in upload_dir.iterdir():
                 if test_file.is_file():
                     test_file.unlink()
+
+    def test_upload_rejects_invalid_signatures_mime_and_oversize_files(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path):
+                invalid_pdf = self.client.post(
+                    "/documents/upload",
+                    files=[("files", ("fake.pdf", b"not a PDF", "application/pdf"))],
+                )
+                self.assertEqual(invalid_pdf.status_code, 200)
+                self.assertEqual(invalid_pdf.json()["failed_count"], 1)
+                self.assertFalse(list(upload_dir.glob("*.pdf")))
+
+                mismatched_mime = self.client.post(
+                    "/documents/upload",
+                    files=[("files", ("notes.pdf", b"%PDF-1.7", "text/plain"))],
+                )
+                self.assertEqual(mismatched_mime.status_code, 200)
+                self.assertEqual(mismatched_mime.json()["failed_count"], 1)
+                self.assertFalse(list(upload_dir.glob("*.pdf")))
+
+                with patch.object(_documents, "MAX_DOCUMENT_BYTES", 4):
+                    oversized = self.client.post(
+                        "/documents/upload",
+                        files=[("files", ("large.pdf", b"%PDF-1.7", "application/pdf"))],
+                    )
+                self.assertEqual(oversized.status_code, 200)
+                self.assertEqual(oversized.json()["failed_count"], 1)
+                self.assertFalse(list(upload_dir.glob("*.pdf")))
+
+                with patch.object(_documents, "MAX_UPLOAD_FILES", 1):
+                    too_many = self.client.post(
+                        "/documents/upload",
+                        files=[
+                            ("files", ("one.pdf", b"%PDF-1.7", "application/pdf")),
+                            ("files", ("two.pdf", b"%PDF-1.7", "application/pdf")),
+                        ],
+                    )
+                self.assertEqual(too_many.status_code, 413)
+                self.assertFalse(list(upload_dir.glob("*.pdf")))
 
     def test_document_sources_survive_local_upload_drive_import_and_listing(self):
         self._as_role("super_admin")

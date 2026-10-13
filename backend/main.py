@@ -20,19 +20,27 @@ from backend.api.routes.redirection_analytics import (
     router as redirection_analytics_router,
 )
 from backend.Database.connection import engine
-from backend.Database.models import ChatbotTelemetry
+from backend.Database.models import ChatbotTelemetry, LoginThrottle
 from backend.api.routes.drive import router as drive_router
+from backend.security_config import app_environment, cors_origins
 
 logger = logging.getLogger("flatkart.startup")
+APP_ENV = app_environment()
 
 
 @asynccontextmanager
 async def lifespan(_app):
+    if APP_ENV == "production":
+        if not LoginThrottle.__table__.exists(engine):
+            raise RuntimeError(
+                "The login lockout table must exist before production startup."
+            )
+
     # Create only the telemetry table when absent; preserve all existing data.
     try:
         ChatbotTelemetry.__table__.create(bind=engine, checkfirst=True)
-    except SQLAlchemyError:
-        logger.exception("Could not initialize the chatbot telemetry table")
+    except SQLAlchemyError as exc:
+        logger.error("Could not initialize chatbot telemetry storage (%s)", type(exc).__name__)
     yield
 
 
@@ -47,16 +55,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8501",
-        "http://127.0.0.1:8501",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-    ],
+    allow_origins=cors_origins(environment=APP_ENV),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Authorization", "Content-Type"],
 )
 
 app.include_router(classifier_router)
@@ -66,7 +68,8 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(department_router)
 app.include_router(handler_department_router)
-app.include_router(test_auth_router)
+if APP_ENV != "production":
+    app.include_router(test_auth_router)
 app.include_router(chatbot_router)
 app.include_router(documents_router)
 app.include_router(redirection_analytics_router)

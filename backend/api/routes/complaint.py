@@ -27,6 +27,7 @@ from backend.auth.dependencies import (
     get_current_user,
     require_role
 )
+from backend.security_controls import complaint_count_for_utc_day
 
 logger = logging.getLogger("flatkart.complaint")
 
@@ -181,6 +182,12 @@ def create_complaint(
             detail="Predicted department not found in database"
         )
 
+    if complaint_count_for_utc_day(db, current_user.id) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Daily complaint limit reached. Try again after 00:00 UTC.",
+        )
+
     complaint = Complaint(
         user_id=current_user.id,
         predicted_department_id=department.id,
@@ -210,9 +217,9 @@ def create_complaint(
     except Exception as exc:
         email_sent = False
         logger.warning(
-            "Complaint #%s created but email notification failed: %s",
+            "Complaint #%s created but email notification failed (%s)",
             complaint.id,
-            exc,
+            type(exc).__name__,
         )
 
     return complaint
@@ -291,12 +298,13 @@ def update_handler_complaint_status(
 
     try:
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
 
         logger.exception(
-            "Failed to update status of complaint #%s",
+            "Failed to update status of complaint #%s (%s)",
             complaint.id,
+            type(exc).__name__,
         )
 
         raise HTTPException(
@@ -383,12 +391,13 @@ def redirect_handler_complaint(
     # Save the history row and current assignment together.
     try:
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
 
         logger.exception(
-            "Failed to redirect complaint #%s",
+            "Failed to redirect complaint #%s (%s)",
             complaint.id,
+            type(exc).__name__,
         )
 
         raise HTTPException(
@@ -416,9 +425,9 @@ def redirect_handler_complaint(
         email_sent = False
 
         logger.warning(
-            "Complaint #%s redirected but email notification failed: %s",
+            "Complaint #%s redirected but email notification failed (%s)",
             complaint.id,
-            exc,
+            type(exc).__name__,
         )
 
     return {

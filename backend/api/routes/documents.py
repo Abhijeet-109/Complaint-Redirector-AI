@@ -2,7 +2,6 @@
 import json
 import logging
 import re
-import shutil
 import uuid
 from pathlib import Path, PureWindowsPath
 from typing import Annotated
@@ -22,6 +21,11 @@ from backend.chatbot.vector_store import (
     CHROMA_PATH,
 )
 from backend.auth.dependencies import require_role
+from backend.chatbot.document_validation import (
+    MAX_DOCUMENT_BYTES,
+    MAX_UPLOAD_FILES,
+    validate_document_file,
+)
 
 router = APIRouter(
     prefix="/documents",
@@ -37,6 +41,13 @@ MANIFEST_PATH = UPLOAD_DIR / "manifest.json"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
+ALLOWED_CONTENT_TYPES = {
+    ".pdf": {"application/pdf", "application/octet-stream"},
+    ".docx": {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream",
+    },
+}
 
 
 def read_manifest():
@@ -77,6 +88,11 @@ async def upload_documents(
 ):
     if not files:
         raise HTTPException(status_code=400, detail="No files selected.")
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload no more than {MAX_UPLOAD_FILES} files at a time.",
+        )
 
     uploaded_files = []
     failed_files = []
@@ -96,12 +112,38 @@ async def upload_documents(
             })
             continue
 
+        content_type = (file.content_type or "").lower()
+        if content_type and content_type not in ALLOWED_CONTENT_TYPES[extension]:
+            await file.close()
+            failed_files.append({
+                "original_name": original_name or "Unnamed file",
+                "status": "failed",
+                "message": "The file content type does not match its extension.",
+            })
+            continue
+
+        if file.size is not None and file.size > MAX_DOCUMENT_BYTES:
+            await file.close()
+            failed_files.append({
+                "original_name": original_name or "Unnamed file",
+                "status": "failed",
+                "message": "The file exceeds the 25 MB limit.",
+            })
+            continue
+
         stored_name = f"{uuid.uuid4().hex}{extension}"
         destination = UPLOAD_DIR / stored_name
 
         try:
             with destination.open("wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+                copied_bytes = 0
+                while chunk := file.file.read(64 * 1024):
+                    copied_bytes += len(chunk)
+                    if copied_bytes > MAX_DOCUMENT_BYTES:
+                        raise ValueError("The file exceeds the 25 MB limit.")
+                    buffer.write(chunk)
+
+            validate_document_file(destination)
 
             uploaded_files.append({
                 "original_name": original_name,
@@ -114,8 +156,18 @@ async def upload_documents(
                 "chunks": 0,
                 "source": "local_upload",
             }
-        except Exception:
-            logger.exception("Could not save uploaded document %s", original_name)
+        except ValueError as exc:
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError:
+                logger.exception("Could not remove a rejected upload")
+            failed_files.append({
+                "original_name": original_name or "Unnamed file",
+                "status": "failed",
+                "message": str(exc),
+            })
+        except Exception as exc:
+            logger.error("Could not save or validate uploaded document (%s)", type(exc).__name__)
             try:
                 destination.unlink(missing_ok=True)
             except OSError:
@@ -197,7 +249,9 @@ class DeleteRequest(BaseModel):
 
 
 @router.post("/index")
-def index_documents(request: IndexRequest):
+def index_documents(
+    request: IndexRequest,
+):
     manifest = read_manifest()
     results = []
 
@@ -243,6 +297,7 @@ def index_documents(request: IndexRequest):
                 })
                 continue
 
+            validate_document_file(path)
             chunk_count = reindex_document(str(path)) if request.reindex else add_documents([str(path)])
 
             manifest[filename] = {
@@ -260,7 +315,7 @@ def index_documents(request: IndexRequest):
             })
 
         except Exception as exc:
-            logger.exception("Indexing failed for %s", filename)
+            logger.error("Indexing failed for %s (%s)", filename, type(exc).__name__)
             try:
                 remaining_chunks = get_document_chunk_count(filename)
                 manifest[filename] = {
@@ -270,12 +325,16 @@ def index_documents(request: IndexRequest):
                     "error": "Indexing failed. Retry the operation or check backend logs.",
                 }
                 save_manifest(manifest)
-            except Exception:
-                logger.exception("Could not persist indexing failure for %s", filename)
+            except Exception as persist_exc:
+                logger.error(
+                    "Could not persist indexing failure for %s (%s)",
+                    filename,
+                    type(persist_exc).__name__,
+                )
             results.append({
                 "stored_name": filename,
                 "status": "failed",
-                "message": str(exc)[:240] or "Indexing failed. Check backend logs."
+                "message": "Indexing failed. Retry the operation or check backend logs."
             })
 
     return {"results": results}
