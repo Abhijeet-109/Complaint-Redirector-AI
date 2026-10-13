@@ -3,11 +3,13 @@ import os
 
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
-
+import logging
 from backend.chatbot.vector_store import vectorstore
 
 load_dotenv()
 
+
+logger = logging.getLogger(__name__)
 if not os.getenv("GROQ_API_KEY"):
     raise ValueError("GROQ_API_KEY is missing from the .env file")
 
@@ -17,6 +19,7 @@ model = ChatGroq(
     temperature=0,
     max_tokens=1000
 )
+logger.info("Model laoded Successfully")
 
 
 def answer_question(question):

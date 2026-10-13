@@ -21,7 +21,7 @@ from backend.api.routes.redirection_analytics import (
 )
 from backend.Database.connection import engine
 from backend.Database.models import ChatbotTelemetry
-
+from backend.api.routes.drive import router as drive_router
 
 logger = logging.getLogger("flatkart.startup")
 
@@ -70,7 +70,7 @@ app.include_router(test_auth_router)
 app.include_router(chatbot_router)
 app.include_router(documents_router)
 app.include_router(redirection_analytics_router)
-
+app.include_router(drive_router)
 
 def custom_openapi():
     if app.openapi_schema:

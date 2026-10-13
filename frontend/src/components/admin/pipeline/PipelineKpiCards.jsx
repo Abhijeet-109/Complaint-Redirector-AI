@@ -1,10 +1,6 @@
 import React from 'react';
 
-const UNAVAILABLE_METRICS = [
-  { id: 'chatbot_queries', label: 'Chatbot Queries' },
-];
-
-export function PipelineKpiCards({ documents = [], isLoading = false, error = '' }) {
+export function PipelineKpiCards({ documents = [], isLoading = false, error = '', chatbotTotal, chatbotLoading = false, chatbotError = '' }) {
   const indexedDocuments = documents.filter((document) => document.status === 'indexed');
   const metrics = [
     {
@@ -43,20 +39,29 @@ export function PipelineKpiCards({ documents = [], isLoading = false, error = ''
       value: documents.filter((document) => Boolean(document.error)).length,
       subtext: 'Documents with a recorded latest indexing failure',
     },
-    ...UNAVAILABLE_METRICS.map((metric) => ({ ...metric, value: 'Unavailable', subtext: 'No backend metric available' })),
+    {
+      id: 'chatbot_queries',
+      label: 'Chatbot Queries',
+      value: chatbotTotal,
+      subtext: 'Recorded requests in the last 30 days',
+    },
   ];
 
   return (
     <div className="fk-pipe-kpi-grid" aria-label="Pipeline overview metrics">
       {metrics.map((kpi) => {
-        const isDocumentMetric = !UNAVAILABLE_METRICS.some((metric) => metric.id === kpi.id);
-        const value = isDocumentMetric && isLoading ? '…' : error && isDocumentMetric ? 'Unavailable' : kpi.value;
-        const subtext = error && isDocumentMetric ? 'Document list could not be loaded' : kpi.subtext;
+        const isChatbotMetric = kpi.id === 'chatbot_queries';
+        const isMetricLoading = isChatbotMetric ? chatbotLoading : isLoading;
+        const metricError = isChatbotMetric ? chatbotError : error;
+        const value = isMetricLoading ? '…' : metricError ? 'Unavailable' : kpi.value ?? 'Unavailable';
+        const subtext = metricError
+          ? (isChatbotMetric ? 'Chatbot query count could not be loaded' : 'Document list could not be loaded')
+          : isMetricLoading ? (isChatbotMetric ? 'Loading chatbot data' : 'Loading document data') : kpi.subtext;
         return (
           <div key={kpi.id} className="fk-pipe-kpi-card">
             <div className="fk-pipe-kpi-label">{kpi.label}</div>
             <div className="fk-pipe-kpi-val">{value}</div>
-            <div className="fk-pipe-kpi-sub">{isDocumentMetric && isLoading ? 'Loading document data' : subtext}</div>
+            <div className="fk-pipe-kpi-sub">{subtext}</div>
           </div>
         );
       })}

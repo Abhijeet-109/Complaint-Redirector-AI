@@ -1,7 +1,7 @@
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
 
-export function IndexingRetrievalPanel({ documents = [], selectedCount = 0, isLoading = false, loadError = '', isIndexing = false, results = [], onRefresh, onIndex, onReindex }) {
+export function IndexingRetrievalPanel({ documents = [], selectedCount = 0, isLoading = false, loadError = '', isIndexing = false, results = [], onRefresh, onIndex }) {
   const indexedCount = documents.filter((document) => document.status === 'indexed').length;
   const pendingCount = documents.filter((document) => document.status !== 'indexed').length;
 
@@ -24,7 +24,6 @@ export function IndexingRetrievalPanel({ documents = [], selectedCount = 0, isLo
       <p className="fk-pipe-panel-sub">Retrieval and answer stages are not reported by the document index endpoint.</p>
       <div className="fk-pipe-actions-row">
         <button type="button" className="fk-pipe-btn-secondary" onClick={onIndex} disabled={isIndexing || selectedCount === 0}>{isIndexing ? 'Indexing…' : `Index Selected (${selectedCount})`}</button>
-        <button type="button" className="fk-pipe-btn-secondary" onClick={onReindex} disabled={isIndexing || selectedCount === 0}>{isIndexing ? 'Re-indexing…' : `Re-index Selected (${selectedCount})`}</button>
       </div>
       {results.length > 0 && <div className="fk-pipe-index-results" role="status" aria-live="polite">
         <strong>Latest indexing results</strong>

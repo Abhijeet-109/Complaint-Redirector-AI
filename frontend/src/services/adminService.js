@@ -68,8 +68,9 @@ export const adminService = {
     return await apiRequest('/api/v1/admin/redirection-kpis', { method: 'GET' });
   },
 
-  async getChatbotPerformance() {
-    return await apiRequest('/chatbot/performance', { method: 'GET' });
+  async getChatbotPerformance({ offset = 0, limit = 10 } = {}) {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    return await apiRequest(`/chatbot/performance?${params}`, { method: 'GET' });
   },
 };
 

@@ -3,7 +3,7 @@ import re
 import time
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -98,6 +98,8 @@ def ask_chatbot(request: ChatRequest):
 
 @router.get("/performance")
 def chatbot_performance(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=10),
     db: Session = Depends(get_db),
     _current_user=Depends(require_role("admin", "super_admin")),
 ):
@@ -113,7 +115,7 @@ def chatbot_performance(
         average_latency = filtered.with_entities(func.avg(ChatbotTelemetry.latency_ms)).scalar()
         events = filtered.order_by(
             ChatbotTelemetry.created_at.desc(), ChatbotTelemetry.id.desc()
-        ).limit(50).all()
+        ).offset(offset).limit(limit).all()
     except SQLAlchemyError as exc:
         logger.exception("Could not load chatbot performance telemetry")
         raise HTTPException(
@@ -127,8 +129,10 @@ def chatbot_performance(
         "fallback_responses": fallbacks,
         "failed_requests": failures,
         "average_latency_ms": round(average_latency, 1) if average_latency is not None else None,
+        "has_more": offset + len(events) < total,
         "recent_queries": [
             {
+                "id": event.id,
                 "timestamp": event.created_at,
                 "question_preview": event.question_preview,
                 "outcome": event.outcome,
@@ -136,6 +140,6 @@ def chatbot_performance(
                 "sources": event.source_names or [],
                 "latency_ms": round(event.latency_ms, 1),
             }
-            for event in events[:50]
+            for event in events
         ],
     }

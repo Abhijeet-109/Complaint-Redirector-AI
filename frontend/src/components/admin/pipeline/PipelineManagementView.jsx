@@ -18,6 +18,7 @@ import { TechnicalConfigPanel } from './TechnicalConfigPanel';
 import { ChatbotPerformancePanel } from './ChatbotPerformancePanel';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
 import { documentService } from '../../../services/documentService';
+import { adminService } from '../../../services/adminService';
 
 export function PipelineManagementView() {
   // Navigation & View Mode
@@ -36,6 +37,9 @@ export function PipelineManagementView() {
   const [documents, setDocuments] = useState([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [documentsError, setDocumentsError] = useState('');
+  const [chatbotPerformance, setChatbotPerformance] = useState(null);
+  const [chatbotLoading, setChatbotLoading] = useState(true);
+  const [chatbotError, setChatbotError] = useState('');
 
   // Auto-dismiss notice
   useEffect(() => {
@@ -69,6 +73,23 @@ export function PipelineManagementView() {
     refreshDocuments();
   }, [refreshDocuments]);
 
+  const refreshChatbotPerformance = useCallback(async () => {
+    setChatbotLoading(true);
+    setChatbotError('');
+    try {
+      setChatbotPerformance(await adminService.getChatbotPerformance({ offset: 0, limit: 10 }));
+    } catch (error) {
+      setChatbotPerformance(null);
+      setChatbotError(error.message || 'Chatbot telemetry is unavailable.');
+    } finally {
+      setChatbotLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshChatbotPerformance();
+  }, [refreshChatbotPerformance]);
+
   const handleUploadComplete = async () => {
     const refreshed = await refreshDocuments();
     if (!refreshed) showNotice('Upload succeeded, but the document list could not be refreshed.');
@@ -94,13 +115,13 @@ export function PipelineManagementView() {
     if (!refreshed) showNotice('Deletion completed, but the document list could not be refreshed.');
   };
 
-  const handleIndexDocuments = async (storedNames, reindex = false) => {
+  const handleIndexDocuments = async (storedNames) => {
     const names = storedNames.filter(Boolean);
     if (!names.length || isIndexing) return;
     setIsIndexing(true);
     setIndexingResults([]);
     try {
-      const response = await documentService.indexDocuments(names, reindex);
+      const response = await documentService.indexDocuments(names);
       const results = response.results || [];
       setIndexingResults(results);
       await refreshDocuments();
@@ -150,12 +171,12 @@ export function PipelineManagementView() {
            ============================================================ */
         <>
           {/* Row 1: 7 KPI Cards */}
-          <PipelineKpiCards documents={documents} isLoading={documentsLoading} error={documentsError} />
+          <PipelineKpiCards documents={documents} isLoading={documentsLoading} error={documentsError} chatbotTotal={chatbotPerformance?.total_requests} chatbotLoading={chatbotLoading} chatbotError={chatbotError} />
 
           {/* Row 2: Document Upload & Source Connections */}
           <div className="fk-pipe-split-row">
             <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
-            <SourceConnectionsPanel />
+            <SourceConnectionsPanel onImportComplete={handleUploadComplete} />
           </div>
 
           {/* Row 3: Knowledge Documents Table */}
@@ -174,12 +195,12 @@ export function PipelineManagementView() {
 
           {/* Row 4: Indexing & Retrieval + Technical Config */}
           <div className="fk-pipe-split-row">
-            <IndexingRetrievalPanel documents={documents} selectedCount={selectedDocumentNames.size} isLoading={documentsLoading} loadError={documentsError} isIndexing={isIndexing} results={indexingResults} onRefresh={refreshDocuments} onIndex={() => handleIndexDocuments([...selectedDocumentNames], false)} onReindex={() => handleIndexDocuments([...selectedDocumentNames], true)} />
+            <IndexingRetrievalPanel documents={documents} selectedCount={selectedDocumentNames.size} isLoading={documentsLoading} loadError={documentsError} isIndexing={isIndexing} results={indexingResults} onRefresh={refreshDocuments} onIndex={() => handleIndexDocuments([...selectedDocumentNames])} />
             <TechnicalConfigPanel />
           </div>
 
           {/* Row 5 & 6: Chatbot Performance & Recent Queries */}
-          <ChatbotPerformancePanel />
+          <ChatbotPerformancePanel data={chatbotPerformance} loading={chatbotLoading} error={chatbotError} onRefresh={refreshChatbotPerformance} />
         </>
       ) : (
         /* ============================================================
@@ -190,7 +211,7 @@ export function PipelineManagementView() {
           {activeTab === 'overview' && (
             <>
               {/* 7 KPI Cards */}
-              <PipelineKpiCards documents={documents} isLoading={documentsLoading} error={documentsError} />
+              <PipelineKpiCards documents={documents} isLoading={documentsLoading} error={documentsError} chatbotTotal={chatbotPerformance?.total_requests} chatbotLoading={chatbotLoading} chatbotError={chatbotError} />
 
               {/* Quick Jump Panels */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '4px' }}>
@@ -262,7 +283,7 @@ export function PipelineManagementView() {
             <>
               <div className="fk-pipe-split-row">
                 <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
-                <SourceConnectionsPanel />
+                <SourceConnectionsPanel onImportComplete={handleUploadComplete} />
               </div>
 
               <KnowledgeDocumentsTable
@@ -283,14 +304,14 @@ export function PipelineManagementView() {
           {/* TAB 3: INDEXING & RETRIEVAL */}
           {activeTab === 'indexing' && (
             <div className="fk-pipe-split-row">
-              <IndexingRetrievalPanel documents={documents} selectedCount={selectedDocumentNames.size} isLoading={documentsLoading} loadError={documentsError} isIndexing={isIndexing} results={indexingResults} onRefresh={refreshDocuments} onIndex={() => handleIndexDocuments([...selectedDocumentNames], false)} onReindex={() => handleIndexDocuments([...selectedDocumentNames], true)} />
+              <IndexingRetrievalPanel documents={documents} selectedCount={selectedDocumentNames.size} isLoading={documentsLoading} loadError={documentsError} isIndexing={isIndexing} results={indexingResults} onRefresh={refreshDocuments} onIndex={() => handleIndexDocuments([...selectedDocumentNames])} />
               <TechnicalConfigPanel />
             </div>
           )}
 
           {/* TAB 4: CHATBOT PERFORMANCE */}
           {activeTab === 'performance' && (
-            <ChatbotPerformancePanel />
+            <ChatbotPerformancePanel data={chatbotPerformance} loading={chatbotLoading} error={chatbotError} onRefresh={refreshChatbotPerformance} />
           )}
         </>
       )}

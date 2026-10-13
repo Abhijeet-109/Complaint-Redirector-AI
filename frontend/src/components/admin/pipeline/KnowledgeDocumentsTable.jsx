@@ -126,7 +126,7 @@ export function KnowledgeDocumentsTable({
                       <td><span className={`fk-pipe-index-status ${doc.indexStatus === 'indexed' ? 'is-indexed' : 'is-not-indexed'}${doc.indexError ? ' has-error' : ''}`} title={doc.indexError || undefined}>{doc.indexLabel}</span></td>
                       <td>{doc.chunks}</td><td>—</td>
                       <td><div className="fk-pipe-actions-cell">
-                        <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], doc.indexStatus === 'indexed')} disabled={isIndexing}>{doc.indexStatus === 'indexed' ? 'Re-index' : 'Index'}</button>
+                        {doc.indexStatus !== 'indexed' && <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], false)} disabled={isIndexing}>Index</button>}
                         <button type="button" className="fk-pipe-action-btn danger" onClick={() => onOpenDelete?.([doc])} disabled={isIndexing}>Delete</button>
                       </div></td>
                     </tr>;

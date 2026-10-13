@@ -518,6 +518,227 @@
   padding-top: 16px;
 }
 
+.fk-pipe-drive-source-card {
+  flex-wrap: wrap;
+}
+
+.fk-pipe-drive-source-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fk-pipe-drive-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fk-pipe-drive-message.success {
+  color: #496E3B;
+}
+
+.fk-pipe-drive-message.error {
+  color: #A33D32;
+}
+
+.fk-pipe-drive-modal {
+  max-width: 820px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.fk-pipe-drive-modal .ad-modal-header {
+  flex: 0 0 auto;
+}
+
+.ad-modal-body.fk-pipe-drive-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.fk-pipe-drive-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 5px;
+  color: #748082;
+  font-size: 11px;
+}
+
+.fk-pipe-drive-browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #637073;
+  font-size: 11px;
+}
+
+.fk-pipe-drive-browser-toolbar > span {
+  margin-left: auto;
+}
+
+.fk-pipe-drive-file-list {
+  border: 1px solid #ECE7DB;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.fk-pipe-drive-file-row + .fk-pipe-drive-file-row {
+  border-top: 1px solid #F0ECE4;
+}
+
+.fk-pipe-drive-file,
+.fk-pipe-drive-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 50px;
+  padding: 8px 12px;
+  color: var(--fk-text-primary, #1C352F);
+  background: #FFFFFF;
+  font: inherit;
+  text-align: left;
+}
+
+.fk-pipe-drive-file {
+  cursor: pointer;
+}
+
+.fk-pipe-drive-file:hover,
+.fk-pipe-drive-folder:hover {
+  background: #FAF8F4;
+}
+
+.fk-pipe-drive-file input {
+  accent-color: var(--fk-olive, #8A875D);
+}
+
+.fk-pipe-drive-file > svg,
+.fk-pipe-drive-folder > svg {
+  flex: 0 0 auto;
+  color: var(--fk-olive, #8A875D);
+}
+
+.fk-pipe-drive-folder {
+  border: 0;
+  cursor: pointer;
+}
+
+.fk-pipe-drive-folder:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.fk-pipe-drive-folder > span:last-child {
+  margin-left: auto;
+  color: #748082;
+  font-size: 11px;
+}
+
+.fk-pipe-drive-file-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+
+.fk-pipe-drive-file-name {
+  overflow: hidden;
+  color: var(--fk-text-primary, #1C352F);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fk-pipe-drive-file-meta {
+  color: #8C989A;
+  font-size: 10.5px;
+}
+
+.fk-pipe-drive-file.unsupported {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.fk-pipe-drive-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 110px;
+  padding: 16px;
+  color: #748082;
+  font-size: 12px;
+  text-align: center;
+}
+
+.fk-pipe-drive-spinner {
+  animation: fk-pipe-drive-spin 1s linear infinite;
+}
+
+@keyframes fk-pipe-drive-spin {
+  to { transform: rotate(360deg); }
+}
+
+.fk-pipe-drive-load-more {
+  display: flex;
+  justify-content: center;
+}
+
+.fk-pipe-drive-import-status h3 {
+  margin-bottom: 8px;
+  color: var(--fk-text-primary, #1C352F);
+  font-size: 12.5px;
+  font-weight: 750;
+}
+
+.fk-pipe-drive-status-list,
+.fk-pipe-drive-import-results {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.fk-pipe-drive-status-list > div,
+.fk-pipe-drive-import-results > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #FAF8F4;
+  font-size: 11px;
+}
+
+.fk-pipe-drive-status-list > div > span:first-child,
+.fk-pipe-drive-import-results > div > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.fk-pipe-drive-import-results > div {
+  flex-wrap: wrap;
+}
+
+.fk-pipe-drive-import-results > div > span:last-child {
+  flex-basis: 100%;
+  color: #A33D32;
+}
+
+.fk-pipe-drive-modal .ad-modal-footer {
+  flex: 0 0 auto;
+}
+
 /* ============================================================
    7. KNOWLEDGE DOCUMENTS TABLE
    ============================================================ */
@@ -897,39 +1118,6 @@
   font-size: 12px;
 }
 
-.fk-pipe-tech-warning {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: #A4772E;
-  margin-top: 14px;
-  background-color: #FAF4E8;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid #EEDBBD;
-}
-
-.fk-pipe-rebuild-btn {
-  margin-top: 14px;
-  background-color: #FFFFFF;
-  border: 1px solid #DDD8CD;
-  color: #556366;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 7px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-  align-self: flex-start;
-}
-
-.fk-pipe-rebuild-btn:hover {
-  background-color: #F8F5EE;
-  color: #C03E33;
-  border-color: #E8D0CC;
-}
-
 /* ============================================================
    10. CHATBOT PERFORMANCE & TELEMETRY
    ============================================================ */
@@ -1110,6 +1298,17 @@
 }
 
 @media (max-width: 500px) {
+  .fk-pipe-drive-source-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .fk-pipe-drive-browser-toolbar > span {
+    width: 100%;
+    margin-left: 0;
+  }
+  .fk-pipe-drive-status-list > div {
+    flex-wrap: wrap;
+  }
   .fk-pipe-kpi-grid {
     grid-template-columns: 1fr;
   }

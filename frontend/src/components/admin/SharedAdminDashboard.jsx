@@ -22,7 +22,13 @@ import { PipelineManagementView } from './pipeline/PipelineManagementView';
 
 export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
   // Navigation State
-  const [currentView, setCurrentView] = useState('overview');
+  const [currentView, setCurrentView] = useState(() => {
+    const oauthPendingAt = Number(sessionStorage.getItem('flatkart_drive_oauth_pending_at'));
+    const returningFromDriveOAuth = isSuperAdmin
+      && oauthPendingAt > 0
+      && Date.now() - oauthPendingAt < 10 * 60 * 1000;
+    return returningFromDriveOAuth ? 'pipeline' : 'overview';
+  });
 
   // Core Data
   const [users, setUsers] = useState([]);

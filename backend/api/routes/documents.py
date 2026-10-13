@@ -14,7 +14,7 @@ from backend.chatbot.vector_store import (
     add_documents,
     delete_document_vectors,
     get_document_chunk_count,
-    reindex_document,
+    # reindex_document,
     COLLECTION_NAME,
     EMBEDDING_MODEL_NAME,
     CHUNK_SIZE,

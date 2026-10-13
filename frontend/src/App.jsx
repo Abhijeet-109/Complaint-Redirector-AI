@@ -18,6 +18,7 @@ function AppContent() {
     if (path === '/my-complaints') return 'my-complaints';
     if (path === '/handler-dashboard') return 'handler-dashboard';
     if (path === '/admin-dashboard') return 'admin-dashboard';
+    if (path === '/admin') return 'super-admin-dashboard';
     if (path === '/super-admin-dashboard') return 'super-admin-dashboard';
     return 'home';
   });
@@ -30,6 +31,7 @@ function AppContent() {
       else if (path === '/my-complaints') setCurrentPage('my-complaints');
       else if (path === '/handler-dashboard') setCurrentPage('handler-dashboard');
       else if (path === '/admin-dashboard') setCurrentPage('admin-dashboard');
+      else if (path === '/admin') setCurrentPage('super-admin-dashboard');
       else if (path === '/super-admin-dashboard') setCurrentPage('super-admin-dashboard');
       else setCurrentPage('home');
     };

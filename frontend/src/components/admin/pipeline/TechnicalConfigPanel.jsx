@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
 import { documentService } from '../../../services/documentService';
 
 export function TechnicalConfigPanel() {
@@ -35,8 +34,6 @@ export function TechnicalConfigPanel() {
               <span className="fk-pipe-tech-val">{value ?? 'Unavailable'}</span>
             </div>
           ))}</div>}
-      <div className="fk-pipe-tech-warning"><AlertTriangle size={14} /><span>Rebuild and reset are unavailable until a protected recovery operation is implemented.</span></div>
-      <button type="button" className="fk-pipe-rebuild-btn" disabled title="No safe backend rebuild or reset operation is available">Rebuild / reset unavailable</button>
     </div>
   );
 }
