@@ -266,7 +266,7 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
                       SUPER ADMIN ONLY · Knowledge base documents, indexing and chatbot performance configuration.
                     </span>
                   </div>
-                  <button className="ad-pipeline-btn" onClick={() => setIsPipelineModalOpen(true)}>
+                  <button className="ad-pipeline-btn" onClick={() => { setCurrentView('pipeline'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
                     Open pipeline console →
                   </button>
                 </div>

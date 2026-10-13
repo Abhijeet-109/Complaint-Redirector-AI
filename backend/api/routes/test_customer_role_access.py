@@ -5,6 +5,7 @@ import os
 import sys
 import types
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -65,6 +66,21 @@ app = FastAPI()
 app.include_router(_chatbot.router)
 app.include_router(_documents.router)
 app.include_router(_drive.router)
+
+
+@contextmanager
+def _isolated_test_upload_dir():
+    upload_dir = Path(__file__).resolve().parent / ".test_uploads"
+    upload_dir.mkdir(exist_ok=True)
+    for old_file in upload_dir.iterdir():
+        if old_file.is_file():
+            old_file.unlink()
+    try:
+        yield upload_dir
+    finally:
+        for test_file in upload_dir.iterdir():
+            if test_file.is_file():
+                test_file.unlink()
 
 
 class CustomerRoleAccessTests(unittest.TestCase):
@@ -165,6 +181,55 @@ class CustomerRoleAccessTests(unittest.TestCase):
             for test_file in upload_dir.iterdir():
                 if test_file.is_file():
                     test_file.unlink()
+
+    def test_document_sources_survive_local_upload_drive_import_and_listing(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+
+            def fake_drive_download(file_id, destination):
+                stored_path = Path(destination).with_suffix(".pdf")
+                stored_path.write_bytes(b"%PDF-drive-test")
+                return {
+                    "stored_name": stored_path.name,
+                    "original_name": "Drive policy.pdf",
+                    "mime_type": "application/pdf",
+                    "modified_time": "2026-10-13T10:00:00Z",
+                }
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "get_document_chunk_count", return_value=2), \
+                    patch.object(_drive, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_drive, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_drive, "download_drive_file", side_effect=fake_drive_download), \
+                    patch.object(_drive, "add_documents", return_value=2):
+                local_upload = self.client.post(
+                    "/documents/upload",
+                    files=[("files", ("local policy.pdf", b"%PDF-local-test", "application/pdf"))],
+                )
+                self.assertEqual(local_upload.status_code, 200)
+                self.assertEqual(local_upload.json()["uploaded_count"], 1)
+
+                drive_import = self.client.post(
+                    "/drive/import",
+                    json={"file_ids": ["valid-drive-id"]},
+                )
+                self.assertEqual(drive_import.status_code, 200)
+                self.assertEqual(drive_import.json()["imported_count"], 1)
+
+                legacy_file = upload_dir / ("a" * 32 + ".pdf")
+                legacy_file.write_bytes(b"%PDF-legacy-test")
+
+                listing = self.client.get("/documents")
+                self.assertEqual(listing.status_code, 200)
+                sources = {
+                    document["original_name"]: document["source"]
+                    for document in listing.json()["files"]
+                }
+                self.assertEqual(sources["local policy.pdf"], "local_upload")
+                self.assertEqual(sources["Drive policy.pdf"], "google_drive")
+                self.assertEqual(sources[legacy_file.name], "unknown")
 
     def test_only_super_admin_can_access_drive_management(self):
         for role in ("user", "department_handler", "admin"):

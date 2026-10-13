@@ -33,7 +33,7 @@ function isFolder(file) {
   return file.mimeType === DRIVE_FOLDER_MIME;
 }
 
-export function SourceConnectionsPanel({ onImportComplete, onShowNotice }) {
+export function SourceConnectionsPanel({ onImportComplete, onShowNotice, onStatusChange }) {
   const [status, setStatus] = useState(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState('');
@@ -57,18 +57,21 @@ export function SourceConnectionsPanel({ onImportComplete, onShowNotice }) {
   const refreshStatus = useCallback(async () => {
     setStatusLoading(true);
     setStatusError('');
+    onStatusChange?.({ loading: true });
     try {
       const result = await driveService.getStatus();
       setStatus(result);
+      onStatusChange?.({ status: result, loading: false });
       return result;
     } catch (error) {
       setStatus(null);
       setStatusError(error.message || 'Could not check Google Drive connection status.');
+      onStatusChange?.({ status: null, loading: false });
       return null;
     } finally {
       setStatusLoading(false);
     }
-  }, []);
+  }, [onStatusChange]);
 
   useEffect(() => {
     const pendingAt = Number(sessionStorage.getItem(DRIVE_PENDING_KEY));
@@ -259,20 +262,24 @@ export function SourceConnectionsPanel({ onImportComplete, onShowNotice }) {
         </div>
 
         <div className="fk-pipe-source-card fk-pipe-drive-source-card">
-          <div className="fk-pipe-source-left">
-            <div className="fk-pipe-source-icon"><Cloud size={17} /></div>
-            <div>
-              <div className="fk-pipe-source-title">Google Drive</div>
-              <div className="fk-pipe-source-sub">
-                {statusLoading ? 'Checking connection…' : status?.message || 'Connection status unavailable.'}
+          <div className="fk-pipe-drive-source-info">
+            <div className="fk-pipe-source-left">
+              <div className="fk-pipe-source-icon"><Cloud size={17} /></div>
+              <div>
+                <div className="fk-pipe-source-title">Google Drive</div>
+                <div className="fk-pipe-source-sub">
+                  {statusLoading ? 'Checking connection…' : status?.message || 'Connection status unavailable.'}
+                </div>
               </div>
+            </div>
+            <div className="fk-pipe-drive-source-status">
+              {statusLoading ? <span className="fk-pipe-badge-pending">Checking</span>
+                : statusError ? <span className="fk-pipe-badge-pending">Status unavailable</span>
+                : connected ? <span className="fk-pipe-badge-available">Connected</span>
+                  : <span className="fk-pipe-badge-pending">Not connected</span>}
             </div>
           </div>
           <div className="fk-pipe-drive-source-actions">
-            {statusLoading ? <span className="fk-pipe-badge-pending">Checking</span>
-              : statusError ? <span className="fk-pipe-badge-pending">Status unavailable</span>
-              : connected ? <span className="fk-pipe-badge-available">Connected</span>
-                : <span className="fk-pipe-badge-pending">Not connected</span>}
             {statusError ? <button type="button" className="fk-pipe-btn-secondary" onClick={refreshStatus} disabled={statusLoading}>Retry Status</button>
               : connected ? <>
               <button type="button" className="fk-pipe-btn-secondary" onClick={openBrowser}>Browse Files</button>

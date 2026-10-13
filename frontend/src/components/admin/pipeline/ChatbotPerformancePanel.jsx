@@ -18,7 +18,9 @@ function displayMetric(key, value) {
 function displayDate(timestamp) {
   if (!timestamp) return '—';
   const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 export function ChatbotPerformancePanel({ data, loading, error, onRefresh }) {
@@ -74,13 +76,23 @@ export function ChatbotPerformancePanel({ data, loading, error, onRefresh }) {
           </div>)}
         </div>
         <div style={{ marginTop: '12px', marginBottom: '10px' }}><h3 style={{ fontSize: '14.5px', fontWeight: '800', color: 'var(--fk-text-primary, #1C352F)' }}>Recent Queries</h3></div>
-        <div className="fk-pipe-table-wrapper"><table className="fk-pipe-table">
+        <div className="fk-pipe-table-wrapper"><table className="fk-pipe-table fk-pipe-performance-table">
+          <colgroup>
+            <col className="fk-pipe-performance-timestamp-column" />
+            <col className="fk-pipe-performance-question-column" />
+            <col className="fk-pipe-performance-outcome-column" />
+            <col className="fk-pipe-performance-sources-column" />
+            <col className="fk-pipe-performance-latency-column" />
+          </colgroup>
           <thead><tr><th>Timestamp</th><th>User Question</th><th>Outcome</th><th>Sources</th><th>Latency</th></tr></thead>
           <tbody>{loading ? <tr><td colSpan={5} className="fk-pipe-empty-table-msg">Loading telemetry…</td></tr>
             : queries.length === 0 ? <tr><td colSpan={5} className="fk-pipe-empty-table-msg">No chatbot request history is available for the last 30 days.</td></tr>
               : queries.map((query, index) => <tr key={query.id ?? `${query.timestamp}-${index}`}>
-                <td>{displayDate(query.timestamp)}</td><td>{query.question_preview}</td><td>{query.outcome}</td>
-                <td title={(query.sources || []).join(', ')}>{query.source_count}</td><td>{displayMetric('average_latency_ms', query.latency_ms)}</td>
+                <td className="fk-pipe-performance-timestamp">{displayDate(query.timestamp)}</td>
+                <td className="fk-pipe-performance-question">{query.question_preview}</td>
+                <td className="fk-pipe-performance-outcome">{query.outcome}</td>
+                <td className="fk-pipe-performance-sources" title={(query.sources || []).join(', ')}>{query.source_count}</td>
+                <td className="fk-pipe-performance-latency">{displayMetric('average_latency_ms', query.latency_ms)}</td>
               </tr>)}</tbody>
         </table></div>
         {!loading && hasMore && <div style={{ marginTop: '12px', textAlign: 'center' }}>

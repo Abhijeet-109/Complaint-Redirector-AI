@@ -29,6 +29,15 @@ export function PipelineManagementView() {
   const [deleteModalDocs, setDeleteModalDocs] = useState([]);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
+  // Drive connection status (lifted from SourceConnectionsPanel so KnowledgeDocumentsTable shares the same truth)
+  const [driveStatus, setDriveStatus] = useState(null);       // null = unknown / loading
+  const [driveStatusLoading, setDriveStatusLoading] = useState(true);
+
+  const handleDriveStatusChange = useCallback(({ status, loading }) => {
+    if (loading !== undefined) setDriveStatusLoading(loading);
+    if (status !== undefined) setDriveStatus(status);
+  }, []);
+
   // Notification Toast state
   const [notice, setNotice] = useState(null);
   const [selectedDocumentNames, setSelectedDocumentNames] = useState(new Set());
@@ -176,7 +185,7 @@ export function PipelineManagementView() {
           {/* Row 2: Document Upload & Source Connections */}
           <div className="fk-pipe-split-row">
             <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
-            <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} />
+            <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} onStatusChange={handleDriveStatusChange} />
           </div>
 
           {/* Row 3: Knowledge Documents Table */}
@@ -191,6 +200,8 @@ export function PipelineManagementView() {
             onSelectionChange={setSelectedDocumentNames}
             onIndexDocuments={handleIndexDocuments}
             isIndexing={isIndexing}
+            driveConnected={driveStatus?.connected ?? null}
+            driveStatusLoading={driveStatusLoading}
           />
 
           {/* Row 4: Indexing & Retrieval + Technical Config */}
@@ -283,7 +294,7 @@ export function PipelineManagementView() {
             <>
               <div className="fk-pipe-split-row">
                 <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
-                <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} />
+                <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} onStatusChange={handleDriveStatusChange} />
               </div>
 
               <KnowledgeDocumentsTable
@@ -297,6 +308,8 @@ export function PipelineManagementView() {
                 onSelectionChange={setSelectedDocumentNames}
                 onIndexDocuments={handleIndexDocuments}
                 isIndexing={isIndexing}
+                driveConnected={driveStatus?.connected ?? null}
+                driveStatusLoading={driveStatusLoading}
               />
             </>
           )}

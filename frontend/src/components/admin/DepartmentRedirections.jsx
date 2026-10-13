@@ -53,8 +53,13 @@ export function DepartmentRedirections({
           No department transfers logged yet.
         </div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="ad-redirection-table-wrap">
           <table className="ad-redirection-table">
+            <colgroup>
+              <col className="ad-redirection-route-column" />
+              <col className="ad-redirection-count-column" />
+              <col className="ad-redirection-reason-column" />
+            </colgroup>
             <thead>
               <tr>
                 <th>From Department → To Department</th>

@@ -61,6 +61,14 @@ def save_manifest(manifest):
     temporary_path.replace(MANIFEST_PATH)
 
 
+def document_source(record):
+    if record.get("source") == "google_drive" or record.get("drive_file_id"):
+        return "google_drive"
+    if record.get("source") == "local_upload":
+        return "local_upload"
+    return "unknown"
+
+
 @router.post("/upload")
 async def upload_documents(
     files: Annotated[list[UploadFile], File(
@@ -104,6 +112,7 @@ async def upload_documents(
                 "original_name": original_name,
                 "status": "saved",
                 "chunks": 0,
+                "source": "local_upload",
             }
         except Exception:
             logger.exception("Could not save uploaded document %s", original_name)
@@ -166,6 +175,7 @@ def list_documents():
         files.append({
             "stored_name": path.name,
             "original_name": record.get("original_name") or path.name,
+            "source": document_source(record),
             "size_bytes": path.stat().st_size,
             "status": "indexed" if actual_chunks > 0 else (
                 "failed" if record.get("status") == "failed" else "saved"

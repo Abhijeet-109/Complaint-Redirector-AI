@@ -1,13 +1,16 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Search, CheckSquare, Square, RefreshCw } from 'lucide-react';
+import { DOCUMENT_SOURCE_LABELS, normalizeDocumentSource } from '../../../utils/documentSource.js';
 
 function mapDocument(file) {
   const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
+  const source = normalizeDocumentSource(file);
   return {
     id: file.stored_name,
     stored_name: file.stored_name,
     name: file.original_name || file.stored_name,
-    source: 'Local Upload',
+    source,
+    sourceLabel: DOCUMENT_SOURCE_LABELS[source],
     type: file.stored_name.split('.').pop().toUpperCase(),
     size: `${(Number(file.size_bytes || 0) / 1024).toFixed(1)} KB`,
     indexStatus,
@@ -28,6 +31,8 @@ export function KnowledgeDocumentsTable({
   onSelectionChange,
   onIndexDocuments,
   isIndexing = false,
+  driveConnected = null,
+  driveStatusLoading = false,
 }) {
   const documents = useMemo(() => files.map(mapDocument), [files]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -102,9 +107,18 @@ export function KnowledgeDocumentsTable({
         </select>
         <select className="fk-pipe-filter-select" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} aria-label="Filter by document source">
           <option value="all">All sources</option>
-          <option value="Local Upload">Local Upload</option>
+          <option value="local_upload">Local Upload</option>
+          <option value="google_drive">Google Drive</option>
+          <option value="unknown">Unknown source</option>
         </select>
-        <span className="fk-pipe-toolbar-hint">Google Drive is not connected</span>
+        {driveStatusLoading
+          ? <span className="fk-pipe-toolbar-hint">Checking Drive connection…</span>
+          : driveConnected === true
+            ? <span className="fk-pipe-toolbar-hint fk-pipe-toolbar-hint--connected">Google Drive connected</span>
+            : driveConnected === false
+              ? <span className="fk-pipe-toolbar-hint">Google Drive is not connected</span>
+              : <span className="fk-pipe-toolbar-hint">Drive status unavailable</span>
+        }
       </div>
 
       <div className="fk-pipe-table-wrapper">
@@ -121,8 +135,8 @@ export function KnowledgeDocumentsTable({
                     const selected = selectedIds.has(doc.id);
                     return <tr key={doc.id} style={{ backgroundColor: selected ? '#FAF7F0' : undefined }}>
                       <td style={{ textAlign: 'center' }}><button type="button" className="fk-pipe-row-select" onClick={() => toggleRow(doc.id)} aria-label={`Select document ${doc.name}`}>{selected ? <CheckSquare size={16} /> : <Square size={16} />}</button></td>
-                      <td><div className="fk-pipe-doc-cell"><strong className="fk-pipe-doc-title">{doc.name}</strong><span className="fk-pipe-doc-sub">{doc.stored_name}</span></div></td>
-                      <td>{doc.source}</td><td>{doc.type} · {doc.size}</td>
+                      <td><div className="fk-pipe-doc-cell"><strong className="fk-pipe-doc-title" title={doc.name}>{doc.name}</strong><span className="fk-pipe-doc-sub">{doc.stored_name}</span></div></td>
+                      <td>{doc.sourceLabel}</td><td>{doc.type} · {doc.size}</td>
                       <td><span className={`fk-pipe-index-status ${doc.indexStatus === 'indexed' ? 'is-indexed' : 'is-not-indexed'}${doc.indexError ? ' has-error' : ''}`} title={doc.indexError || undefined}>{doc.indexLabel}</span></td>
                       <td>{doc.chunks}</td>
                       <td><div className="fk-pipe-actions-cell">
