@@ -76,75 +76,75 @@ def add_documents(file_paths):
     if not chunks:
         raise ValueError("No text chunks were created")
 
-#     # Match existing chunks first, including legacy chunks with generated IDs.
-#     existing_chunks = Counter()
-#     for source_name in {chunk.metadata.get("source", "") for chunk in chunks}:
-#         stored = vectorstore.get(
-#             where={"source": source_name},
-#             include=["documents", "metadatas"],
-#         )
-#         for content, metadata in zip(
-#             stored.get("documents", []), stored.get("metadatas", [])
-#         ):
-#             key = (content, json.dumps(metadata or {}, sort_keys=True, default=str))
-#             existing_chunks[key] += 1
+    # Match existing chunks first, including legacy chunks with generated IDs.
+    existing_chunks = Counter()
+    for source_name in {chunk.metadata.get("source", "") for chunk in chunks}:
+        stored = vectorstore.get(
+            where={"source": source_name},
+            include=["documents", "metadatas"],
+        )
+        for content, metadata in zip(
+            stored.get("documents", []), stored.get("metadatas", [])
+        ):
+            key = (content, json.dumps(metadata or {}, sort_keys=True, default=str))
+            existing_chunks[key] += 1
 
-#     missing_chunks = []
-#     missing_ids = []
-#     for index, chunk in enumerate(chunks):
-#         metadata_key = json.dumps(chunk.metadata, sort_keys=True, default=str)
-#         content_key = (chunk.page_content, metadata_key)
-#         if existing_chunks[content_key] > 0:
-#             existing_chunks[content_key] -= 1
-#             continue
+    missing_chunks = []
+    missing_ids = []
+    for index, chunk in enumerate(chunks):
+        metadata_key = json.dumps(chunk.metadata, sort_keys=True, default=str)
+        content_key = (chunk.page_content, metadata_key)
+        if existing_chunks[content_key] > 0:
+            existing_chunks[content_key] -= 1
+            continue
 
-#         missing_chunks.append(chunk)
-#         missing_ids.append(hashlib.sha256(
-#             f"{chunk.metadata.get('source', '')}:{chunk.metadata.get('page', '')}:{index}:{chunk.page_content}".encode("utf-8")
-#         ).hexdigest())
+        missing_chunks.append(chunk)
+        missing_ids.append(hashlib.sha256(
+            f"{chunk.metadata.get('source', '')}:{chunk.metadata.get('page', '')}:{index}:{chunk.page_content}".encode("utf-8")
+        ).hexdigest())
 
-#     if missing_chunks:
-#         # Stable IDs make retries upsert the same newly added chunks.
-#         vectorstore.add_documents(missing_chunks, ids=missing_ids)
+    if missing_chunks:
+        # Stable IDs make retries upsert the same newly added chunks.
+        vectorstore.add_documents(missing_chunks, ids=missing_ids)
 
-#     return len(chunks)
+    return len(chunks)
 
 
-# def reindex_document(file_path):
-#     """Upsert current document chunks, then remove stale chunks for its source."""
-#     extracted_sections = load_document(file_path)
-#     documents = [
-#         Document(page_content=section["page_content"], metadata=section["metadata"])
-#         for section in extracted_sections
-#     ]
-#     if not documents:
-#         raise ValueError("No readable document content found")
+def reindex_document(file_path):
+    """Upsert current document chunks, then remove stale chunks for its source."""
+    extracted_sections = load_document(file_path)
+    documents = [
+        Document(page_content=section["page_content"], metadata=section["metadata"])
+        for section in extracted_sections
+    ]
+    if not documents:
+        raise ValueError("No readable document content found")
 
-#     splitter = RecursiveCharacterTextSplitter(
-#         chunk_size=CHUNK_SIZE,
-#         chunk_overlap=CHUNK_OVERLAP,
-#     )
-#     chunks = splitter.split_documents(documents)
-#     if not chunks:
-#         raise ValueError("No text chunks were created")
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+    )
+    chunks = splitter.split_documents(documents)
+    if not chunks:
+        raise ValueError("No text chunks were created")
 
-#     source_name = chunks[0].metadata.get("source", "")
-#     ids = [
-#         hashlib.sha256(
-#             f"{source_name}:{chunk.metadata.get('page', '')}:{index}:{chunk.page_content}".encode("utf-8")
-#         ).hexdigest()
-#         for index, chunk in enumerate(chunks)
-#     ]
-#     existing = vectorstore.get(
-#         where={"source": source_name},
-#         include=["metadatas"],
-#     )
-#     # Upsert first so a failed embedding operation leaves the existing index intact.
-#     vectorstore.add_documents(chunks, ids=ids)
-#     stale_ids = [stored_id for stored_id in existing.get("ids", []) if stored_id not in set(ids)]
-#     if stale_ids:
-#         vectorstore.delete(ids=stale_ids)
-#     return len(chunks)
+    source_name = chunks[0].metadata.get("source", "")
+    ids = [
+        hashlib.sha256(
+            f"{source_name}:{chunk.metadata.get('page', '')}:{index}:{chunk.page_content}".encode("utf-8")
+        ).hexdigest()
+        for index, chunk in enumerate(chunks)
+    ]
+    existing = vectorstore.get(
+        where={"source": source_name},
+        include=["metadatas"],
+    )
+    # Upsert first so a failed embedding operation leaves the existing index intact.
+    vectorstore.add_documents(chunks, ids=ids)
+    stale_ids = [stored_id for stored_id in existing.get("ids", []) if stored_id not in set(ids)]
+    if stale_ids:
+        vectorstore.delete(ids=stale_ids)
+    return len(chunks)
 
 
 def get_document_chunk_count(source_name):

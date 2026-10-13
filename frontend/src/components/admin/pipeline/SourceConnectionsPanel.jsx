@@ -85,17 +85,18 @@ export function SourceConnectionsPanel({ onImportComplete }) {
   const loadFiles = async ({ folderId = null, pageToken = null, append = false } = {}) => {
     setFilesLoading(true);
     setFilesError('');
-    if (!append) {
-      setFiles([]);
-      setNextPageToken(null);
-    }
     try {
       const response = await driveService.listFiles({ folderId, pageToken });
       const nextFiles = Array.isArray(response.files) ? response.files : [];
       setFiles((previous) => {
         if (!append) return nextFiles;
         const knownIds = new Set(previous.map((file) => file.id));
-        return [...previous, ...nextFiles.filter((file) => !knownIds.has(file.id))];
+        const newFiles = nextFiles.filter((file) => {
+          if (knownIds.has(file.id)) return false;
+          knownIds.add(file.id);
+          return true;
+        });
+        return [...previous, ...newFiles];
       });
       setNextPageToken(response.next_page_token || null);
       return true;
@@ -176,6 +177,13 @@ export function SourceConnectionsPanel({ onImportComplete }) {
     const parent = folderStack[folderStack.length - 2];
     const loaded = await loadFiles({ folderId: parent.id });
     if (loaded) setFolderStack((previous) => previous.slice(0, -1));
+  };
+
+  const goToBreadcrumb = async (index) => {
+    if (index >= folderStack.length - 1 || filesLoading) return;
+    const folder = folderStack[index];
+    const loaded = await loadFiles({ folderId: folder.id });
+    if (loaded) setFolderStack((previous) => previous.slice(0, index + 1));
   };
 
   const toggleFile = (file) => {
@@ -275,12 +283,14 @@ export function SourceConnectionsPanel({ onImportComplete }) {
             <header className="ad-modal-header">
               <div>
                 <div className="ad-modal-title" id="fk-pipe-drive-modal-title">Browse Google Drive</div>
-                <div className="fk-pipe-drive-breadcrumbs" aria-label="Current Drive folder">
+                <nav className="fk-pipe-drive-breadcrumbs" aria-label="Current Drive folder">
                   {folderStack.map((folder, index) => <React.Fragment key={folder.id || 'root'}>
                     {index > 0 && <span aria-hidden="true">/</span>}
-                    <span aria-current={index === folderStack.length - 1 ? 'page' : undefined}>{folder.name}</span>
+                    {index === folderStack.length - 1
+                      ? <span aria-current="page">{folder.name}</span>
+                      : <button type="button" className="fk-pipe-drive-breadcrumb" onClick={() => goToBreadcrumb(index)} disabled={filesLoading}>{folder.name}</button>}
                   </React.Fragment>)}
-                </div>
+                </nav>
               </div>
               <button type="button" className="ad-modal-close" aria-label="Close Drive browser" onClick={() => !isImporting && setIsBrowserOpen(false)} disabled={isImporting}><X size={18} /></button>
             </header>
@@ -297,6 +307,7 @@ export function SourceConnectionsPanel({ onImportComplete }) {
               </div>
 
               {filesError && <div className="fk-pipe-config-error" role="alert">{filesError}</div>}
+              <div className="fk-pipe-drive-scroll-area">
               <div className="fk-pipe-drive-file-list" aria-live="polite">
                 {filesLoading && files.length === 0 ? <div className="fk-pipe-drive-empty"><LoaderCircle size={18} className="fk-pipe-drive-spinner" /> Loading Drive files…</div>
                   : filesError && files.length === 0 ? <div className="fk-pipe-drive-empty">Drive files could not be loaded.</div>
@@ -343,6 +354,7 @@ export function SourceConnectionsPanel({ onImportComplete }) {
                   {result.message && <span>{result.message}</span>}
                 </div>)}
               </div>}
+              </div>
             </div>
 
             <footer className="ad-modal-footer">

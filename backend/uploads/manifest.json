@@ -1,20 +1,32 @@
 {
-  "527bc47fb29245718d966708738d7a8b.pdf": {
-    "original_name": "dummy_company_policy_rag_test.pdf",
+  "2b02828699d44da7824761551159b0fd.pdf": {
+    "original_name": "01_Privacy_Policy.pdf",
     "status": "indexed",
-    "chunks": 15,
+    "chunks": 3,
     "error": null
   },
-  "97fb6575c05d43f7abd0370c06cce312.pdf": {
-    "original_name": "dummy_company_policy_rag_test.pdf",
+  "9bbdee69d83d4aaa8e99ebd389a08dc6.pdf": {
+    "original_name": "02_Terms_and_Conditions.pdf",
     "status": "indexed",
-    "chunks": 15,
+    "chunks": 3,
     "error": null
   },
-  "b8a10320e2ef4ad89833a187147c970f.pdf": {
-    "original_name": "dummy_company_policy_rag_test.pdf",
+  "bf75533d59c74fd79f13e02fd750276e.pdf": {
+    "original_name": "03_Return_and_Replacement_Policy.pdf",
     "status": "indexed",
-    "chunks": 15,
+    "chunks": 3,
+    "error": null
+  },
+  "189380f4f2ca4e83bf2f84a0857cbbf3.pdf": {
+    "original_name": "04_Refund_Policy.pdf",
+    "status": "indexed",
+    "chunks": 3,
+    "error": null
+  },
+  "43749b35aee64a2f9bb8353cdbe53d7c.pdf": {
+    "original_name": "05_Shipping_and_Delivery_Policy.pdf",
+    "status": "indexed",
+    "chunks": 3,
     "error": null
   }
 }

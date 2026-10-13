@@ -1,3 +1,4 @@
+
 import json
 import logging
 import re
@@ -33,19 +34,15 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = BACKEND_DIR / "uploads"
 MANIFEST_PATH = UPLOAD_DIR / "manifest.json"
 
-ALLOWED_DRIVE_MIME_TYPES = {
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.google-apps.document",
-}
-
 
 def read_manifest():
     if not MANIFEST_PATH.exists():
         return {}
 
     try:
-        data = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        data = json.loads(
+            MANIFEST_PATH.read_text(encoding="utf-8")
+        )
     except (json.JSONDecodeError, OSError) as exc:
         logger.exception("Could not read document manifest")
         raise HTTPException(
@@ -64,6 +61,7 @@ def read_manifest():
 
 def save_manifest(manifest):
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
     temporary_path = MANIFEST_PATH.with_suffix(".tmp")
     temporary_path.write_text(
         json.dumps(manifest, indent=2),
@@ -84,8 +82,8 @@ def connect_drive(
     _user=Depends(require_role("super_admin")),
 ):
     try:
-        state = uuid.uuid4().hex + uuid.uuid4().hex
-        flow = create_oauth_flow(state=state)
+        # Generate the OAuth flow and its PKCE verifier.
+        flow = create_oauth_flow()
 
         authorization_url, returned_state = flow.authorization_url(
             access_type="offline",
@@ -93,9 +91,16 @@ def connect_drive(
             prompt="consent",
         )
 
-        save_oauth_state(returned_state)
+        # Save the verifier created for this exact authorization request.
+        code_verifier = flow.code_verifier
 
-        # The frontend should redirect the browser to this URL.
+        if not code_verifier:
+            raise RuntimeError(
+                "Google OAuth did not generate a PKCE code verifier."
+            )
+
+        save_oauth_state(returned_state, code_verifier)
+
         return {
             "authorization_url": authorization_url,
             "state": returned_state,
@@ -127,17 +132,20 @@ def drive_callback(
             detail="Missing Google OAuth code or state.",
         )
 
-    if not consume_oauth_state(state):
+    # Retrieve and consume the verifier saved by /drive/connect.
+    code_verifier = consume_oauth_state(state)
+
+    if not code_verifier:
         raise HTTPException(
             status_code=400,
             detail="Invalid or expired OAuth state. Start the connection again.",
         )
 
-   
     try:
         exchange_authorization_code(
             code=code,
             state=state,
+            code_verifier=code_verifier,
         )
 
     except Exception as exc:
@@ -150,14 +158,6 @@ def drive_callback(
             ),
         ) from exc
 
-    except Exception as exc:
-        logger.exception("Google Drive OAuth callback failed")
-        raise HTTPException(
-            status_code=400,
-            detail="Google Drive authorization failed. Try connecting again.",
-        ) from exc
-
-    # Change this frontend URL if your admin dashboard uses a different route.
     return RedirectResponse(
         url="http://localhost:5173/admin",
         status_code=303,
@@ -177,8 +177,13 @@ def drive_files(
             page_token=page_token,
             page_size=page_size,
         )
+
     except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
     except Exception as exc:
         logger.exception("Could not list Google Drive files")
         raise HTTPException(
@@ -188,7 +193,11 @@ def drive_files(
 
 
 class DriveImportRequest(BaseModel):
-    file_ids: list[str] = Field(..., min_length=1, max_length=20)
+    file_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+    )
 
 
 @router.post("/import")
@@ -200,7 +209,6 @@ def import_drive_files(
     manifest = read_manifest()
     results = []
 
-    # Prevent duplicate imports of the same Drive file.
     already_imported_ids = {
         record.get("drive_file_id")
         for record in manifest.values()
@@ -227,7 +235,10 @@ def import_drive_files(
             results.append({
                 "file_id": file_id,
                 "status": "already_imported",
-                "message": "This Drive file is already indexed. Delete it before importing again.",
+                "message": (
+                    "This Drive file is already indexed. "
+                    "Delete it before importing again."
+                ),
             })
             continue
 
@@ -245,7 +256,9 @@ def import_drive_files(
             stored_path = UPLOAD_DIR / metadata["stored_name"]
 
             if stored_path.suffix.lower() not in {".pdf", ".docx"}:
-                raise ValueError("Only PDF and DOCX files can be imported.")
+                raise ValueError(
+                    "Only PDF and DOCX files can be imported."
+                )
 
             chunk_count = add_documents([str(stored_path)])
             vectors_added = True
@@ -273,9 +286,11 @@ def import_drive_files(
             })
 
         except Exception as exc:
-            logger.exception("Google Drive import failed for file ID %s", file_id)
+            logger.exception(
+                "Google Drive import failed for file ID %s",
+                file_id,
+            )
 
-            # Clean up any vectors that were added before an error occurred.
             if stored_path is not None and vectors_added:
                 try:
                     delete_document_vectors(stored_path.name)
@@ -294,13 +309,14 @@ def import_drive_files(
                         stored_path,
                     )
 
-            # Remove any incomplete record and persist the current manifest.
             if stored_path is not None:
                 manifest.pop(stored_path.name, None)
                 try:
                     save_manifest(manifest)
                 except OSError:
-                    logger.exception("Could not update manifest after import failure")
+                    logger.exception(
+                        "Could not update manifest after import failure"
+                    )
 
             results.append({
                 "file_id": file_id,
@@ -311,10 +327,12 @@ def import_drive_files(
     return {
         "results": results,
         "imported_count": sum(
-            item["status"] == "indexed" for item in results
+            item["status"] == "indexed"
+            for item in results
         ),
         "already_imported_count": sum(
-            item["status"] == "already_imported" for item in results
+            item["status"] == "already_imported"
+            for item in results
         ),
     }
 
@@ -351,6 +369,7 @@ def disconnect_google_drive(
 ):
     try:
         return disconnect_drive()
+
     except OSError as exc:
         logger.exception("Could not disconnect Google Drive")
         raise HTTPException(

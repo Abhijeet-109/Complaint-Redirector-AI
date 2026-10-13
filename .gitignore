@@ -51,3 +51,7 @@ build/
 *.timestamp-*.mjs
 package-lock.json
 Docs
+backend\uploads
+# Google Drive OAuth credentials and state
+/backend/data/
+/backend/chatbot/data/

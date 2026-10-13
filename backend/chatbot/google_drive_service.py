@@ -1,7 +1,9 @@
+
 import json
 import logging
 import os
 import time
+from io import BytesIO
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,8 +12,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
-
-from io import BytesIO
 
 
 logger = logging.getLogger("flatkart.google_drive")
@@ -50,32 +50,43 @@ def _client_config():
     }
 
 
-def create_oauth_flow(state=None):
+def create_oauth_flow(state=None, code_verifier=None):
     flow = Flow.from_client_config(
         _client_config(),
         scopes=SCOPES,
         state=state,
+        code_verifier=code_verifier,
     )
     flow.redirect_uri = GOOGLE_REDIRECT_URI
     return flow
 
 
-def save_oauth_state(state):
-    """Store a short-lived OAuth state so the callback can verify it."""
+def save_oauth_state(state, code_verifier):
+    """Save OAuth state and its PKCE verifier for the callback."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
         states = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(states, dict):
+            states = {}
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         states = {}
 
     now = int(time.time())
+
+    # Keep only valid states that are less than 10 minutes old.
     states = {
-        key: timestamp
-        for key, timestamp in states.items()
-        if isinstance(timestamp, int) and now - timestamp < 600
+        key: value
+        for key, value in states.items()
+        if isinstance(value, dict)
+        and isinstance(value.get("created_at"), int)
+        and 0 <= now - value["created_at"] < 600
     }
-    states[state] = now
+
+    states[state] = {
+        "created_at": now,
+        "code_verifier": code_verifier,
+    }
 
     temporary_file = STATE_FILE.with_suffix(".tmp")
     temporary_file.write_text(json.dumps(states), encoding="utf-8")
@@ -83,42 +94,65 @@ def save_oauth_state(state):
 
 
 def consume_oauth_state(state):
-    """Validate and remove a state value; a state can be used only once."""
+    """
+    Validate a state once and return its saved PKCE verifier.
+    Returns None if the state is invalid or expired.
+    """
     if not STATE_FILE.exists():
-        return False
+        return None
 
     try:
         states = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(states, dict):
+            return None
     except (json.JSONDecodeError, OSError):
         logger.exception("Could not read Google OAuth state file")
-        return False
+        return None
 
-    timestamp = states.pop(state, None)
+    item = states.pop(state, None)
 
     temporary_file = STATE_FILE.with_suffix(".tmp")
+
     try:
         temporary_file.write_text(json.dumps(states), encoding="utf-8")
         temporary_file.replace(STATE_FILE)
     except OSError:
         logger.exception("Could not update Google OAuth state file")
-        return False
+        return None
 
-    return (
-        isinstance(timestamp, int)
-        and 0 <= int(time.time()) - timestamp < 600
+    if not isinstance(item, dict):
+        return None
+
+    created_at = item.get("created_at")
+    code_verifier = item.get("code_verifier")
+
+    age = (
+        int(time.time()) - created_at
+        if isinstance(created_at, int)
+        else -1
     )
 
+    if not (0 <= age < 600):
+        return None
+
+    if not isinstance(code_verifier, str) or not code_verifier:
+        return None
+
+    return code_verifier
 
 
-def exchange_authorization_code(code: str, state: str):
-    flow = create_oauth_flow(state=state)
+def exchange_authorization_code(code, state, code_verifier):
+    """Exchange Google's authorization code using the original PKCE verifier."""
+    flow = create_oauth_flow(
+        state=state,
+        code_verifier=code_verifier,
+    )
 
-    # Exchange the authorization code directly.
-    # The callback already validates the one-time OAuth state.
     flow.fetch_token(code=code)
 
     credentials = flow.credentials
     save_credentials(credentials)
+
     return credentials
 
 
@@ -192,13 +226,15 @@ def get_connection_status():
 
 def list_drive_files(folder_id=None, page_token=None, page_size=100):
     service = get_drive_service()
-
     query_parts = ["trashed = false"]
 
     if folder_id:
-        # The folder ID is passed as a Drive API query value.
-        safe_folder_id = folder_id.replace("\\", "\\\\").replace("'", "\\'")
+        safe_folder_id = (
+            folder_id.replace("\\", "\\\\").replace("'", "\\'")
+        )
         query_parts.append(f"'{safe_folder_id}' in parents")
+    else:
+        query_parts.append("'root' in parents")
 
     response = service.files().list(
         q=" and ".join(query_parts),
@@ -206,8 +242,8 @@ def list_drive_files(folder_id=None, page_token=None, page_size=100):
         pageToken=page_token,
         orderBy="name",
         fields=(
-            "nextPageToken,files("
-            "id,name,mimeType,modifiedTime,size,webViewLink)"
+            "nextPageToken,"
+            "files(id,name,mimeType,modifiedTime,size,webViewLink)"
         ),
     ).execute()
 
@@ -218,19 +254,18 @@ def list_drive_files(folder_id=None, page_token=None, page_size=100):
 
 
 def _download_request(service, file_id, mime_type):
-    if mime_type == "application/pdf":
-        return service.files().get_media(fileId=file_id)
-
-    if mime_type == (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ):
+    if mime_type in {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }:
         return service.files().get_media(fileId=file_id)
 
     if mime_type == "application/vnd.google-apps.document":
         return service.files().export(
             fileId=file_id,
             mimeType=(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
             ),
         )
 
@@ -240,10 +275,6 @@ def _download_request(service, file_id, mime_type):
 
 
 def download_drive_file(file_id, destination):
-    """
-    Download a supported Drive file into backend/uploads using a generated
-    local filename. Google Docs files are exported as DOCX.
-    """
     service = get_drive_service()
 
     metadata = service.files().get(
@@ -256,10 +287,7 @@ def download_drive_file(file_id, destination):
 
     request = _download_request(service, file_id, mime_type)
 
-    if mime_type == "application/pdf":
-        extension = ".pdf"
-    else:
-        extension = ".docx"
+    extension = ".pdf" if mime_type == "application/pdf" else ".docx"
 
     destination = Path(destination).with_suffix(extension)
     destination.parent.mkdir(parents=True, exist_ok=True)
