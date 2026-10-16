@@ -1,35 +1,50 @@
 {
-  "a6d03f64704a4c018002825537ccc46b.pdf": {
+  "b6c763891d29487f89facc4652de487c.pdf": {
+    "original_name": "01_Privacy_Policy.pdf",
+    "status": "indexed",
+    "chunks": 3,
+    "source": "local_upload",
+    "error": null
+  },
+  "35300ff7097a42bf99f0ac67c13992bc.pdf": {
     "original_name": "02_Terms_and_Conditions.pdf",
     "status": "indexed",
     "chunks": 3,
     "source": "local_upload",
     "error": null
   },
-  "947f25f90e29414b9ff4e087e71c6420.pdf": {
+  "63fd15c51b884f26ae530081f1e3c89c.pdf": {
     "original_name": "03_Return_and_Replacement_Policy.pdf",
     "status": "indexed",
     "chunks": 3,
-    "error": null,
-    "source": "google_drive",
-    "drive_file_id": "1neUkGUDjhnSFUdj2dqrIgPZY0c8AOhml",
-    "drive_mime_type": "application/pdf",
-    "modified_time": "2026-10-13T05:28:32.744Z"
+    "source": "local_upload",
+    "error": null
   },
-  "8fe4a7a2966648d1b6105dd439829cbe.pdf": {
+  "9a683337e931475ba24614ec0a6d0323.pdf": {
     "original_name": "04_Refund_Policy.pdf",
     "status": "indexed",
     "chunks": 3,
-    "error": null,
-    "source": "google_drive",
-    "drive_file_id": "1joEeNI_geDWbFqiJLle50QF_wDzdpb7u",
-    "drive_mime_type": "application/pdf",
-    "modified_time": "2026-10-13T05:28:32.754Z"
+    "source": "local_upload",
+    "error": null
   },
-  "794f47f6cccc4f8083c4967d228d9c5b.pdf": {
+  "8ab04878f6654186b9a40e4fe84f06ab.pdf": {
+    "original_name": "05_Shipping_and_Delivery_Policy.pdf",
+    "status": "indexed",
+    "chunks": 3,
+    "source": "local_upload",
+    "error": null
+  },
+  "3be69e1998e74139bd20f9c7c6ca537e.pdf": {
     "original_name": "06_Cancellation_Policy.pdf",
     "status": "indexed",
     "chunks": 3,
+    "source": "local_upload",
+    "error": null
+  },
+  "5413cc103aac49a0b6267dbfb571489f.docx": {
+    "original_name": "FK-CX-RFD-002_Return_Refund_Cancellation_Policy.docx",
+    "status": "indexed",
+    "chunks": 15,
     "source": "local_upload",
     "error": null
   }

@@ -1,6 +1,8 @@
 """Focused API authorization tests for customer chat and Knowledge Operations."""
 
 import importlib
+import hashlib
+import json
 import os
 import sys
 import types
@@ -22,7 +24,7 @@ _stubs["backend.chatbot.answer_pipeline"].answer_question = lambda question: {
     "sources": [],
 }
 _vector_store = _stubs["backend.chatbot.vector_store"]
-_vector_store.add_documents = lambda paths: 1
+_vector_store.add_documents = lambda paths, **kwargs: 1
 _vector_store.delete_document_vectors = lambda name: None
 _vector_store.get_document_chunk_count = lambda name: 0
 _vector_store.reindex_document = lambda path: 1
@@ -144,7 +146,7 @@ class CustomerRoleAccessTests(unittest.TestCase):
             manifest_path = upload_dir / "manifest.json"
             with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
                     patch.object(_documents, "MANIFEST_PATH", manifest_path), \
-                    patch.object(_documents, "get_document_chunk_count", return_value=0), \
+                    patch.object(_documents, "get_document_chunk_count", side_effect=[0, 0, 2, 2, 0]), \
                     patch.object(_documents, "add_documents", return_value=2):
                 upload = self.client.post(
                     "/documents/upload",
@@ -156,10 +158,15 @@ class CustomerRoleAccessTests(unittest.TestCase):
                 self.assertEqual(upload.status_code, 200)
                 self.assertEqual(upload.json()["uploaded_count"], 1)
                 self.assertEqual(upload.json()["failed_count"], 1)
+                stored_name = upload.json()["files"][0]["stored_name"]
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    manifest[stored_name]["content_sha256"],
+                    hashlib.sha256(b"%PDF-test").hexdigest(),
+                )
 
                 listing = self.client.get("/documents")
                 self.assertEqual(listing.status_code, 200)
-                stored_name = upload.json()["files"][0]["stored_name"]
 
                 indexed = self.client.post(
                     "/documents/index",
@@ -181,6 +188,74 @@ class CustomerRoleAccessTests(unittest.TestCase):
             for test_file in upload_dir.iterdir():
                 if test_file.is_file():
                     test_file.unlink()
+
+    def test_failed_reindex_keeps_existing_index_state_and_hash(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            stored_name = "a" * 32 + ".pdf"
+            (upload_dir / stored_name).write_bytes(b"%PDF-valid")
+            old_hash = "previous-verified-content-hash"
+            manifest_path.write_text(json.dumps({stored_name: {
+                "original_name": "guide.pdf",
+                "status": "indexed",
+                "chunks": 2,
+                "source": "local_upload",
+                "content_sha256": old_hash,
+                "error": None,
+            }}), encoding="utf-8")
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "get_document_chunk_count", side_effect=[2, 2]), \
+                    patch.object(_documents, "reindex_document", side_effect=RuntimeError("refresh failed")):
+                response = self.client.post(
+                    "/documents/index",
+                    json={"stored_names": [stored_name], "reindex": True},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["results"][0]["status"], "failed")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest[stored_name]["status"], "indexed")
+            self.assertEqual(manifest[stored_name]["content_sha256"], old_hash)
+            self.assertIn("Indexing failed", manifest[stored_name]["error"])
+
+    def test_changed_content_hash_triggers_reindex_and_updates_manifest(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            stored_name = "b" * 32 + ".pdf"
+            current_content = b"%PDF-current content"
+            (upload_dir / stored_name).write_bytes(current_content)
+            manifest_path.write_text(json.dumps({stored_name: {
+                "original_name": "guide.pdf",
+                "status": "indexed",
+                "chunks": 2,
+                "source": "local_upload",
+                "content_sha256": "old-hash",
+                "error": None,
+            }}), encoding="utf-8")
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "get_document_chunk_count", side_effect=[2, 1]), \
+                    patch.object(_documents, "reindex_document", return_value=1) as reindex, \
+                    patch.object(_documents, "add_documents") as add:
+                response = self.client.post(
+                    "/documents/index",
+                    json={"stored_names": [stored_name]},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["results"][0]["status"], "indexed")
+            reindex.assert_called_once()
+            add.assert_not_called()
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest[stored_name]["content_sha256"],
+                hashlib.sha256(current_content).hexdigest(),
+            )
 
     def test_upload_rejects_invalid_signatures_mime_and_oversize_files(self):
         self._as_role("super_admin")
@@ -245,7 +320,8 @@ class CustomerRoleAccessTests(unittest.TestCase):
                     patch.object(_drive, "UPLOAD_DIR", upload_dir), \
                     patch.object(_drive, "MANIFEST_PATH", manifest_path), \
                     patch.object(_drive, "download_drive_file", side_effect=fake_drive_download), \
-                    patch.object(_drive, "add_documents", return_value=2):
+                    patch.object(_drive, "get_document_chunk_count", return_value=2), \
+                    patch.object(_drive, "add_documents", return_value=2) as add_drive:
                 local_upload = self.client.post(
                     "/documents/upload",
                     files=[("files", ("local policy.pdf", b"%PDF-local-test", "application/pdf"))],
@@ -259,6 +335,10 @@ class CustomerRoleAccessTests(unittest.TestCase):
                 )
                 self.assertEqual(drive_import.status_code, 200)
                 self.assertEqual(drive_import.json()["imported_count"], 1)
+                add_drive.assert_called_once_with(
+                    [str(upload_dir / drive_import.json()["results"][0]["stored_name"])],
+                    document_identity="valid-drive-id",
+                )
 
                 legacy_file = upload_dir / ("a" * 32 + ".pdf")
                 legacy_file.write_bytes(b"%PDF-legacy-test")

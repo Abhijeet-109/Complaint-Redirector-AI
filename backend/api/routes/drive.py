@@ -1,4 +1,5 @@
 
+import hashlib
 import json
 import logging
 import re
@@ -68,6 +69,14 @@ def save_manifest(manifest):
         encoding="utf-8",
     )
     temporary_path.replace(MANIFEST_PATH)
+
+
+def content_hash(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as document_file:
+        for chunk in iter(lambda: document_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @router.get("/status")
@@ -264,8 +273,13 @@ def import_drive_files(
                     "Only PDF and DOCX files can be imported."
                 )
 
-            chunk_count = add_documents([str(stored_path)])
+            chunk_count = add_documents(
+                [str(stored_path)],
+                document_identity=file_id,
+            )
             vectors_added = True
+            if get_document_chunk_count(stored_path.name) != chunk_count:
+                raise RuntimeError("The imported document index could not be verified")
 
             manifest[stored_path.name] = {
                 "original_name": metadata["original_name"],
@@ -276,6 +290,7 @@ def import_drive_files(
                 "drive_file_id": file_id,
                 "drive_mime_type": metadata["mime_type"],
                 "modified_time": metadata.get("modified_time"),
+                "content_sha256": content_hash(stored_path),
             }
 
             save_manifest(manifest)

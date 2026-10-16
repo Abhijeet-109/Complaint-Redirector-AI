@@ -1,4 +1,5 @@
 
+import hashlib
 import json
 import logging
 import re
@@ -72,6 +73,14 @@ def save_manifest(manifest):
     temporary_path.replace(MANIFEST_PATH)
 
 
+def content_hash(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as document_file:
+        for chunk in iter(lambda: document_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def document_source(record):
     if record.get("source") == "google_drive" or record.get("drive_file_id"):
         return "google_drive"
@@ -133,6 +142,7 @@ async def upload_documents(
 
         stored_name = f"{uuid.uuid4().hex}{extension}"
         destination = UPLOAD_DIR / stored_name
+        digest = hashlib.sha256()
 
         try:
             with destination.open("wb") as buffer:
@@ -142,6 +152,7 @@ async def upload_documents(
                     if copied_bytes > MAX_DOCUMENT_BYTES:
                         raise ValueError("The file exceeds the 25 MB limit.")
                     buffer.write(chunk)
+                    digest.update(chunk)
 
             validate_document_file(destination)
 
@@ -155,6 +166,7 @@ async def upload_documents(
                 "status": "saved",
                 "chunks": 0,
                 "source": "local_upload",
+                "content_sha256": digest.hexdigest(),
             }
         except ValueError as exc:
             try:
@@ -280,11 +292,18 @@ def index_documents(
             )
 
         try:
-            existing_chunks = get_document_chunk_count(filename)
             record = manifest.get(filename, {})
+            existing_chunks = get_document_chunk_count(filename)
+            validate_document_file(path)
+            current_hash = content_hash(path)
+            content_changed = (
+                bool(record.get("content_sha256"))
+                and record.get("content_sha256") != current_hash
+            )
 
             if (
                 not request.reindex
+                and not content_changed
                 and
                 record.get("status") == "indexed"
                 and existing_chunks > 0
@@ -297,14 +316,25 @@ def index_documents(
                 })
                 continue
 
-            validate_document_file(path)
-            chunk_count = reindex_document(str(path)) if request.reindex else add_documents([str(path)])
+            if request.reindex or content_changed:
+                drive_file_id = record.get("drive_file_id")
+                chunk_count = (
+                    reindex_document(str(path), document_identity=drive_file_id)
+                    if drive_file_id
+                    else reindex_document(str(path))
+                )
+            else:
+                chunk_count = add_documents([str(path)])
+            verified_chunks = get_document_chunk_count(filename)
+            if verified_chunks != chunk_count:
+                raise RuntimeError("The stored document chunk count could not be verified")
 
             manifest[filename] = {
                 **record,
                 "status": "indexed",
                 "chunks": chunk_count,
                 "error": None,
+                "content_sha256": current_hash,
             }
             save_manifest(manifest)
 
@@ -320,7 +350,11 @@ def index_documents(
                 remaining_chunks = get_document_chunk_count(filename)
                 manifest[filename] = {
                     **record,
-                    "status": "failed",
+                    "status": (
+                        "indexed"
+                        if record.get("status") == "indexed" and remaining_chunks > 0
+                        else "failed"
+                    ),
                     "chunks": remaining_chunks,
                     "error": "Indexing failed. Retry the operation or check backend logs.",
                 }
