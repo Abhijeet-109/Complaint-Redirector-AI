@@ -8,7 +8,13 @@ from pathlib import Path, PureWindowsPath
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from docx import Document as WordDocument
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.table import Table as WordTable
+from docx.text.paragraph import Paragraph as WordParagraph
 
 from backend.chatbot.vector_store import (
     add_documents,
@@ -390,6 +396,83 @@ def list_documents():
         })
 
     return {"count": len(files), "files": files}
+
+
+@router.get("/preview/{stored_name}")
+def preview_document(stored_name: str):
+    """Preview one stored PDF or return ordered readable content for a DOCX."""
+    if re.fullmatch(r"[0-9a-f]{32}\.(?:pdf|docx)", stored_name) is None:
+        raise HTTPException(status_code=400, detail="Invalid document identifier.")
+
+    extension = Path(stored_name).suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="This document format cannot be previewed.")
+
+    try:
+        uploads_root = UPLOAD_DIR.resolve(strict=True)
+        document_path = (uploads_root / stored_name).resolve(strict=True)
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="The stored document was not found.") from exc
+
+    if document_path.parent != uploads_root or not document_path.is_file():
+        raise HTTPException(status_code=404, detail="The stored document was not found.")
+
+    try:
+        validate_document_file(document_path)
+        manifest = read_manifest()
+        record = manifest.get(stored_name)
+        if not isinstance(record, dict):
+            raise HTTPException(status_code=404, detail="The stored document was not found.")
+        original_name = Path(
+            PureWindowsPath(str(record.get("original_name") or stored_name)).name
+        ).name
+        original_name = re.sub(r"[\x00-\x1f]", "", original_name)[:255] or stored_name
+
+        if extension == ".pdf":
+            return FileResponse(
+                document_path,
+                media_type="application/pdf",
+                filename=original_name,
+                content_disposition_type="inline",
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+
+        word_document = WordDocument(document_path)
+        blocks = []
+        for item in word_document.element.body.iterchildren():
+            if isinstance(item, CT_P):
+                paragraph_text = WordParagraph(item, word_document).text
+                if paragraph_text.strip():
+                    blocks.append({"type": "paragraph", "text": paragraph_text})
+            elif isinstance(item, CT_Tbl):
+                rows = [
+                    [cell.text for cell in row.cells]
+                    for row in WordTable(item, word_document).rows
+                ]
+                if rows:
+                    blocks.append({"type": "table", "rows": rows})
+
+        return {
+            "stored_name": stored_name,
+            "original_name": original_name,
+            "blocks": blocks,
+        }
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="The stored document is invalid and cannot be previewed.",
+        ) from exc
+    except Exception as exc:
+        logger.warning("Document preview failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=422,
+            detail="This document could not be previewed.",
+        ) from exc
 
 
 class IndexRequest(BaseModel):

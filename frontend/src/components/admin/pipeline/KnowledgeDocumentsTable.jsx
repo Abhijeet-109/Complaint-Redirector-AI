@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Search, CheckSquare, Square, RefreshCw } from 'lucide-react';
+import { Search, CheckSquare, Square, RefreshCw, Eye, Trash2 } from 'lucide-react';
 import { DOCUMENT_SOURCE_LABELS, normalizeDocumentSource } from '../../../utils/documentSource.js';
+import DocumentPreviewModal from './DocumentPreviewModal.jsx';
 
 function mapDocument(file, operationResult) {
   const persistedStatus = file.status === 'indexed' ? 'indexed' : file.status === 'failed' || file.error ? 'failed' : 'saved';
@@ -18,7 +19,6 @@ function mapDocument(file, operationResult) {
     sourceLabel: DOCUMENT_SOURCE_LABELS[source],
     type: file.stored_name.split('.').pop().toUpperCase(),
     size: `${(Number(file.size_bytes || 0) / 1024).toFixed(1)} KB`,
-    isIndexed: persistedStatus === 'indexed',
     indexStatus,
     indexLabel: ({ indexed: 'Indexed', saved: 'Saved', failed: 'Failed', already_indexed: 'Already Indexed' })[indexStatus],
     indexError: operationResult?.message || file.error || '',
@@ -48,6 +48,7 @@ export function KnowledgeDocumentsTable({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [previewDocument, setPreviewDocument] = useState(null);
 
   useEffect(() => {
     const currentIds = new Set(files.map((file) => file.stored_name));
@@ -135,12 +136,12 @@ export function KnowledgeDocumentsTable({
         <table className="fk-pipe-table">
           <thead><tr>
             <th style={{ width: '40px', textAlign: 'center' }}><button type="button" className="fk-pipe-select-all" onClick={toggleSelectAll} title="Select all" aria-label="Select all documents">{allFilteredSelected ? <CheckSquare size={16} /> : <Square size={16} />}</button></th>
-            <th>Document</th><th>Source</th><th>Type / Size</th><th>Index Status</th><th>Chunks</th><th>Actions</th>
+            <th>Document</th><th>Source</th><th>Type / Size</th><th>Index Status</th><th>Chunks</th><th>View</th><th>Actions</th>
           </tr></thead>
           <tbody>
-            {isLoading ? <tr><td colSpan={7} className="fk-pipe-empty-table-msg">Loading documents…</td></tr>
-              : loadError ? <tr><td colSpan={7} role="alert" className="fk-pipe-empty-table-msg">{loadError}</td></tr>
-                : filteredDocuments.length === 0 ? <tr><td colSpan={7} className="fk-pipe-empty-table-msg">No uploaded documents match the selected filters.</td></tr>
+            {isLoading ? <tr><td colSpan={8} className="fk-pipe-empty-table-msg">Loading documents…</td></tr>
+              : loadError ? <tr><td colSpan={8} role="alert" className="fk-pipe-empty-table-msg">{loadError}</td></tr>
+                : filteredDocuments.length === 0 ? <tr><td colSpan={8} className="fk-pipe-empty-table-msg">No uploaded documents match the selected filters.</td></tr>
                   : filteredDocuments.map((doc) => {
                     const selected = selectedIds.has(doc.id);
                     return <tr key={doc.id} style={{ backgroundColor: selected ? '#FAF7F0' : undefined }}>
@@ -149,18 +150,15 @@ export function KnowledgeDocumentsTable({
                       <td>{doc.sourceLabel}</td><td>{doc.type} · {doc.size}</td>
                       <td><span className={`fk-pipe-index-status ${doc.indexStatus === 'indexed' ? 'is-indexed' : doc.indexStatus === 'failed' ? 'is-failed' : doc.indexStatus === 'already_indexed' ? 'is-already-indexed' : 'is-not-indexed'}`} title={doc.indexError || undefined}>{doc.indexLabel}</span></td>
                       <td>{doc.chunks}</td>
-                      <td><div className="fk-pipe-actions-cell">
-                        {doc.isIndexed
-                          ? <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], true)} disabled={isIndexing}>Reindex</button>
-                          : <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], false)} disabled={isIndexing}>Index</button>}
-                        <button type="button" className="fk-pipe-action-btn danger" onClick={() => onOpenDelete?.([doc])} disabled={isIndexing}>Delete</button>
-                      </div></td>
+                      <td className="fk-pipe-table-icon-cell"><button type="button" className="fk-pipe-icon-btn" onClick={() => setPreviewDocument(doc)} title={`View document ${doc.name}`} aria-label={`View document ${doc.name}`}><Eye size={16} /></button></td>
+                      <td className="fk-pipe-table-icon-cell"><button type="button" className="fk-pipe-icon-btn fk-pipe-icon-btn-danger" onClick={() => onOpenDelete?.([doc])} disabled={isIndexing} title={`Delete document ${doc.name}`} aria-label={`Delete document ${doc.name}`}><Trash2 size={16} /></button></td>
                     </tr>;
                   })}
           </tbody>
         </table>
       </div>
       <div className="fk-pipe-table-footer">{selectedIds.size} document(s) selected</div>
+      <DocumentPreviewModal document={previewDocument} isOpen={Boolean(previewDocument)} onClose={() => setPreviewDocument(null)} />
     </div>
   );
 }

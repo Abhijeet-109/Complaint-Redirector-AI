@@ -117,6 +117,7 @@ class CustomerRoleAccessTests(unittest.TestCase):
     def test_customer_roles_cannot_read_or_mutate_pipeline_documents(self):
         requests = (
             ("get", "/documents", None),
+            ("get", "/documents/preview/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf", None),
             ("post", "/documents/upload", {"files": [("files", ("policy.pdf", b"%PDF-test", "application/pdf"))]}),
             ("post", "/documents/replace", {"data": {"stored_name": "a" * 32 + ".pdf"}, "files": {"file": ("policy.pdf", b"%PDF-test", "application/pdf")}}),
             ("post", "/documents/index", {"json": {"stored_names": ["a" * 32 + ".pdf"]}}),
@@ -174,6 +175,93 @@ class CustomerRoleAccessTests(unittest.TestCase):
 
                 config = self.client.get("/documents/config")
                 self.assertEqual(config.status_code, 200)
+
+    def test_document_preview_returns_stored_pdf_without_mutating_state(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            stored_name = "a" * 32 + ".pdf"
+            pdf_content = b"%PDF-1.7\npreview bytes"
+            (upload_dir / stored_name).write_bytes(pdf_content)
+            manifest = {stored_name: {
+                "original_name": "policy.pdf",
+                "status": "indexed",
+                "chunks": 2,
+                "source": "google_drive",
+            }}
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            file_hash = hashlib.sha256((upload_dir / stored_name).read_bytes()).hexdigest()
+            manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "get_document_chunk_count") as chunks, \
+                    patch.object(_documents, "add_documents") as add, \
+                    patch.object(_documents, "reindex_document") as reindex, \
+                    patch.object(_documents, "delete_document_vectors") as delete:
+                response = self.client.get(f"/documents/preview/{stored_name}")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, pdf_content)
+            self.assertTrue(response.headers["content-type"].startswith("application/pdf"))
+            self.assertIn("inline", response.headers["content-disposition"])
+            self.assertEqual(hashlib.sha256((upload_dir / stored_name).read_bytes()).hexdigest(), file_hash)
+            self.assertEqual(hashlib.sha256(manifest_path.read_bytes()).hexdigest(), manifest_hash)
+            chunks.assert_not_called()
+            add.assert_not_called()
+            reindex.assert_not_called()
+            delete.assert_not_called()
+
+    def test_document_preview_returns_docx_paragraphs_and_tables(self):
+        from docx import Document
+
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            stored_name = "b" * 32 + ".docx"
+            word_document = Document()
+            word_document.add_paragraph("Readable paragraph")
+            table = word_document.add_table(rows=1, cols=2)
+            table.cell(0, 0).text = "Column A"
+            table.cell(0, 1).text = "Column B"
+            word_document.save(upload_dir / stored_name)
+            manifest_path.write_text(json.dumps({stored_name: {
+                "original_name": "notes.docx",
+                "status": "saved",
+                "chunks": 0,
+                "source": "local_upload",
+            }}), encoding="utf-8")
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "get_document_chunk_count") as chunks, \
+                    patch.object(_documents, "reindex_document") as reindex:
+                response = self.client.get(f"/documents/preview/{stored_name}")
+
+            self.assertEqual(response.status_code, 200)
+            blocks = response.json()["blocks"]
+            self.assertEqual(blocks[0], {"type": "paragraph", "text": "Readable paragraph"})
+            self.assertEqual(blocks[1], {"type": "table", "rows": [["Column A", "Column B"]]})
+            chunks.assert_not_called()
+            reindex.assert_not_called()
+
+    def test_document_preview_rejects_invalid_and_missing_identifiers(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", upload_dir / "manifest.json"):
+                invalid = self.client.get("/documents/preview/../../manifest.json")
+                unsupported = self.client.get("/documents/preview/" + "c" * 32 + ".txt")
+                missing = self.client.get("/documents/preview/" + "d" * 32 + ".pdf")
+
+            self.assertIn(invalid.status_code, (400, 404))
+            self.assertIn(unsupported.status_code, (400, 404, 415))
+            self.assertEqual(missing.status_code, 404)
+
+    def test_missing_authentication_is_rejected_for_document_preview(self):
+        app.dependency_overrides.clear()
+        response = self.client.get("/documents/preview/" + "e" * 32 + ".pdf")
+        self.assertIn(response.status_code, (401, 403))
 
     def test_document_replacement_is_safe_and_preserves_local_identity(self):
         self._as_role("super_admin")

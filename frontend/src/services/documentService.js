@@ -35,6 +35,38 @@ export const documentService = {
     return await apiRequest('/documents', { method: 'GET' });
   },
 
+  /** Fetch one preview using the same bearer token as other document APIs. */
+  async previewDocument(storedName, { signal } = {}) {
+    const token = localStorage.getItem('flatkart_token');
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const response = await fetch(`/documents/preview/${encodeURIComponent(storedName)}`, {
+      method: 'GET',
+      headers,
+      signal,
+    });
+    if (!response.ok) {
+      let errorDetail = 'The document preview could not be loaded.';
+      try {
+        const errorData = await response.json();
+        errorDetail = errorData.detail || errorData.message || errorDetail;
+      } catch {
+        // Keep the plain-language fallback for non-JSON responses.
+      }
+      throw new Error(errorDetail);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/pdf')) {
+      return { type: 'pdf', blob: await response.blob() };
+    }
+    if (contentType.includes('application/json')) {
+      return { type: 'docx', content: await response.json() };
+    }
+    throw new Error('This document format cannot be previewed.');
+  },
+
   /**
    * Upload multiple PDF/DOCX files.
    * POST /documents/upload (multipart/form-data)
