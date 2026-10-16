@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 import types
 import unittest
 from contextlib import contextmanager
@@ -72,17 +73,10 @@ app.include_router(_drive.router)
 
 @contextmanager
 def _isolated_test_upload_dir():
-    upload_dir = Path(__file__).resolve().parent / ".test_uploads"
-    upload_dir.mkdir(exist_ok=True)
-    for old_file in upload_dir.iterdir():
-        if old_file.is_file():
-            old_file.unlink()
-    try:
+    workspace_root = Path(__file__).resolve().parents[3]
+    with tempfile.TemporaryDirectory(dir=workspace_root, prefix=".document-upload-test-") as temporary_directory:
+        upload_dir = Path(temporary_directory)
         yield upload_dir
-    finally:
-        for test_file in upload_dir.iterdir():
-            if test_file.is_file():
-                test_file.unlink()
 
 
 class CustomerRoleAccessTests(unittest.TestCase):
@@ -124,6 +118,7 @@ class CustomerRoleAccessTests(unittest.TestCase):
         requests = (
             ("get", "/documents", None),
             ("post", "/documents/upload", {"files": [("files", ("policy.pdf", b"%PDF-test", "application/pdf"))]}),
+            ("post", "/documents/replace", {"data": {"stored_name": "a" * 32 + ".pdf"}, "files": {"file": ("policy.pdf", b"%PDF-test", "application/pdf")}}),
             ("post", "/documents/index", {"json": {"stored_names": ["a" * 32 + ".pdf"]}}),
             ("post", "/documents/delete", {"json": {"stored_names": ["a" * 32 + ".pdf"]}}),
             ("get", "/documents/config", None),
@@ -137,12 +132,7 @@ class CustomerRoleAccessTests(unittest.TestCase):
 
     def test_super_admin_can_use_knowledge_operations_document_apis(self):
         self._as_role("super_admin")
-        upload_dir = Path(__file__).resolve().parent / ".test_uploads"
-        upload_dir.mkdir(exist_ok=True)
-        for old_file in upload_dir.iterdir():
-            if old_file.is_file():
-                old_file.unlink()
-        try:
+        with _isolated_test_upload_dir() as upload_dir:
             manifest_path = upload_dir / "manifest.json"
             with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
                     patch.object(_documents, "MANIFEST_PATH", manifest_path), \
@@ -184,10 +174,104 @@ class CustomerRoleAccessTests(unittest.TestCase):
 
                 config = self.client.get("/documents/config")
                 self.assertEqual(config.status_code, 200)
-        finally:
-            for test_file in upload_dir.iterdir():
-                if test_file.is_file():
-                    test_file.unlink()
+
+    def test_document_replacement_is_safe_and_preserves_local_identity(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            stored_name = "c" * 32 + ".pdf"
+            old_content = b"%PDF-1.7\nold document"
+            new_content = b"%PDF-1.7\nupdated document"
+            (upload_dir / stored_name).write_bytes(old_content)
+            old_hash = hashlib.sha256(old_content).hexdigest()
+            manifest_path.write_text(json.dumps({stored_name: {
+                "original_name": "guide.pdf",
+                "status": "indexed",
+                "chunks": 2,
+                "source": "local_upload",
+                "content_sha256": old_hash,
+            }}), encoding="utf-8")
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "reindex_document", return_value=2) as reindex, \
+                    patch.object(_documents, "get_document_chunk_count", return_value=2):
+                response = self.client.post(
+                    "/documents/replace",
+                    data={"stored_name": stored_name},
+                    files={"file": ("guide.pdf", new_content, "application/pdf")},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "indexed")
+            self.assertEqual(response.json()["stored_name"], stored_name)
+            reindex.assert_called_once_with(str(upload_dir / stored_name))
+            self.assertEqual((upload_dir / stored_name).read_bytes(), new_content)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest[stored_name]["content_sha256"], hashlib.sha256(new_content).hexdigest())
+            self.assertEqual(set(upload_dir.iterdir()), {manifest_path, upload_dir / stored_name})
+
+    def test_failed_document_replacement_restores_previous_file_and_manifest(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            stored_name = "d" * 32 + ".pdf"
+            old_content = b"%PDF-1.7\nprevious document"
+            new_content = b"%PDF-1.7\nnew document"
+            (upload_dir / stored_name).write_bytes(old_content)
+            old_manifest = {stored_name: {
+                "original_name": "guide.pdf",
+                "status": "indexed",
+                "chunks": 2,
+                "source": "local_upload",
+                "content_sha256": hashlib.sha256(old_content).hexdigest(),
+            }}
+            manifest_path.write_text(json.dumps(old_manifest), encoding="utf-8")
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "reindex_document", side_effect=RuntimeError("isolated index failure")):
+                response = self.client.post(
+                    "/documents/replace",
+                    data={"stored_name": stored_name},
+                    files={"file": ("guide.pdf", new_content, "application/pdf")},
+                )
+
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual((upload_dir / stored_name).read_bytes(), old_content)
+            self.assertEqual(json.loads(manifest_path.read_text(encoding="utf-8")), old_manifest)
+            self.assertEqual(set(upload_dir.iterdir()), {manifest_path, upload_dir / stored_name})
+
+    def test_unchanged_replacement_reports_already_indexed_without_reindexing(self):
+        self._as_role("super_admin")
+        with _isolated_test_upload_dir() as upload_dir:
+            manifest_path = upload_dir / "manifest.json"
+            stored_name = "e" * 32 + ".pdf"
+            content = b"%PDF-1.7\nunchanged document"
+            (upload_dir / stored_name).write_bytes(content)
+            manifest_path.write_text(json.dumps({stored_name: {
+                "original_name": "guide.pdf",
+                "status": "indexed",
+                "chunks": 2,
+                "source": "local_upload",
+                "content_sha256": hashlib.sha256(content).hexdigest(),
+            }}), encoding="utf-8")
+
+            with patch.object(_documents, "UPLOAD_DIR", upload_dir), \
+                    patch.object(_documents, "MANIFEST_PATH", manifest_path), \
+                    patch.object(_documents, "get_document_chunk_count", return_value=2), \
+                    patch.object(_documents, "reindex_document") as reindex:
+                response = self.client.post(
+                    "/documents/replace",
+                    data={"stored_name": stored_name},
+                    files={"file": ("guide.pdf", content, "application/pdf")},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "already_indexed")
+            self.assertFalse(response.json()["updated"])
+            reindex.assert_not_called()
+            self.assertEqual((upload_dir / stored_name).read_bytes(), content)
 
     def test_failed_reindex_keeps_existing_index_state_and_hash(self):
         self._as_role("super_admin")

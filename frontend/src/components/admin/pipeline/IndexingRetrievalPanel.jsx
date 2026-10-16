@@ -2,6 +2,7 @@ import React from 'react';
 import { RefreshCw } from 'lucide-react';
 
 export function IndexingRetrievalPanel({ documents = [], selectedCount = 0, isLoading = false, loadError = '', isIndexing = false, results = [], onRefresh, onIndex }) {
+  const resultLabels = { indexed: 'Indexed', already_indexed: 'Already Indexed', failed: 'Failed' };
   const indexedCount = documents.filter((document) => document.status === 'indexed').length;
   const pendingCount = documents.filter((document) => document.status !== 'indexed').length;
 
@@ -28,7 +29,7 @@ export function IndexingRetrievalPanel({ documents = [], selectedCount = 0, isLo
       {results.length > 0 && <div className="fk-pipe-index-results" role="status" aria-live="polite">
         <strong>Latest indexing results</strong>
         {results.map((result, index) => <div key={`${result.stored_name || 'request'}-${index}`}>
-          <span>{result.stored_name || 'Request'}: {result.status}</span>
+          <span>{result.stored_name || 'Request'}: {resultLabels[result.status] || result.status}</span>
           {result.chunks != null && <span> · {result.chunks} chunks</span>}
           {result.message && <div className="fk-pipe-config-error">{result.message}</div>}
         </div>)}

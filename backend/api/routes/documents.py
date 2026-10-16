@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path, PureWindowsPath
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.chatbot.vector_store import (
@@ -214,6 +214,147 @@ async def upload_documents(
         "files": uploaded_files,
         "errors": failed_files,
     }
+
+
+@router.post("/replace")
+async def replace_document(
+    stored_name: Annotated[str, Form()],
+    file: Annotated[UploadFile, File()],
+):
+    """Safely replace one local document while retaining its stored identity."""
+    async def reject(status_code, detail):
+        await file.close()
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    if re.fullmatch(r"[0-9a-f]{32}\.(?:pdf|docx)", stored_name) is None:
+        await reject(400, "Invalid document selection.")
+
+    try:
+        manifest = read_manifest()
+    except HTTPException:
+        await file.close()
+        raise
+    record = manifest.get(stored_name, {})
+    if not isinstance(record, dict) or record.get("source") != "local_upload":
+        await reject(404, "The selected local document was not found.")
+
+    destination = UPLOAD_DIR / stored_name
+    if not destination.is_file():
+        await reject(404, "The selected local document was not found.")
+
+    original_name = Path(PureWindowsPath(file.filename or "").name).name
+    original_name = re.sub(r"[\x00-\x1f]", "", original_name)[:255]
+    extension = Path(original_name).suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS or extension != destination.suffix.lower():
+        await reject(400, "Choose a file with the same PDF or DOCX format.")
+    if original_name.casefold() != str(record.get("original_name", "")).casefold():
+        await reject(400, "The selected file name does not match this document.")
+
+    content_type = (file.content_type or "").lower()
+    if content_type and content_type not in ALLOWED_CONTENT_TYPES[extension]:
+        await reject(400, "The file content type does not match its extension.")
+
+    staging_dir = UPLOAD_DIR / f".replace-{uuid.uuid4().hex}"
+    try:
+        staging_dir.mkdir()
+    except OSError as exc:
+        await file.close()
+        raise HTTPException(status_code=500, detail="The replacement file could not be staged.") from exc
+    temporary_path = staging_dir / f"incoming{extension}"
+    backup_path = UPLOAD_DIR / f".{uuid.uuid4().hex}.backup"
+    digest = hashlib.sha256()
+    try:
+        copied_bytes = 0
+        with temporary_path.open("wb") as buffer:
+            while chunk := file.file.read(64 * 1024):
+                copied_bytes += len(chunk)
+                if copied_bytes > MAX_DOCUMENT_BYTES:
+                    raise ValueError("The file exceeds the 25 MB limit.")
+                buffer.write(chunk)
+                digest.update(chunk)
+
+        validate_document_file(temporary_path)
+        new_hash = digest.hexdigest()
+        old_hash = content_hash(destination)
+        if (
+            new_hash == old_hash
+            and record.get("content_sha256") == new_hash
+            and record.get("status") == "indexed"
+        ):
+            temporary_path.unlink(missing_ok=True)
+            chunks = get_document_chunk_count(stored_name)
+            if chunks:
+                return {
+                    "stored_name": stored_name,
+                    "original_name": original_name,
+                    "status": "already_indexed",
+                    "chunks": chunks,
+                    "updated": False,
+                }
+
+        destination.replace(backup_path)
+        temporary_path.replace(destination)
+        try:
+            chunk_count = reindex_document(str(destination))
+            if get_document_chunk_count(stored_name) != chunk_count:
+                raise RuntimeError("The updated document index could not be verified.")
+        except Exception as exc:
+            destination.unlink(missing_ok=True)
+            backup_path.replace(destination)
+            logger.error("Document replacement indexing failed (%s)", type(exc).__name__)
+            raise HTTPException(
+                status_code=503,
+                detail="The updated document could not be indexed. The previous file was restored; try again.",
+            ) from exc
+
+        manifest[stored_name] = {
+            **record,
+            "original_name": original_name,
+            "source": "local_upload",
+            "status": "indexed",
+            "chunks": chunk_count,
+            "error": None,
+            "content_sha256": new_hash,
+        }
+        try:
+            save_manifest(manifest)
+        except OSError as exc:
+            logger.exception("Could not save replacement document metadata")
+            # Keep the file and verified index together. The old manifest hash
+            # makes a retry recheck the content safely.
+            raise HTTPException(
+                status_code=503,
+                detail="The document was indexed, but its status could not be saved. Refresh and retry.",
+            ) from exc
+
+        try:
+            backup_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Updated document is indexed, but its temporary backup could not be removed")
+        return {
+            "stored_name": stored_name,
+            "original_name": original_name,
+            "status": "indexed",
+            "chunks": chunk_count,
+            "updated": True,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.exception("Could not stage replacement document")
+        if backup_path.exists():
+            backup_path.replace(destination)
+        raise HTTPException(status_code=500, detail="The replacement file could not be saved.") from exc
+    finally:
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove temporary replacement upload")
+        try:
+            staging_dir.rmdir()
+        except OSError:
+            pass
+        await file.close()
 
 
 @router.get("")

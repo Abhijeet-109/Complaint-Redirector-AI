@@ -1,5 +1,24 @@
 import { apiRequest } from './api';
 
+async function uploadRequest(endpoint, formData, fallbackMessage) {
+  const token = localStorage.getItem('flatkart_token');
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(endpoint, { method: 'POST', headers, body: formData });
+  if (!response.ok) {
+    let errorDetail = fallbackMessage;
+    try {
+      const errorData = await response.json();
+      errorDetail = errorData.detail || errorData.message || errorDetail;
+    } catch {
+      // Keep the plain-language fallback when the server did not return JSON.
+    }
+    throw new Error(errorDetail);
+  }
+  return response.json();
+}
+
 /**
  * Document Management Service
  * Wraps /documents endpoints for the Super Admin Pipeline UI.
@@ -30,30 +49,15 @@ export const documentService = {
       formData.append('files', file);
     }
 
-    const token = localStorage.getItem('flatkart_token');
-    const headers = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    return uploadRequest('/documents/upload', formData, 'Upload failed. Please try again.');
+  },
 
-    const response = await fetch('/documents/upload', {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-
-    if (!response.ok) {
-      let errorDetail = 'Upload failed';
-      try {
-        const errorData = await response.json();
-        errorDetail = errorData.detail || errorData.message || errorDetail;
-      } catch {
-        // ignore
-      }
-      throw new Error(errorDetail);
-    }
-
-    return response.json();
+  /** Replace the contents of one explicitly selected local document. */
+  async replaceDocument(storedName, file) {
+    const formData = new FormData();
+    formData.append('stored_name', storedName);
+    formData.append('file', file);
+    return uploadRequest('/documents/replace', formData, 'Document update failed. Please try again.');
   },
 
   /**

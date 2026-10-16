@@ -2,8 +2,13 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Search, CheckSquare, Square, RefreshCw } from 'lucide-react';
 import { DOCUMENT_SOURCE_LABELS, normalizeDocumentSource } from '../../../utils/documentSource.js';
 
-function mapDocument(file) {
-  const indexStatus = file.status === 'indexed' ? 'indexed' : 'not_indexed';
+function mapDocument(file, operationResult) {
+  const persistedStatus = file.status === 'indexed' ? 'indexed' : file.status === 'failed' || file.error ? 'failed' : 'saved';
+  const indexStatus = operationResult?.status === 'already_indexed'
+    ? 'already_indexed'
+    : operationResult?.status === 'failed'
+      ? 'failed'
+      : persistedStatus;
   const source = normalizeDocumentSource(file);
   return {
     id: file.stored_name,
@@ -13,9 +18,10 @@ function mapDocument(file) {
     sourceLabel: DOCUMENT_SOURCE_LABELS[source],
     type: file.stored_name.split('.').pop().toUpperCase(),
     size: `${(Number(file.size_bytes || 0) / 1024).toFixed(1)} KB`,
+    isIndexed: persistedStatus === 'indexed',
     indexStatus,
-    indexLabel: indexStatus === 'indexed' ? 'Indexed' : 'Not Indexed',
-    indexError: file.error || '',
+    indexLabel: ({ indexed: 'Indexed', saved: 'Saved', failed: 'Failed', already_indexed: 'Already Indexed' })[indexStatus],
+    indexError: operationResult?.message || file.error || '',
     chunks: file.chunks ?? '—',
   };
 }
@@ -30,11 +36,15 @@ export function KnowledgeDocumentsTable({
   selectedIds = new Set(),
   onSelectionChange,
   onIndexDocuments,
+  operationResults = [],
   isIndexing = false,
   driveConnected = null,
   driveStatusLoading = false,
 }) {
-  const documents = useMemo(() => files.map(mapDocument), [files]);
+  const documents = useMemo(() => {
+    const resultsByName = new Map(operationResults.map((result) => [result.stored_name, result]));
+    return files.map((file) => mapDocument(file, resultsByName.get(file.stored_name)));
+  }, [files, operationResults]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
@@ -47,9 +57,9 @@ export function KnowledgeDocumentsTable({
   const filteredDocuments = useMemo(() => documents.filter((doc) => {
     const matchesSearch = `${doc.name} ${doc.stored_name}`.toLowerCase().includes(searchQuery.trim().toLowerCase());
     const matchesStatus = statusFilter === 'all'
-      || (statusFilter === 'saved' && doc.indexStatus === 'not_indexed' && !doc.indexError)
-      || (statusFilter === 'failed' && Boolean(doc.indexError))
-      || (statusFilter === 'indexed' && doc.indexStatus === 'indexed');
+      || (statusFilter === 'saved' && doc.indexStatus === 'saved')
+      || (statusFilter === 'failed' && doc.indexStatus === 'failed')
+      || (statusFilter === 'indexed' && ['indexed', 'already_indexed'].includes(doc.indexStatus));
     return matchesSearch && matchesStatus && (sourceFilter === 'all' || sourceFilter === doc.source);
   }), [documents, searchQuery, statusFilter, sourceFilter]);
 
@@ -137,10 +147,12 @@ export function KnowledgeDocumentsTable({
                       <td style={{ textAlign: 'center' }}><button type="button" className="fk-pipe-row-select" onClick={() => toggleRow(doc.id)} aria-label={`Select document ${doc.name}`}>{selected ? <CheckSquare size={16} /> : <Square size={16} />}</button></td>
                       <td><div className="fk-pipe-doc-cell"><strong className="fk-pipe-doc-title" title={doc.name}>{doc.name}</strong><span className="fk-pipe-doc-sub">{doc.stored_name}</span></div></td>
                       <td>{doc.sourceLabel}</td><td>{doc.type} · {doc.size}</td>
-                      <td><span className={`fk-pipe-index-status ${doc.indexStatus === 'indexed' ? 'is-indexed' : 'is-not-indexed'}${doc.indexError ? ' has-error' : ''}`} title={doc.indexError || undefined}>{doc.indexLabel}</span></td>
+                      <td><span className={`fk-pipe-index-status ${doc.indexStatus === 'indexed' ? 'is-indexed' : doc.indexStatus === 'failed' ? 'is-failed' : doc.indexStatus === 'already_indexed' ? 'is-already-indexed' : 'is-not-indexed'}`} title={doc.indexError || undefined}>{doc.indexLabel}</span></td>
                       <td>{doc.chunks}</td>
                       <td><div className="fk-pipe-actions-cell">
-                        {doc.indexStatus !== 'indexed' && <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], false)} disabled={isIndexing}>Index</button>}
+                        {doc.isIndexed
+                          ? <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], true)} disabled={isIndexing}>Reindex</button>
+                          : <button type="button" className="fk-pipe-action-btn" onClick={() => onIndexDocuments?.([doc.id], false)} disabled={isIndexing}>Index</button>}
                         <button type="button" className="fk-pipe-action-btn danger" onClick={() => onOpenDelete?.([doc])} disabled={isIndexing}>Delete</button>
                       </div></td>
                     </tr>;

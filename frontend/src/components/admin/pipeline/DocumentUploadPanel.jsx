@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, FileText, X } from 'lucide-react';
 import { documentService } from '../../../services/documentService';
+import { findExistingLocalDocuments, hasUnresolvedDocumentChoices, partitionDocumentUploads } from '../../../utils/documentUpload.js';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 Bytes';
@@ -10,7 +11,7 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
+export function DocumentUploadPanel({ onShowNotice, onUploadComplete, documents = [] }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -37,6 +38,7 @@ export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
       const isPdf = lowerName.endsWith('.pdf');
       const isDocx = lowerName.endsWith('.docx');
       const isValid = isPdf || isDocx;
+      const matches = findExistingLocalDocuments(file.name, documents);
 
       newFiles.push({
         id: `local-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
@@ -48,6 +50,8 @@ export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
           : 'Invalid type (PDF/DOCX required)',
         isValid,
         fileObject: file,
+        existingMatches: matches,
+        uploadChoice: matches.length ? '' : 'separate',
       });
     }
 
@@ -92,31 +96,64 @@ export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
   const handleUploadClick = async () => {
     const files = selectedFiles.filter((file) => file.isValid && file.fileObject);
     if (files.length === 0 || uploadInFlightRef.current) return;
+    if (hasUnresolvedDocumentChoices(files)) {
+      onShowNotice?.('Choose whether to update the matching document or upload a separate copy.', 'warning');
+      return;
+    }
 
     uploadInFlightRef.current = true;
     setIsUploading(true);
     setUploadError('');
     try {
-      const response = await documentService.uploadDocuments(files.map((file) => file.fileObject));
-      const uploadedFiles = Array.isArray(response.files) ? response.files : [];
-      const uploadedCount = Number.isInteger(response.uploaded_count)
-        ? response.uploaded_count
-        : uploadedFiles.length;
-      const errors = Array.isArray(response.errors) ? response.errors : [];
+      const { separateFiles, replacements } = partitionDocumentUploads(files);
+      let uploadedCount = 0;
+      let failedCount = 0;
+      let updatedCount = 0;
+      let alreadyCurrentCount = 0;
+      const failureDetails = [];
+
+      if (separateFiles.length) {
+        try {
+          const response = await documentService.uploadDocuments(separateFiles.map((file) => file.fileObject));
+          const uploadedFiles = Array.isArray(response.files) ? response.files : [];
+          uploadedCount = Number.isInteger(response.uploaded_count) ? response.uploaded_count : uploadedFiles.length;
+          const errors = Array.isArray(response.errors) ? response.errors : [];
+          failedCount += Math.max(Number(response.failed_count) || 0, errors.length);
+          failureDetails.push(...errors.map((item) => `${item.original_name || 'File'}: ${item.message || 'Upload failed.'}`));
+        } catch (error) {
+          failedCount += separateFiles.length;
+          failureDetails.push(error.message || 'Upload failed. Please try again.');
+        }
+      }
+
+      for (const replacement of replacements) {
+        try {
+          const result = await documentService.replaceDocument(replacement.uploadChoice, replacement.fileObject);
+          if (result.status === 'already_indexed') alreadyCurrentCount += 1;
+          else if (result.status === 'indexed') updatedCount += 1;
+          else failureDetails.push(`${replacement.name}: The document was saved but is not indexed yet.`);
+        } catch (error) {
+          failedCount += 1;
+          failureDetails.push(`${replacement.name}: ${error.message || 'Update failed.'}`);
+        }
+      }
+
       const rejectedLocalFiles = selectedFiles.filter((file) => !file.isValid);
-      const failedCount = Math.max(Number(response.failed_count) || 0, errors.length) + rejectedLocalFiles.length;
-      const failureDetails = [
-        ...errors.map((item) => `${item.original_name || 'File'}: ${item.message || 'Upload failed.'}`),
-        ...rejectedLocalFiles.map((file) => `${file.name}: PDF or DOCX files only.`),
-      ];
+      failedCount += rejectedLocalFiles.length;
+      failureDetails.push(...rejectedLocalFiles.map((file) => `${file.name}: PDF or DOCX files only.`));
 
       setSelectedFiles([]);
 
-      if (uploadedCount > 0) {
-        const listRefreshed = await onUploadComplete?.(uploadedFiles);
-        const message = `${uploadedCount} document${uploadedCount === 1 ? '' : 's'} uploaded successfully.`
-          + (failedCount ? ` ${failedCount} file${failedCount === 1 ? '' : 's'} failed.` : '')
-          + (listRefreshed === false ? ' The document list could not be refreshed.' : '');
+      const successCount = uploadedCount + updatedCount + alreadyCurrentCount;
+      if (successCount > 0) {
+        const listRefreshed = await onUploadComplete?.();
+        const messages = [];
+        if (uploadedCount) messages.push(`${uploadedCount} document${uploadedCount === 1 ? '' : 's'} uploaded; indexing is pending.`);
+        if (updatedCount) messages.push(`${updatedCount} document${updatedCount === 1 ? '' : 's'} updated and indexed.`);
+        if (alreadyCurrentCount) messages.push(`${alreadyCurrentCount} document${alreadyCurrentCount === 1 ? ' is' : 's are'} already up to date.`);
+        if (failedCount) messages.push(`${failedCount} file${failedCount === 1 ? '' : 's'} failed.`);
+        if (listRefreshed === false) messages.push('The document list could not be refreshed.');
+        const message = messages.join(' ');
         onShowNotice?.(message, failedCount || listRefreshed === false ? 'warning' : 'success');
       } else {
         const message = failureDetails.join(' ') || 'No documents were uploaded successfully.';
@@ -191,32 +228,43 @@ export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
       {selectedFiles.length > 0 && (
         <div className="fk-pipe-file-queue" aria-label="Selected files queue">
           {selectedFiles.map((f) => (
-            <div key={f.id} className="fk-pipe-file-chip">
-              <FileText size={15} color="var(--fk-olive, #8A875D)" />
-              <span className="fk-pipe-file-name" title={f.name}>
-                {f.name}
-              </span>
-              <span className="fk-pipe-file-size">{f.sizeFormatted}</span>
-              <span
-                className={`fk-pipe-badge-tag ${
-                  f.isValid ? (f.status === 'valid' ? 'valid' : '') : 'invalid'
-                }`}
-              >
-                {f.statusLabel}
-              </span>
-              <button
-                type="button"
-                className="fk-pipe-file-remove"
-                disabled={isUploading}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRemoveFile(f.id);
-                }}
-                title={`Remove ${f.name} from selection`}
-                aria-label={`Remove ${f.name}`}
-              >
-                <X size={14} />
-              </button>
+            <div key={f.id} className="fk-pipe-file-queue-item">
+              <div className="fk-pipe-file-chip">
+                <FileText size={15} color="var(--fk-olive, #8A875D)" />
+                <span className="fk-pipe-file-name" title={f.name}>{f.name}</span>
+                <span className="fk-pipe-file-size">{f.sizeFormatted}</span>
+                <span className={`fk-pipe-badge-tag ${f.isValid ? (f.status === 'valid' ? 'valid' : '') : 'invalid'}`}>
+                  {f.statusLabel}
+                </span>
+                <button
+                  type="button"
+                  className="fk-pipe-file-remove"
+                  disabled={isUploading}
+                  onClick={(e) => { e.stopPropagation(); handleRemoveFile(f.id); }}
+                  title={`Remove ${f.name} from selection`}
+                  aria-label={`Remove ${f.name}`}
+                ><X size={14} /></button>
+              </div>
+              {f.existingMatches.length > 0 && (
+                <label className="fk-pipe-file-match">
+                  This name matches a saved local document. Choose what to do:
+                  <select
+                    value={f.uploadChoice}
+                    onChange={(event) => setSelectedFiles((previous) => previous.map((item) =>
+                      item.id === f.id ? { ...item, uploadChoice: event.target.value } : item
+                    ))}
+                    disabled={isUploading}
+                  >
+                    <option value="">Choose an action</option>
+                    <option value="separate">Upload as a separate document</option>
+                    {f.existingMatches.map((document) => (
+                      <option key={document.stored_name} value={document.stored_name}>
+                        Update existing copy ({document.stored_name.slice(0, 8)})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           ))}
         </div>
@@ -233,7 +281,8 @@ export function DocumentUploadPanel({ onShowNotice, onUploadComplete }) {
           type="button"
           className="fk-pipe-upload-btn"
           onClick={handleUploadClick}
-          disabled={isUploading || !selectedFiles.some((file) => file.isValid && file.fileObject)}
+          disabled={isUploading || !selectedFiles.some((file) => file.isValid && file.fileObject)
+            || hasUnresolvedDocumentChoices(selectedFiles)}
         >
           {isUploading ? 'Uploading…' : 'Upload Documents'}
         </button>

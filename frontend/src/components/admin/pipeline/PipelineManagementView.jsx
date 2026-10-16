@@ -124,13 +124,13 @@ export function PipelineManagementView() {
     if (!refreshed) showNotice('Deletion completed, but the document list could not be refreshed.');
   };
 
-  const handleIndexDocuments = async (storedNames) => {
+  const handleIndexDocuments = async (storedNames, reindex = false) => {
     const names = storedNames.filter(Boolean);
     if (!names.length || isIndexing) return;
     setIsIndexing(true);
     setIndexingResults([]);
     try {
-      const response = await documentService.indexDocuments(names);
+      const response = await documentService.indexDocuments(names, reindex);
       const results = response.results || [];
       setIndexingResults(results);
       await refreshDocuments();
@@ -184,7 +184,7 @@ export function PipelineManagementView() {
 
           {/* Row 2: Document Upload & Source Connections */}
           <div className="fk-pipe-split-row">
-            <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
+            <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} documents={documents} />
             <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} onStatusChange={handleDriveStatusChange} />
           </div>
 
@@ -199,6 +199,7 @@ export function PipelineManagementView() {
             selectedIds={selectedDocumentNames}
             onSelectionChange={setSelectedDocumentNames}
             onIndexDocuments={handleIndexDocuments}
+            operationResults={indexingResults}
             isIndexing={isIndexing}
             driveConnected={driveStatus?.connected ?? null}
             driveStatusLoading={driveStatusLoading}
@@ -293,7 +294,7 @@ export function PipelineManagementView() {
           {activeTab === 'documents' && (
             <>
               <div className="fk-pipe-split-row">
-                <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} />
+                <DocumentUploadPanel onShowNotice={showNotice} onUploadComplete={handleUploadComplete} documents={documents} />
                 <SourceConnectionsPanel onImportComplete={handleUploadComplete} onShowNotice={showNotice} onStatusChange={handleDriveStatusChange} />
               </div>
 
@@ -307,6 +308,7 @@ export function PipelineManagementView() {
                 selectedIds={selectedDocumentNames}
                 onSelectionChange={setSelectedDocumentNames}
                 onIndexDocuments={handleIndexDocuments}
+                operationResults={indexingResults}
                 isIndexing={isIndexing}
                 driveConnected={driveStatus?.connected ?? null}
                 driveStatusLoading={driveStatusLoading}

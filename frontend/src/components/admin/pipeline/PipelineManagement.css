@@ -338,9 +338,35 @@
 /* Selected Files Queue */
 .fk-pipe-file-queue {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   margin-top: 14px;
+}
+
+.fk-pipe-file-queue-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fk-pipe-file-match {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #637073;
+  font-size: 11.5px;
+}
+
+.fk-pipe-file-match select {
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid #DDD8CD;
+  border-radius: 5px;
+  background: #FFFFFF;
+  color: var(--fk-text-primary, #1C352F);
+  font: inherit;
 }
 
 .fk-pipe-file-chip {
@@ -1050,6 +1076,18 @@
   color: #637073;
   background-color: #EFECE4;
   border-color: #E5E0D5;
+}
+
+.fk-pipe-index-status.is-failed {
+  color: #8C352A;
+  background-color: #FAF2F0;
+  border-color: #F3DAD6;
+}
+
+.fk-pipe-index-status.is-already-indexed {
+  color: #496E3B;
+  background-color: #EEF4EA;
+  border-color: #D5E4CE;
 }
 
 .fk-pipe-index-status.has-error {
