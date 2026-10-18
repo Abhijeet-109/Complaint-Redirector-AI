@@ -23,7 +23,9 @@ export async function apiRequest(endpoint, options = {}) {
       const responseText = await response.text();
       try {
         const errorData = JSON.parse(responseText);
-        errorDetail = errorData.detail || errorData.message || responseText || errorDetail;
+        const detailMessage = typeof errorData?.detail === 'string' ? errorData.detail.trim() : '';
+        const message = typeof errorData?.message === 'string' ? errorData.message.trim() : '';
+        errorDetail = detailMessage || message || `${response.status} ${response.statusText}`.trim() || errorDetail;
       } catch {
         errorDetail = responseText.trim().slice(0, 300) || `${response.status} ${response.statusText}` || errorDetail;
       }

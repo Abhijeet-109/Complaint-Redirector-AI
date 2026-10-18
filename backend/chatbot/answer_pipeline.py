@@ -60,6 +60,9 @@ def answer_question(question: str) -> dict:
     rejection_message = validate_question(question)
 
     if rejection_message:
+        logger.info(
+            "[CHATBOT] Input rejected by guardrails. Embedding not created; retrieval not executed."
+        )
         return {
             "answer": rejection_message,
             "sources": []
@@ -67,11 +70,16 @@ def answer_question(question: str) -> dict:
 
     # Normalize question after validation
     question = question.strip()
+    logger.info("[CHATBOT] Input passed guardrails. Starting retrieval.")
 
     # 1. Retrieve relevant chunks from ChromaDB
     results = vectorstore.similarity_search(
         question,
         k=3
+    )
+    logger.info(
+        "[CHATBOT] ChromaDB retrieval completed. Retrieved %d chunks.",
+        len(results),
     )
 
     if not results:
@@ -145,7 +153,9 @@ Answer:
 """
 
     # 4. Generate answer
+    logger.info("[CHATBOT] LLM generation started.")
     response = model.invoke(prompt)
+    logger.info("[CHATBOT] LLM generation completed.")
 
     # 5. Return answer and source information
     sources = [

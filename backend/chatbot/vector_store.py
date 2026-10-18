@@ -31,7 +31,14 @@ CHUNK_OVERLAP = 200
 
 
 # Embedding model
-embedding_model = HuggingFaceEmbeddings(
+class ChatbotEmbeddings(HuggingFaceEmbeddings):
+    def embed_query(self, text):
+        embedding = super().embed_query(text)
+        logger.info("[CHATBOT] Query embedding created successfully.")
+        return embedding
+
+
+embedding_model = ChatbotEmbeddings(
     model_name=EMBEDDING_MODEL_NAME
 )
 

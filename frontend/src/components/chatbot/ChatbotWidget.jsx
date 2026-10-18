@@ -113,11 +113,14 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
         },
       ]);
     } catch (err) {
+      const errorMessage = typeof err?.message === 'string' && err.message.trim()
+        ? err.message.trim()
+        : 'Please check your connection and try again.';
       setMessages((prev) => [
         ...prev,
         {
           sender: 'bot',
-          text: `I'm having trouble retrieving answers right now: ${err.message || 'Please check your connection and try again.'}`,
+          text: `I'm having trouble retrieving answers right now: ${errorMessage}`,
         },
       ]);
     } finally {
