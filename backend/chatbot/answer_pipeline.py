@@ -1,6 +1,5 @@
-
 import os
-
+import re
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 import logging
@@ -8,8 +7,8 @@ from backend.chatbot.vector_store import vectorstore
 
 load_dotenv()
 
-
 logger = logging.getLogger(__name__)
+
 if not os.getenv("GROQ_API_KEY"):
     raise ValueError("GROQ_API_KEY is missing from the .env file")
 
@@ -19,10 +18,55 @@ model = ChatGroq(
     temperature=0,
     max_tokens=1000
 )
-logger.info("Model laoded Successfully")
+logger.info("Model loaded successfully")
 
 
-def answer_question(question):
+# Input Guardrails
+def validate_question(question: str):
+    if not isinstance(question, str) or not question.strip():
+        return "Please enter a valid question."
+
+    question = question.strip()
+
+    if len(question) > 2000:
+        return "Your question is too long. Please shorten it."
+
+    injection_patterns = [
+        r"\bignore\s+(all\s+)?previous\s+instructions\b",
+        r"\bignore\s+(all\s+)?system\s+instructions\b",
+        r"\breveal\s+(your\s+)?(system\s+prompt|hidden\s+prompt)\b",
+        r"\bshow\s+(me\s+)?(your\s+)?system\s+prompt\b",
+        r"\bdisregard\s+(all\s+)?previous\s+instructions\b",
+    ]
+
+    for pattern in injection_patterns:
+        if re.search(pattern, question, re.IGNORECASE):
+            return "Your request cannot be processed."
+
+    internal_patterns = [
+        r"\b(list|show|reveal|dump|print)\b.{0,60}\b(internal\s+)?(backend\s+)?(filenames|file\s+names|file\s+ids|uuid|storage\s+paths|database\s+credentials)\b",
+        r"\b(reveal|show|dump|print)\b.{0,60}\b(api\s+keys|secret\s+keys|passwords|credentials)\b",
+    ]
+
+    for pattern in internal_patterns:
+        if re.search(pattern, question, re.IGNORECASE):
+            return "Your request cannot be processed."
+
+    return None
+
+
+def answer_question(question: str) -> dict:
+    # Question validator
+    rejection_message = validate_question(question)
+
+    if rejection_message:
+        return {
+            "answer": rejection_message,
+            "sources": []
+        }
+
+    # Normalize question after validation
+    question = question.strip()
 
     # 1. Retrieve relevant chunks from ChromaDB
     results = vectorstore.similarity_search(
@@ -43,7 +87,7 @@ def answer_question(question):
         f"{doc.page_content}"
         for doc in results
     )
-
+    
     # 3. Ask the LLM to answer only from the context
     
     prompt = f"""
