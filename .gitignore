@@ -57,3 +57,4 @@ backend\uploads
 # Google Drive OAuth credentials and state
 /backend/data/
 /backend/chatbot/data/
+Docs

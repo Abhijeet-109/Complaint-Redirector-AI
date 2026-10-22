@@ -20,7 +20,8 @@ FALLBACK_ANSWER = "Information not found in the provided documents."
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=2000)
+    question: str = Field(..., min_length=1, max_length=2000),
+    session_id: str = Field(..., min_length=1, max_length=100)
 
 
 def _safe_question_preview(question: str) -> str:
