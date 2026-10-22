@@ -85,7 +85,7 @@ def ask_chatbot(
 
     started = time.perf_counter()
     try:
-        result = answer_question(question)
+        result = answer_question(question,session_id=request.session_id,)
         elapsed_ms = (time.perf_counter() - started) * 1000
         sources = result.get("sources") or []
         fallback = result.get("answer") == FALLBACK_ANSWER or not sources
