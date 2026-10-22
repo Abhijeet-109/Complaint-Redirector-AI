@@ -33,7 +33,11 @@ CHUNK_OVERLAP = 200
 # Embedding model
 class ChatbotEmbeddings(HuggingFaceEmbeddings):
     def embed_query(self, text):
-        embedding = super().embed_query(text)
+        try:
+            embedding = super().embed_query(text)
+        except Exception as exc:
+            logger.error("[CHATBOT] Query embedding failed (%s).", type(exc).__name__)
+            raise
         logger.info("[CHATBOT] Query embedding created successfully.")
         return embedding
 

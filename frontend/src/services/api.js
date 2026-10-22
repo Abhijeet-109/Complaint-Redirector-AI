@@ -25,7 +25,24 @@ export async function apiRequest(endpoint, options = {}) {
         const errorData = JSON.parse(responseText);
         const detailMessage = typeof errorData?.detail === 'string' ? errorData.detail.trim() : '';
         const message = typeof errorData?.message === 'string' ? errorData.message.trim() : '';
-        errorDetail = detailMessage || message || `${response.status} ${response.statusText}`.trim() || errorDetail;
+        const validationErrors = Array.isArray(errorData?.detail) ? errorData.detail : [];
+        const validationMessages = validationErrors
+          .map((item) => typeof item?.msg === 'string' ? item.msg.trim() : '')
+          .filter(Boolean);
+        const questionTooLong = endpoint === '/chatbot/ask' && validationErrors.some((item) => (
+          Array.isArray(item?.loc)
+          && item.loc.includes('question')
+          && Number(item?.ctx?.max_length) === 2000
+        ));
+
+        errorDetail = detailMessage
+          || validationMessages.join(' ')
+          || message
+          || `${response.status} ${response.statusText}`.trim()
+          || errorDetail;
+        if (questionTooLong) {
+          errorDetail = 'Your question is too long. Please limit it to 2,000 characters.';
+        }
       } catch {
         errorDetail = responseText.trim().slice(0, 300) || `${response.status} ${response.statusText}` || errorDetail;
       }

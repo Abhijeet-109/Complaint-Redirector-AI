@@ -1,6 +1,17 @@
 import logging
 from contextlib import asynccontextmanager
 
+# Configure root logging once, before importing application modules that log.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+for root_handler in root_logger.handlers:
+    if root_handler.level > logging.INFO:
+        root_handler.setLevel(logging.INFO)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError

@@ -37,6 +37,7 @@ def validate_question(question: str):
         r"\breveal\s+(your\s+)?(system\s+prompt|hidden\s+prompt)\b",
         r"\bshow\s+(me\s+)?(your\s+)?system\s+prompt\b",
         r"\bdisregard\s+(all\s+)?previous\s+instructions\b",
+        r"\bshow\s+(all\s+)?password\b",
     ]
 
     for pattern in injection_patterns:
@@ -46,6 +47,19 @@ def validate_question(question: str):
     internal_patterns = [
         r"\b(list|show|reveal|dump|print)\b.{0,60}\b(internal\s+)?(backend\s+)?(filenames|file\s+names|file\s+ids|uuid|storage\s+paths|database\s+credentials)\b",
         r"\b(reveal|show|dump|print)\b.{0,60}\b(api\s+keys|secret\s+keys|passwords|credentials)\b",
+        r"\b(show|reveal|print|dump)\b.{0,60}\b(environment variables|env vars)\b",
+        r"\b(show|reveal|print|dump)\b.{0,60}\b(source code|internal configuration)\b",
+        r"\b(reveal|show|print)\b.{0,60}\b(access tokens|authentication tokens)\b",
+        r"\b(reveal|show|print)\b.{0,60}\b(admin password|authentication tokens)\b",
+        r"\b(give|show|print)\b.{0,60}\b(customer details|authentication tokens)\b",
+        r"\b(admin|administrator|root|system|database|server)\b.{0,50}\b(password|passcode|credentials|login\s+details|secret\s+key|access\s+token)\b",
+        r"\b(password|passcode|credentials|login\s+details|secret\s+key|access\s+token)\b.{0,50}\b(admin|administrator|root|system|database|server)\b",
+        r"\b(what|tell|give|show|reveal|find|retrieve|print|dump|extract)\b.{0,40}\b(the\s+)?(admin|administrator|root|system|database|server)\s+(password|passcode|credentials)\b",
+        r"\b(reveal|show|print|dump|extract|list|get)\b.{0,60}\b(api\s+keys|secret\s+keys|passwords|credentials|access\s+tokens|environment\s+variables|\.env\s+file)\b",
+        r"\b(where|what)\b.{0,30}\b(are|is)\b.{0,40}\b(api\s+keys|secret\s+keys|passwords|credentials|access\s+tokens)\b",
+        r"\b(show|reveal|expose|dump|print|extract|list)\b.{0,50}\b(hidden|private|internal|confidential)\b.{0,50}\b(structure|architecture|implementation|configuration|source\s+code|files|directories|database|endpoints|routes)\b",
+        r"\b(bypass|disable|override|circumvent)\b.{0,40}\b(security|guardrails|restrictions|access\s+controls|authentication|authorization)\b",
+        r"\b(ignore|disregard|forget)\b.{0,40}\b(previous|prior|system|developer)\s+instructions\b",
     ]
 
     for pattern in internal_patterns:
@@ -56,7 +70,7 @@ def validate_question(question: str):
 
 
 def answer_question(question: str) -> dict:
-    # Question validator
+    # Question validator without any cost 
     rejection_message = validate_question(question)
 
     if rejection_message:
@@ -73,10 +87,14 @@ def answer_question(question: str) -> dict:
     logger.info("[CHATBOT] Input passed guardrails. Starting retrieval.")
 
     # 1. Retrieve relevant chunks from ChromaDB
-    results = vectorstore.similarity_search(
-        question,
-        k=3
-    )
+    try:
+        results = vectorstore.similarity_search(
+            question,
+            k=3
+        )
+    except Exception as exc:
+        logger.error("[CHATBOT] ChromaDB retrieval failed (%s).", type(exc).__name__)
+        raise
     logger.info(
         "[CHATBOT] ChromaDB retrieval completed. Retrieved %d chunks.",
         len(results),
@@ -154,7 +172,11 @@ Answer:
 
     # 4. Generate answer
     logger.info("[CHATBOT] LLM generation started.")
-    response = model.invoke(prompt)
+    try:
+        response = model.invoke(prompt)
+    except Exception as exc:
+        logger.error("[CHATBOT] LLM generation failed (%s).", type(exc).__name__)
+        raise
     logger.info("[CHATBOT] LLM generation completed.")
 
     # 5. Return answer and source information
