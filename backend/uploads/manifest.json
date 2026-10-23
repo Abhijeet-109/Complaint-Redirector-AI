@@ -1,10 +1,58 @@
 {
-  "99dd843da7b9432e9ae10174481b8ca8.pdf": {
+  "2ccfe3468a294666b876b7d3bc04f879.pdf": {
     "original_name": "Flatkart_Cancellation_Policy.pdf",
-    "status": "failed",
-    "chunks": 0,
+    "status": "indexed",
+    "chunks": 47,
     "source": "local_upload",
     "content_sha256": "7cf79747c1df7095a8cb94be50c0f2ff5295e8e9b6ebab38d41296560b1b1f15",
-    "error": "Indexing failed. Retry the operation or check backend logs."
+    "error": null
+  },
+  "7563db157d4543e1a69ac467513114d6.pdf": {
+    "original_name": "Flatkart_Payment_Policy.pdf",
+    "status": "indexed",
+    "chunks": 48,
+    "source": "local_upload",
+    "content_sha256": "c1ee7010f454c741d78ef616fb26339fc6721d5b855fc5f8bde6751767b0d4f8",
+    "error": null
+  },
+  "5c784a5812fd4456aa74a86e68aa4b57.pdf": {
+    "original_name": "Flatkart_Privacy_Policy.pdf",
+    "status": "indexed",
+    "chunks": 60,
+    "source": "local_upload",
+    "content_sha256": "a45f39fadacbd5634599e803bf2639412e830c4e6389225de20769bdadbd247d",
+    "error": null
+  },
+  "3be5e523b2f64c48a546d0b8b706e561.pdf": {
+    "original_name": "Flatkart_Refund_Policy.pdf",
+    "status": "indexed",
+    "chunks": 52,
+    "source": "local_upload",
+    "content_sha256": "ee93ed881a9ae394cd37f94be629f3ca71efd32835e0906b3b41a2479a2822e7",
+    "error": null
+  },
+  "5cb766f49ee14ffa9e3ade201028304e.docx": {
+    "original_name": "Flatkart_Return_and_Replacement_Policy.docx",
+    "status": "indexed",
+    "chunks": 46,
+    "source": "local_upload",
+    "content_sha256": "95172d32458db2a853c712a57f55dff08780bdf5b4217969f115529a76440a8e",
+    "error": null
+  },
+  "23652cfb19c94752a0f359acd9dff7f0.docx": {
+    "original_name": "Flatkart_Shipping_and_Delivery_Policy.docx",
+    "status": "indexed",
+    "chunks": 42,
+    "source": "local_upload",
+    "content_sha256": "d020c47c853a6ce2e4f414170fb3b856d343e6a38ffe208483a5f449d869ee46",
+    "error": null
+  },
+  "83f666f09a7c4c93b0f6c5c75818269c.docx": {
+    "original_name": "Flatkart_Terms_and_Conditions.docx",
+    "status": "indexed",
+    "chunks": 46,
+    "source": "local_upload",
+    "content_sha256": "d69f4f2d364159cf2490b01fa894a22df589949f885992df0df979a67e3e42bb",
+    "error": null
   }
 }

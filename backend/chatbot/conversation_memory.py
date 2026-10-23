@@ -19,7 +19,7 @@ def get_memory(session_id: str):
     if session_id not in conversation_memories:
         conversation_memories[session_id] = ConversationSummaryBufferMemory(
             llm=memory_model,
-            max_token_limit=1500,
+            max_token_limit=4000,
             return_messages=True,
             memory_key="chat_history",
             input_key="question",

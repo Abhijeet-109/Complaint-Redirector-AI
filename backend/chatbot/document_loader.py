@@ -1,9 +1,7 @@
-
 import os
 from pathlib import Path
 
-from langchain_community.document_loaders import UnstructuredFileLoader
-
+from langchain_unstructured import UnstructuredLoader
 
 SUPPORTED_EXTENSIONS = {
     ".pdf",
@@ -45,9 +43,9 @@ def load_document(file_path):
             f"Unsupported file format: {extension}"
         )
 
-    loader = UnstructuredFileLoader(
-        str(path),
-        mode="elements",
+    loader = UnstructuredLoader(
+    file_path=str(path),
+    strategy="fast",
     )
 
     loaded_documents = loader.load()
