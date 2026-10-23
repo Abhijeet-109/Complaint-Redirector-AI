@@ -1,58 +1,10 @@
 {
-  "fa57bc30fdfa4e19af8fd7e1c523d0b9.pdf": {
-    "original_name": "01_Privacy_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
+  "99dd843da7b9432e9ae10174481b8ca8.pdf": {
+    "original_name": "Flatkart_Cancellation_Policy.pdf",
+    "status": "failed",
+    "chunks": 0,
     "source": "local_upload",
-    "content_sha256": "184e773a4f26ee7f6d6f2dccc309462bd7f41ff09438674b54608c09db00a398",
-    "error": null
-  },
-  "309d74793902487195186145e34fd2f6.pdf": {
-    "original_name": "02_Terms_and_Conditions.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "source": "local_upload",
-    "content_sha256": "172ae0c07462988c9a00c1eaab3ab85be85204d00981ca0ab9e4b5ec2d69d23f",
-    "error": null
-  },
-  "92a9dadfaee84e63892bdc34f32da326.pdf": {
-    "original_name": "03_Return_and_Replacement_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "source": "local_upload",
-    "content_sha256": "0329daf38f2a758c36080a0050e719e105b8a8e9e5f35f079712263ee835758a",
-    "error": null
-  },
-  "840a3dc9e1d84ee0a995bd083a17943f.pdf": {
-    "original_name": "04_Refund_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "source": "local_upload",
-    "content_sha256": "d70ccfcb9aeabaa95bd0b9540752f1cbcb9ff061cb5577d9eaac20e7ca75b50a",
-    "error": null
-  },
-  "5683d62f4cff492c9a7ac19c10adc777.pdf": {
-    "original_name": "05_Shipping_and_Delivery_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "source": "local_upload",
-    "content_sha256": "3eb699b870e5b0aa7c8db4d9a674707280ad807cb5934b4fe343c62f6a253625",
-    "error": null
-  },
-  "18c4c83fce634b52b70734e15a409d6a.pdf": {
-    "original_name": "06_Cancellation_Policy.pdf",
-    "status": "indexed",
-    "chunks": 3,
-    "source": "local_upload",
-    "content_sha256": "55f530b55f0c434143efdc6681a39b947347980f50ea0d94fb0e199c81ce831f",
-    "error": null
-  },
-  "608dcf9b89984a29adcc439e651535a2.docx": {
-    "original_name": "FK-CX-RFD-002_Return_Refund_Cancellation_Policy.docx",
-    "status": "indexed",
-    "chunks": 15,
-    "source": "local_upload",
-    "content_sha256": "48a25f39e6dbb1c7c9fda5ea04c76caedc1c3175978bfe2fc47eaaaf29ea902e",
-    "error": null
+    "content_sha256": "7cf79747c1df7095a8cb94be50c0f2ff5295e8e9b6ebab38d41296560b1b1f15",
+    "error": "Indexing failed. Retry the operation or check backend logs."
   }
 }

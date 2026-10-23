@@ -35,15 +35,15 @@ if not os.getenv("GROQ_API_KEY"):
     raise ValueError("GROQ_API_KEY is missing from the .env file")
 
 
-# --------------------------------------------------
-# MODEL INITIALIZATION
-# --------------------------------------------------
 
+# Response Generation model 
 model = ChatGroq(
     model_name="openai/gpt-oss-120b",
     temperature=0,
     max_tokens=1000,
 )
+
+# Input Output validation model 
 
 validator_LLM = ChatGroq(
     model_name="openai/gpt-oss-120b",
@@ -54,9 +54,7 @@ validator_LLM = ChatGroq(
 logger.info("[CHATBOT] Models loaded successfully.")
 
 
-# --------------------------------------------------
-# 1. INPUT GUARDRAIL
-# --------------------------------------------------
+# input guardrails
 
 def validate_question(question: str):
     """Validate the user's question before retrieval."""
@@ -96,9 +94,7 @@ def validate_question(question: str):
         return "Your request cannot be processed."
 
 
-# --------------------------------------------------
-# 2. FORMAT CONVERSATION HISTORY
-# --------------------------------------------------
+# Memory management model 
 
 def format_history(chat_history) -> str:
     """Convert memory messages into readable conversation text."""
@@ -122,9 +118,7 @@ def format_history(chat_history) -> str:
     return "\n".join(formatted_messages)
 
 
-# --------------------------------------------------
-# 3. FOLLOW-UP QUERY REWRITING
-# --------------------------------------------------
+# follow up query handler 
 
 def rewrite_query(question: str, chat_history: str) -> str:
     """Rewrite a follow-up question into a standalone search query."""
@@ -188,9 +182,7 @@ Standalone search query:
         return question
 
 
-# --------------------------------------------------
-# 4. SAVE CONVERSATION EXCHANGE
-# --------------------------------------------------
+## Save the memory and chat history
 
 def save_conversation(
     session_id: str,
@@ -216,9 +208,7 @@ def save_conversation(
         )
 
 
-# --------------------------------------------------
-# 5. MAIN ANSWER PIPELINE
-# --------------------------------------------------
+# Main RAG pipeline 
 
 def answer_question(question: str, session_id: str) -> dict:
     """
@@ -227,7 +217,7 @@ def answer_question(question: str, session_id: str) -> dict:
     the validated exchange.
     """
 
-    # Step 1: Validate the question before retrieval
+    # Validate the question before retrieval
     rejection_message = validate_question(question)
 
     if rejection_message:
@@ -244,7 +234,7 @@ def answer_question(question: str, session_id: str) -> dict:
 
     logger.info("[CHATBOT] Input passed validation.")
 
-    # Step 2: Load conversation history for this session
+    # Load conversation history for this session
     try:
         chat_history = get_conversation_history(session_id)
         history_text = format_history(chat_history)
@@ -264,7 +254,7 @@ def answer_question(question: str, session_id: str) -> dict:
             "sources": [],
         }
 
-    # Step 3: Rewrite the query for better retrieval
+    # Rewrite the query for better retrieval
     search_query = rewrite_query(
         question=question,
         chat_history=history_text,
@@ -272,7 +262,7 @@ def answer_question(question: str, session_id: str) -> dict:
 
     logger.info("[CHATBOT] Starting document retrieval.")
 
-    # Step 4: Retrieve relevant chunks from ChromaDB
+    # Retrieve relevant chunks from ChromaDB
     try:
         results = vectorstore.similarity_search(
             search_query,
@@ -291,7 +281,7 @@ def answer_question(question: str, session_id: str) -> dict:
         len(results),
     )
 
-    # Step 5: Handle empty retrieval results
+    # Handle empty retrieval results
     if not results:
         fallback_answer = (
             "Information not found in the provided documents."
@@ -308,7 +298,7 @@ def answer_question(question: str, session_id: str) -> dict:
             "sources": [],
         }
 
-    # Step 6: Prepare retrieved context and source metadata
+    # Prepare retrieved context and source metadata
     context = "\n\n".join(
         f"Source: {doc.metadata.get('source', 'Unknown')}, "
         f"Page: {doc.metadata.get('page', 'N/A')}\n"
@@ -316,7 +306,7 @@ def answer_question(question: str, session_id: str) -> dict:
         for doc in results
     )
 
-    # Step 7: Generate an answer using the original question,
+    # Generate an answer using the original question,
     # conversation history, and retrieved document context
     prompt = f"""
 You are Flatkart's document question-answering assistant.
@@ -387,7 +377,7 @@ Answer:
 
     logger.info("[CHATBOT] Answer generation completed.")
 
-    # Step 8: Validate the generated answer
+    # Validate the generated answer
     try:
         validation_prompt = OUTPUT_VALIDATION_PROMPT.format(
             question=question,
@@ -424,7 +414,7 @@ Answer:
             "sources": [],
         }
 
-    # Step 9: Collect source information
+    # Collect source information
     sources = [
         {
             "document": doc.metadata.get("source", "Unknown"),
@@ -433,14 +423,14 @@ Answer:
         for doc in results
     ]
 
-    # Step 10: Save only validated answers
+    # Save only validated answers
     save_conversation(
         session_id=session_id,
         question=question,
         answer=answer,
     )
 
-    # Step 11: Return the answer and sources
+    # Return the answer and sources
     return {
         "answer": answer,
         "sources": sources,
