@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -12,9 +13,6 @@ from backend.chatbot.answer_pipeline import answer_question
 from backend.Database.connection import SessionLocal
 from backend.Database.models import ChatbotTelemetry
 from backend.auth.dependencies import get_db, require_role
-from backend.chatbot.audit_logging import (
-    Trace, activate, deactivate, persist_audit, redact,
-)
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 logger = logging.getLogger("flatkart.chatbot.telemetry")
@@ -27,7 +25,9 @@ class ChatRequest(BaseModel):
 
 
 def _safe_question_preview(question: str) -> str:
-    return redact(question, 240)
+    preview = re.sub(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", "[email]", question)
+    preview = re.sub(r"(?<!\w)(?:\+?\d[\d ().-]{7,}\d)(?!\w)", "[phone]", preview)
+    return preview[:240]
 
 
 def _record_telemetry(question, outcome, latency_ms, sources=None, fallback=False):
@@ -42,7 +42,7 @@ def _record_telemetry(question, outcome, latency_ms, sources=None, fallback=Fals
             fallback=bool(fallback),
             source_count=len(sources or []),
             source_names=list(dict.fromkeys(
-                redact(str(source.get("document", "")), 180)
+                str(source.get("document", ""))[:180]
                 for source in (sources or [])
                 if source.get("document")
             )),
@@ -80,52 +80,15 @@ def ask_chatbot(
     _current_user=Depends(require_role("user")),
 ):
     question = request.question.strip()
-    started = time.perf_counter()
-    trace = Trace(question, request.session_id, getattr(_current_user, "id", None))
-    token = activate(trace)
     if not question:
-        with trace.stage("request_validation") as stage:
-            stage.outcome("blocked", decision="rejected", category="invalid_input", reason="Question was empty after trimming whitespace.")
-        try:
-            persist_audit(
-                trace, answer="Question cannot be empty.", status="blocked",
-                failure_stage="request_validation", failure_category="invalid_input",
-                failure_reason="Question was empty after trimming whitespace.",
-                http_status=422, latency_ms=(time.perf_counter() - started) * 1000,
-            )
-        except Exception as audit_exc:
-            logger.error("Could not persist chatbot audit record (%s)", type(audit_exc).__name__)
-        finally:
-            deactivate(token)
         raise HTTPException(status_code=422, detail="Question cannot be empty.")
+
+    started = time.perf_counter()
     try:
-        with trace.stage("request_validation") as stage:
-            stage.decision = "accepted"
-        result = answer_question(question, session_id=request.session_id)
+        result = answer_question(question,session_id=request.session_id,)
         elapsed_ms = (time.perf_counter() - started) * 1000
         sources = result.get("sources") or []
         fallback = result.get("answer") == FALLBACK_ANSWER or not sources
-        completed_stages = {item["stage_name"] for item in trace.stages}
-        if "final_response" not in completed_stages:
-            with trace.stage("final_response") as stage:
-                stage.decision = "response_returned"
-        blocked = next((item for item in trace.stages if item["status"] == "blocked"), None)
-        failed_stage = next((item for item in trace.stages if item["status"] == "failed"), None)
-        fallback_stage = next((item for item in trace.stages if item["status"] == "fallback"), None)
-        status = "blocked" if blocked else "partial_failure" if failed_stage else "fallback" if fallback else "partial_failure" if fallback_stage else "success"
-        failure_stage = blocked or failed_stage or fallback_stage
-        try:
-            persist_audit(
-                trace, answer=result.get("answer"), status=status,
-                failure_stage=failure_stage["stage_name"] if failure_stage else None,
-                failure_category=failure_stage["failure_category"] if failure_stage else None,
-                failure_reason=failure_stage["failure_reason"] if failure_stage else None,
-                http_status=200, latency_ms=elapsed_ms, sources=sources,
-                fallback=bool(fallback and not blocked),
-                fallback_reason=(failure_stage["failure_reason"] if fallback and failure_stage else None),
-            )
-        except Exception as audit_exc:
-            logger.error("Could not persist chatbot audit record (%s)", type(audit_exc).__name__)
         _record_telemetry(
             question,
             "fallback" if fallback else "answered",
@@ -134,32 +97,13 @@ def ask_chatbot(
             fallback=fallback,
         )
         return result
-    except Exception as exc:
+    except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000
-        for name in (
-            "request_validation", "input_guardrail", "conversation_history", "query_rewriting",
-            "retrieval", "answer_generation", "output_guardrail",
-            "conversation_memory_save", "final_response",
-        ):
-            if not any(stage["stage_name"] == name for stage in trace.stages):
-                with trace.stage(name) as stage:
-                    stage.skip("Skipped because an earlier pipeline stage failed.")
-        try:
-            persist_audit(
-                trace, answer="An error occurred while processing the question.",
-                status="failed", failure_stage=next((s["stage_name"] for s in trace.stages if s["status"] == "failed"), "request_processing"),
-                failure_category="infrastructure_error", failure_reason="Chatbot processing failed.",
-                http_status=500, latency_ms=elapsed_ms,
-            )
-        except Exception as audit_exc:
-            logger.error("Could not persist chatbot audit record (%s)", type(audit_exc).__name__)
         _record_telemetry(question, "error", elapsed_ms)
         raise HTTPException(
             status_code=500,
             detail="An error occurred while processing the question.",
-        ) from exc
-    finally:
-        deactivate(token)
+        )
 
 
 @router.get("/performance")

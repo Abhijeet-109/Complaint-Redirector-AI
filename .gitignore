@@ -57,6 +57,4 @@ backend\uploads
 # Google Drive OAuth credentials and state
 /backend/data/
 /backend/chatbot/data/
-/backend/logs/chatbot_audit*.xlsx
-/backend/logs/chatbot_audit*.xlsx.*
 Docs

@@ -2,7 +2,6 @@
 from backend.Database.connection import Base, engine
 from backend.Database.models import (
     User, Department, Complaint, ComplaintRedirection, ChatbotTelemetry,
-    ChatbotAuditRequest, ChatbotAuditStage,
 )
 
 

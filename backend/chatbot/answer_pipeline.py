@@ -13,7 +13,6 @@ from backend.chatbot.conversation_memory import (
 )
 from backend.chatbot.guardrails.input_guardrails import INPUT_VALIDATION_PROMPT
 from backend.chatbot.guardrails.output_guardrails import OUTPUT_VALIDATION_PROMPT
-from backend.chatbot.audit_logging import current_trace
 
 load_dotenv()
 
@@ -60,20 +59,13 @@ logger.info("[CHATBOT] Models loaded successfully.")
 def validate_question(question: str):
     """Validate the user's question before retrieval."""
 
-    message, _status, _category, _reason = validate_question_detailed(question)
-    return message
-
-
-def validate_question_detailed(question: str):
-    """Return safe diagnostics while preserving the public validator wrapper."""
-
     if not isinstance(question, str) or not question.strip():
-        return "Please enter a valid question.", "blocked", "invalid_input", "Question was empty or invalid."
+        return "Please enter a valid question."
 
     question = question.strip()
 
     if len(question) > 2000:
-        return "Your question is too long. Please shorten it.", "blocked", "invalid_input", "Question exceeded the accepted length."
+        return "Your question is too long. Please shorten it."
 
     try:
         prompt = INPUT_VALIDATION_PROMPT.format(
@@ -84,22 +76,22 @@ def validate_question_detailed(question: str):
         decision = response.content.strip().upper()
 
         if decision == "ALLOW":
-            return None, "success", None, None
+            return None
 
         if decision == "REJECT":
-            return "Your request cannot be processed.", "blocked", "policy_rejection", "Input was rejected by the configured input policy."
+            return "Your request cannot be processed."
 
         logger.warning(
             "[CHATBOT] Invalid input-validator response."
         )
-        return "Your request cannot be processed.", "failed", "invalid_validator_response", "Input validator returned an invalid decision."
+        return "Your request cannot be processed."
 
     except Exception as exc:
         logger.error(
             "[CHATBOT] Input validation failed (%s).",
             type(exc).__name__,
         )
-        return "Your request cannot be processed.", "failed", "guardrail_service_error", "Input validator service failed."
+        return "Your request cannot be processed."
 
 
 # Memory management model 
@@ -226,9 +218,6 @@ Retrieval query:
         return rewritten_query
 
     except Exception as exc:
-        trace = current_trace()
-        if trace and trace.active_stage and trace.active_stage.name == "query_rewriting":
-            trace.active_stage.outcome("fallback", decision="original_query_used", category="query_rewrite_error", reason="Query rewriting failed; original question was retained.", exception=type(exc).__name__)
         logger.warning(
             "[CHATBOT] Query evaluation failed (%s). Using original question.",
             type(exc).__name__,
@@ -253,7 +242,6 @@ def save_conversation(
         )
 
         logger.info("[CHATBOT] Conversation exchange saved.")
-        return True
 
     except Exception as exc:
         # A memory-save failure should not discard a valid answer.
@@ -261,7 +249,6 @@ def save_conversation(
             "[CHATBOT] Failed to save conversation memory (%s).",
             type(exc).__name__,
         )
-        return False
 
 
 # Main RAG pipeline 
@@ -274,18 +261,13 @@ def answer_question(question: str, session_id: str) -> dict:
     """
 
     # Validate the question before retrieval
-    trace = current_trace()
-    with trace.stage("input_guardrail") if trace else _null_stage() as stage:
-        rejection_message, validation_status, category, reason = validate_question_detailed(question)
-        if rejection_message:
-            stage.outcome(validation_status, decision="reject", category=category, reason=reason)
+    rejection_message = validate_question(question)
 
     if rejection_message:
         logger.info(
             "[CHATBOT] Input rejected by Input Guardrail model. Retrieval skipped."
         )
 
-        _skip_stages(trace, ["conversation_history", "query_rewriting", "retrieval", "answer_generation", "output_guardrail", "conversation_memory_save"])
         return {
             "answer": rejection_message,
             "sources": [],
@@ -297,17 +279,14 @@ def answer_question(question: str, session_id: str) -> dict:
 
     # Load conversation history for this session
     try:
-        with trace.stage("conversation_history") if trace else _null_stage() as stage:
-            chat_history = get_conversation_history(session_id)
-            history_text = format_history(chat_history)
+        chat_history = get_conversation_history(session_id)
+        history_text = format_history(chat_history)
 
         logger.info(
             "[CHATBOT] Conversation history loaded."
         )
 
     except Exception as exc:
-        _skip_stages(trace, ["query_rewriting", "retrieval", "answer_generation", "output_guardrail", "conversation_memory_save"])
-        _annotate_last_stage(trace, "conversation_history", "memory_load_error", "Conversation history could not be loaded.")
         logger.error(
             "[CHATBOT] Memory retrieval failed (%s).",
             type(exc).__name__,
@@ -319,24 +298,21 @@ def answer_question(question: str, session_id: str) -> dict:
         }
 
     # Rewrite the query for better retrieval
-    with trace.stage("query_rewriting") if trace else _null_stage() as stage:
-        search_query = rewrite_query(question=question, chat_history=history_text)
-        if search_query == question:
-            stage.decision = "original_query_used"
+    search_query = rewrite_query(
+        question=question,
+        chat_history=history_text,
+    )
 
     logger.info("[CHATBOT] Starting document retrieval.")
 
     # Retrieve relevant chunks from ChromaDB
     try:
-        with trace.stage("retrieval") if trace else _null_stage() as stage:
-            results = vectorstore.similarity_search(search_query, k=3)
-            stage.decision = "documents_retrieved" if results else "empty_result"
-            if not results:
-                stage.outcome("fallback", decision="empty_result", category="no_document_match", reason="No matching document chunks were found.")
+        results = vectorstore.similarity_search(
+            search_query,
+            k=3,
+        )
 
     except Exception as exc:
-        _skip_stages(trace, ["conversation_memory_save"])
-        _annotate_last_stage(trace, "retrieval", "retrieval_error", "Document retrieval failed.")
         logger.error(
             "[CHATBOT] ChromaDB retrieval failed (%s).",
             type(exc).__name__,
@@ -354,10 +330,11 @@ def answer_question(question: str, session_id: str) -> dict:
             "Information not found in the provided documents."
         )
 
-        _skip_stages(trace, ["answer_generation", "output_guardrail"])
-        with trace.stage("conversation_memory_save") if trace else _null_stage() as stage:
-            if not save_conversation(session_id=session_id, question=question, answer=fallback_answer):
-                stage.outcome("failed", category="memory_save_error", reason="Conversation memory could not be saved.")
+        save_conversation(
+            session_id=session_id,
+            question=question,
+            answer=fallback_answer,
+        )
 
         return {
             "answer": fallback_answer,
@@ -431,12 +408,10 @@ Answer:
     logger.info("[CHATBOT] Answer generation started.")
 
     try:
-        with trace.stage("answer_generation") if trace else _null_stage():
-            response = model.invoke(prompt)
-            answer = response.content.strip()
+        response = model.invoke(prompt)
+        answer = response.content.strip()
 
     except Exception as exc:
-        _annotate_last_stage(trace, "answer_generation", "answer_generation_error", "Answer generation failed.")
         logger.error(
             "[CHATBOT] Answer generation failed (%s).",
             type(exc).__name__,
@@ -447,7 +422,6 @@ Answer:
 
     # Validate the generated answer
     try:
-      with trace.stage("output_guardrail") if trace else _null_stage() as stage:
         validation_prompt = OUTPUT_VALIDATION_PROMPT.format(
             question=question,
             context=context,
@@ -461,11 +435,6 @@ Answer:
         decision = validation_response.content.strip().upper()
 
         if decision != "ALLOW":
-            if decision == "REJECT":
-                stage.outcome("blocked", decision="reject", category="policy_rejection", reason="Generated answer was rejected by the configured output policy.")
-            else:
-                stage.outcome("failed", decision="invalid_response", category="invalid_validator_response", reason="Output validator returned an invalid decision.")
-            _skip_stages(trace, ["conversation_memory_save"])
             logger.warning(
                 "[CHATBOT] Output rejected by guardrails."
             )
@@ -478,8 +447,6 @@ Answer:
             }
 
     except Exception as exc:
-        _skip_stages(trace, ["conversation_memory_save"])
-        _annotate_last_stage(trace, "output_guardrail", "guardrail_service_error", "Output validation service failed.")
         logger.error(
             "[CHATBOT] Output validation failed (%s).",
             type(exc).__name__,
@@ -500,45 +467,14 @@ Answer:
     ]
 
     # Save only validated answers
-    with trace.stage("conversation_memory_save") if trace else _null_stage() as stage:
-        if not save_conversation(session_id=session_id, question=question, answer=answer):
-            stage.outcome("failed", category="memory_save_error", reason="Conversation memory could not be saved.")
+    save_conversation(
+        session_id=session_id,
+        question=question,
+        answer=answer,
+    )
 
     # Return the answer and sources
     return {
         "answer": answer,
         "sources": sources,
     }
-
-
-class _null_stage:
-    """No-op context manager keeps the pipeline usable outside API requests."""
-    def __enter__(self):
-        return self
-    def __exit__(self, *_args):
-        return False
-    def outcome(self, *_args, **_kwargs):
-        pass
-    def skip(self, *_args, **_kwargs):
-        pass
-
-
-def _skip_stages(trace, names):
-    if not trace:
-        return
-    completed = {stage["stage_name"] for stage in trace.stages}
-    for name in names:
-        if name in completed:
-            continue
-        with trace.stage(name) as stage:
-            stage.skip("Skipped because an earlier pipeline stage stopped processing.")
-
-
-def _annotate_last_stage(trace, stage_name, category, reason):
-    if not trace:
-        return
-    for stage in reversed(trace.stages):
-        if stage["stage_name"] == stage_name:
-            stage["failure_category"] = category
-            stage["failure_reason"] = reason
-            return
