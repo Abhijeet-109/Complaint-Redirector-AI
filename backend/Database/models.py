@@ -194,3 +194,52 @@ class ChatbotTelemetry(Base):
     source_names = Column(JSON, nullable=False, default=list)
     source_count = Column(Integer, nullable=False, default=0)
     latency_ms = Column(Float, nullable=False)
+
+
+class ChatbotAuditRequest(Base):
+    """Durable, redacted request audit record; Excel is only an export."""
+
+    __tablename__ = "chatbot_audit_requests"
+
+    id = Column(Integer, primary_key=True)
+    request_id = Column(String(36), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    session_id = Column(String(100), nullable=False)
+    user_id = Column(String(64), nullable=True, index=True)
+    query_text = Column(String, nullable=False)
+    answer_text = Column(String, nullable=True)
+    status = Column(String(24), nullable=False, index=True)
+    failure_stage = Column(String(64), nullable=True, index=True)
+    failure_category = Column(String(64), nullable=True, index=True)
+    failure_reason = Column(String(240), nullable=True)
+    http_status = Column(Integer, nullable=False)
+    latency_ms = Column(Float, nullable=False)
+    source_count = Column(Integer, nullable=False, default=0)
+    source_names = Column(JSON, nullable=False, default=list)
+    model_name = Column(String(120), nullable=True)
+    fallback = Column(Boolean, nullable=False, default=False)
+    fallback_reason = Column(String(240), nullable=True)
+    exported_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    export_attempts = Column(Integer, nullable=False, default=0)
+    export_failures = Column(Integer, nullable=False, default=0)
+    export_error = Column(String(80), nullable=True)
+
+
+class ChatbotAuditStage(Base):
+    """One pipeline stage outcome associated with a request trace."""
+
+    __tablename__ = "chatbot_audit_stages"
+
+    id = Column(Integer, primary_key=True)
+    request_id = Column(String(36), ForeignKey("chatbot_audit_requests.request_id"), nullable=False, index=True)
+    stage_name = Column(String(64), nullable=False, index=True)
+    status = Column(String(24), nullable=False, index=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=False)
+    duration_ms = Column(Float, nullable=False)
+    decision = Column(String(120), nullable=True)
+    failure_category = Column(String(64), nullable=True, index=True)
+    failure_reason = Column(String(240), nullable=True)
+    exception_type = Column(String(120), nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    skip_reason = Column(String(240), nullable=True)

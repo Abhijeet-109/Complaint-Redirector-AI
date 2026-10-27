@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import json
 from contextlib import asynccontextmanager
 
 # Configure root logging once, before importing application modules that log.
@@ -12,8 +14,10 @@ for root_handler in root_logger.handlers:
     if root_handler.level > logging.INFO:
         root_handler.setLevel(logging.INFO)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.routes.auth import router as auth_router
@@ -31,7 +35,10 @@ from backend.api.routes.redirection_analytics import (
     router as redirection_analytics_router,
 )
 from backend.Database.connection import engine
-from backend.Database.models import ChatbotTelemetry, LoginThrottle
+from backend.Database.models import (
+    ChatbotTelemetry, ChatbotAuditRequest, ChatbotAuditStage, LoginThrottle,
+)
+from backend.chatbot.audit_logging import Trace, export_worker, persist_audit
 from backend.api.routes.drive import router as drive_router
 from backend.security_config import app_environment, cors_origins
 
@@ -47,12 +54,22 @@ async def lifespan(_app):
                 "The login lockout table must exist before production startup."
             )
 
-    # Create only the telemetry table when absent; preserve all existing data.
+    # Create only missing chatbot telemetry/audit tables; preserve all existing data.
+    exporter_task = None
+    exporter_stop = asyncio.Event()
     try:
         ChatbotTelemetry.__table__.create(bind=engine, checkfirst=True)
+        ChatbotAuditRequest.__table__.create(bind=engine, checkfirst=True)
+        ChatbotAuditStage.__table__.create(bind=engine, checkfirst=True)
+        exporter_task = asyncio.create_task(export_worker(exporter_stop), name="chatbot-audit-exporter")
     except SQLAlchemyError as exc:
         logger.error("Could not initialize chatbot telemetry storage (%s)", type(exc).__name__)
-    yield
+    try:
+        yield
+    finally:
+        if exporter_task:
+            exporter_stop.set()
+            await exporter_task
 
 
 
@@ -63,6 +80,41 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def preserve_validation_response_and_audit(request: Request, exc: RequestValidationError):
+    """Keep FastAPI's validation response while recording rejected chatbot payloads."""
+    response = await request_validation_exception_handler(request, exc)
+    if request.url.path == "/chatbot/ask":
+        payload = {}
+        try:
+            payload = json.loads(await request.body())
+        except Exception:
+            pass
+        if not isinstance(payload, dict):
+            payload = {}
+        question = payload.get("question")
+        session_id = payload.get("session_id")
+        trace = Trace(
+            question[:2000] if isinstance(question, str) else "",
+            session_id[:100] if isinstance(session_id, str) else "",
+        )
+        with trace.stage("request_validation") as stage:
+            stage.outcome(
+                "blocked", decision="rejected", category="invalid_input",
+                reason="Request payload failed schema validation.",
+            )
+        try:
+            persist_audit(
+                trace, answer="Request validation failed.", status="blocked",
+                failure_stage="request_validation", failure_category="invalid_input",
+                failure_reason="Request payload failed schema validation.",
+                http_status=422,
+            )
+        except Exception as audit_exc:
+            logger.error("Could not persist chatbot validation audit (%s)", type(audit_exc).__name__)
+    return response
 
 app.add_middleware(
     CORSMiddleware,
