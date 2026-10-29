@@ -57,12 +57,47 @@ vectorstore = Chroma(
 logger.info("Chromadb created")
 
 
+def _normalize_chroma_metadata(metadata):
+    """Convert metadata values into types supported by ChromaDB."""
+    normalized = {}
+
+    for key, value in (metadata or {}).items():
+        if value is None:
+            continue
+
+        if isinstance(value, (str, int, float, bool)):
+            normalized[key] = value
+
+        elif isinstance(value, list) and all(
+            item is None or isinstance(item, (str, int, float, bool))
+            for item in value
+        ):
+            normalized[key] = [
+                item for item in value if item is not None
+            ]
+
+        else:
+            normalized[key] = json.dumps(
+                value,
+                sort_keys=True,
+                ensure_ascii=False,
+                default=str,
+            )
+
+    return normalized
+
+
 def _split_document(file_path):
     extracted_sections = load_document(file_path)
+
     documents = [
-        Document(page_content=section["page_content"], metadata=section["metadata"])
+        Document(
+            page_content=section["page_content"],
+            metadata=_normalize_chroma_metadata(section.get("metadata")),
+        )
         for section in extracted_sections
     ]
+
     if not documents:
         raise ValueError("No readable document content found")
 
@@ -70,9 +105,12 @@ def _split_document(file_path):
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
     )
+
     chunks = splitter.split_documents(documents)
+
     if not chunks:
         raise ValueError("No text chunks were created")
+
     return chunks
 
 

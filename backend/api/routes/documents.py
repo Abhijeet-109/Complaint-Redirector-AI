@@ -569,7 +569,7 @@ def index_documents(
             })
 
         except Exception as exc:
-            logger.error("Indexing failed for %s (%s)", filename, type(exc).__name__)
+            logger.exception("Indexing failed for %s", filename)
             try:
                 remaining_chunks = get_document_chunk_count(filename)
                 manifest[filename] = {

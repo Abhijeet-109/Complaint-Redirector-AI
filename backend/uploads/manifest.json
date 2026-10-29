@@ -1,58 +1,58 @@
 {
-  "fa57bc30fdfa4e19af8fd7e1c523d0b9.pdf": {
-    "original_name": "01_Privacy_Policy.pdf",
+  "2ccfe3468a294666b876b7d3bc04f879.pdf": {
+    "original_name": "Flatkart_Cancellation_Policy.pdf",
     "status": "indexed",
-    "chunks": 3,
+    "chunks": 47,
     "source": "local_upload",
-    "content_sha256": "184e773a4f26ee7f6d6f2dccc309462bd7f41ff09438674b54608c09db00a398",
+    "content_sha256": "7cf79747c1df7095a8cb94be50c0f2ff5295e8e9b6ebab38d41296560b1b1f15",
     "error": null
   },
-  "309d74793902487195186145e34fd2f6.pdf": {
-    "original_name": "02_Terms_and_Conditions.pdf",
+  "7563db157d4543e1a69ac467513114d6.pdf": {
+    "original_name": "Flatkart_Payment_Policy.pdf",
     "status": "indexed",
-    "chunks": 3,
+    "chunks": 48,
     "source": "local_upload",
-    "content_sha256": "172ae0c07462988c9a00c1eaab3ab85be85204d00981ca0ab9e4b5ec2d69d23f",
+    "content_sha256": "c1ee7010f454c741d78ef616fb26339fc6721d5b855fc5f8bde6751767b0d4f8",
     "error": null
   },
-  "92a9dadfaee84e63892bdc34f32da326.pdf": {
-    "original_name": "03_Return_and_Replacement_Policy.pdf",
+  "5c784a5812fd4456aa74a86e68aa4b57.pdf": {
+    "original_name": "Flatkart_Privacy_Policy.pdf",
     "status": "indexed",
-    "chunks": 3,
+    "chunks": 60,
     "source": "local_upload",
-    "content_sha256": "0329daf38f2a758c36080a0050e719e105b8a8e9e5f35f079712263ee835758a",
+    "content_sha256": "a45f39fadacbd5634599e803bf2639412e830c4e6389225de20769bdadbd247d",
     "error": null
   },
-  "840a3dc9e1d84ee0a995bd083a17943f.pdf": {
-    "original_name": "04_Refund_Policy.pdf",
+  "3be5e523b2f64c48a546d0b8b706e561.pdf": {
+    "original_name": "Flatkart_Refund_Policy.pdf",
     "status": "indexed",
-    "chunks": 3,
+    "chunks": 52,
     "source": "local_upload",
-    "content_sha256": "d70ccfcb9aeabaa95bd0b9540752f1cbcb9ff061cb5577d9eaac20e7ca75b50a",
+    "content_sha256": "ee93ed881a9ae394cd37f94be629f3ca71efd32835e0906b3b41a2479a2822e7",
     "error": null
   },
-  "5683d62f4cff492c9a7ac19c10adc777.pdf": {
-    "original_name": "05_Shipping_and_Delivery_Policy.pdf",
+  "5cb766f49ee14ffa9e3ade201028304e.docx": {
+    "original_name": "Flatkart_Return_and_Replacement_Policy.docx",
     "status": "indexed",
-    "chunks": 3,
+    "chunks": 46,
     "source": "local_upload",
-    "content_sha256": "3eb699b870e5b0aa7c8db4d9a674707280ad807cb5934b4fe343c62f6a253625",
+    "content_sha256": "95172d32458db2a853c712a57f55dff08780bdf5b4217969f115529a76440a8e",
     "error": null
   },
-  "18c4c83fce634b52b70734e15a409d6a.pdf": {
-    "original_name": "06_Cancellation_Policy.pdf",
+  "23652cfb19c94752a0f359acd9dff7f0.docx": {
+    "original_name": "Flatkart_Shipping_and_Delivery_Policy.docx",
     "status": "indexed",
-    "chunks": 3,
+    "chunks": 42,
     "source": "local_upload",
-    "content_sha256": "55f530b55f0c434143efdc6681a39b947347980f50ea0d94fb0e199c81ce831f",
+    "content_sha256": "d020c47c853a6ce2e4f414170fb3b856d343e6a38ffe208483a5f449d869ee46",
     "error": null
   },
-  "608dcf9b89984a29adcc439e651535a2.docx": {
-    "original_name": "FK-CX-RFD-002_Return_Refund_Cancellation_Policy.docx",
+  "83f666f09a7c4c93b0f6c5c75818269c.docx": {
+    "original_name": "Flatkart_Terms_and_Conditions.docx",
     "status": "indexed",
-    "chunks": 15,
+    "chunks": 46,
     "source": "local_upload",
-    "content_sha256": "48a25f39e6dbb1c7c9fda5ea04c76caedc1c3175978bfe2fc47eaaaf29ea902e",
+    "content_sha256": "d69f4f2d364159cf2490b01fa894a22df589949f885992df0df979a67e3e42bb",
     "error": null
   }
 }
