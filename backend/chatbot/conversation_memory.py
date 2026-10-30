@@ -1,8 +1,11 @@
 import logging
+from dotenv import load_dotenv
 
 from langchain_groq import ChatGroq
 from langchain_classic.memory import ConversationSummaryBufferMemory
 
+
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 memory_model = ChatGroq(

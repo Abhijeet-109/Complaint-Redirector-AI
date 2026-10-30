@@ -20,3 +20,6 @@ def test_knowledge_agent_flow():
     assert result["route"] == "knowledge"
     assert "answer" in result
     assert "sources" in result["answer"]
+
+if __name__ == "__main__":
+    test_knowledge_agent_flow()
