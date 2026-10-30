@@ -5,7 +5,7 @@ from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
 
-# Change provider and model here.
+# Manageable Model config 
 MODEL_CONFIG = {
     "supervisor": {
         "provider": "groq",
