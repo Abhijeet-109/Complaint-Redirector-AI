@@ -1,16 +1,17 @@
 from langgraph.graph import StateGraph, START, END
 
 from backend.agents.graph_state import GraphState
-from backend.agents.supervisor_agent import supervisor_route
+from backend.agents.supervisor_agent import (
+    select_route,
+    supervisor_route,
+)
 from backend.agents.knowledge_agent import run_knowledge_rag
 
 
 def supervisor_node(state: GraphState):
     request = state["user_input"]
 
-    route = supervisor_route(
-        request.question
-    )
+    route = select_route(request.question)
 
     return {
         "route": route
@@ -30,10 +31,6 @@ def knowledge_node(state: GraphState):
     }
 
 
-def route_query(state: GraphState):
-    return state["route"]
-
-
 def build_graph():
 
     graph = StateGraph(GraphState)
@@ -45,7 +42,7 @@ def build_graph():
 
     graph.add_conditional_edges(
         "supervisor",
-        route_query,
+        supervisor_route,
         {
             "knowledge": "knowledge"
         }
@@ -57,5 +54,3 @@ def build_graph():
 
 
 agent_graph = build_graph()
-
-agent_graph 
