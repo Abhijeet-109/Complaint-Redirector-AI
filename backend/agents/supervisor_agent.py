@@ -1,3 +1,4 @@
+
 from backend.agents.model_factory import get_model
 
 
@@ -5,30 +6,36 @@ def select_route(question: str) -> str:
     model = get_model("supervisor")
 
     prompt = f"""
-You are the supervisor of a multi-agent customer support system.
+You are the supervisor of a multi-agent e-commerce support system.
 
-Your task is to analyse the user's question and select the
-most appropriate specialist agent.
+Select the most appropriate specialist agent.
 
-Currently available agents:
-- knowledge: Handles questions about information available
-  in the uploaded knowledge base and documents.
+Available agents:
+
+- knowledge:
+  Handles questions about company information, policies,
+  uploaded documents, and general knowledge-base content.
+
+- order:
+  Handles questions about customer orders, order details,
+  order history, payment status, shipping status,
+  and delivery information.
 
 User question:
 {question}
 
-Return only the agent name.
-Do not provide explanations.
-
-Available response:
+Return only one agent name:
 knowledge
+order
+
+Do not provide explanations.
 """
 
     response = model.invoke(prompt)
 
     route = response.content.strip().lower()
 
-    if route != "knowledge":
+    if route not in ["knowledge", "order"]:
         raise ValueError(f"Invalid supervisor route: {route}")
 
     return route
@@ -37,7 +44,7 @@ knowledge
 def supervisor_route(state: dict) -> str:
     route = state.get("route")
 
-    if route == "knowledge":
-        return "knowledge"
+    if route in ["knowledge", "order"]:
+        return route
 
     raise ValueError(f"Invalid supervisor route: {route}")

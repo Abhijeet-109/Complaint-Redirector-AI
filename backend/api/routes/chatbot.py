@@ -13,6 +13,7 @@ from backend.chatbot.answer_pipeline import answer_question
 from backend.Database.connection import SessionLocal
 from backend.Database.models import ChatbotTelemetry
 from backend.auth.dependencies import get_db, require_role
+from backend.agents.agent_graph import agent_graph
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 logger = logging.getLogger("flatkart.chatbot.telemetry")
@@ -85,7 +86,15 @@ def ask_chatbot(
 
     started = time.perf_counter()
     try:
-        result = answer_question(question,session_id=request.session_id,)
+
+        graph_result = agent_graph.invoke({
+            "user_input": request.model_copy(
+                 update={"question": question}
+                  )
+             })
+
+        result = graph_result["answer"]
+        
         elapsed_ms = (time.perf_counter() - started) * 1000
         sources = result.get("sources") or []
         fallback = result.get("answer") == FALLBACK_ANSWER or not sources
