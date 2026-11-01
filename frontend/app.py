@@ -1,6 +1,6 @@
 import streamlit as st
 
-from frontend.ui import run_app
+from ui import run_app
 
 
 st.set_page_config(

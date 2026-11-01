@@ -10,11 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt .
-RUN python -m pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt ./backend/requirements.txt
+RUN python -m pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy application source
-COPY . .
+COPY . ./backend
+ENV PYTHONPATH=/app
 
 # FastAPI backend
 EXPOSE 8000

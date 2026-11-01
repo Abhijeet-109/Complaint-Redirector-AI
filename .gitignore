@@ -30,7 +30,7 @@ htmlcov/
 .ipynb_checkpoints/
 
 # Local data files (datasets are not committed)
-/Data/*.csv
+/backend/data/datasets/*.csv
 
 # Logs and temporary editor files
 *.log
@@ -51,10 +51,10 @@ dist/
 build/
 *.timestamp-*.mjs
 package-lock.json
-Docs/*
-!Docs/security_hardening_progress.md
+/backend/Docs/*
+!/backend/Docs/
+!/backend/Docs/security_hardening_progress.md
 backend\uploads
 # Google Drive OAuth credentials and state
 /backend/data/
 /backend/chatbot/data/
-Docs
