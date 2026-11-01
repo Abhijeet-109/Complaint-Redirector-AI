@@ -28,7 +28,7 @@ from backend.Database.models import (
     ProductVariant,
     User,
 )
-from backend.Database.services import add_cart_item, get_or_create_active_cart
+from backend.Database.services import add_cart_item, get_or_create_active_cart, set_category_parent
 
 
 TEST_URL = os.getenv("TEST_POSTGRES_URL")
@@ -184,6 +184,46 @@ class PostgreSQLCommerceTests(unittest.TestCase):
         self.assertEqual(len(outcomes), 2)
         self.assertTrue(all(isinstance(cart_id, int) for cart_id in outcomes), outcomes)
         self.assertEqual(outcomes[0], outcomes[1])
+
+    def test_concurrent_conflicting_category_moves_cannot_create_cycle(self):
+        first = ProductCategory(name="PG Category A", slug=f"pg-a-{uuid.uuid4()}")
+        second = ProductCategory(name="PG Category B", slug=f"pg-b-{uuid.uuid4()}")
+        self.session.add_all([first, second])
+        self.session.commit()
+        first_id, second_id = first.id, second.id
+        barrier = threading.Barrier(2)
+        outcomes = []
+
+        def move(category_id, parent_id):
+            session = self.sessions()
+            try:
+                barrier.wait(timeout=10)
+                set_category_parent(session, category_id, parent_id)
+                session.commit()
+                outcomes.append("moved")
+            except ValueError:
+                session.rollback()
+                outcomes.append("rejected")
+            except Exception as exc:
+                session.rollback()
+                outcomes.append(exc)
+            finally:
+                session.close()
+
+        threads = [
+            threading.Thread(target=move, args=(first_id, second_id)),
+            threading.Thread(target=move, args=(second_id, first_id)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+        self.assertFalse(any(thread.is_alive() for thread in threads), "category move deadlocked")
+        self.assertCountEqual(outcomes, ["moved", "rejected"])
+        self.session.expire_all()
+        first_after = self.session.get(ProductCategory, first_id)
+        second_after = self.session.get(ProductCategory, second_id)
+        self.assertFalse(first_after.parent_id == second_id and second_after.parent_id == first_id)
 
     def test_commerce_downgrade_preserves_legacy_tables(self):
         config = Config("alembic.ini")

@@ -25,7 +25,9 @@ def list_categories(session: Session, *, active_only: bool = True) -> list[Produ
 
 
 def get_category_tree(session: Session, *, active_only: bool = True) -> list[dict]:
-    categories = list_categories(session, active_only=active_only)
+    # Keep inactive ancestors in the working tree so their active descendants
+    # cannot accidentally be returned as roots when active_only is requested.
+    categories = list_categories(session, active_only=False)
     nodes = {
         category.id: {
             "id": category.id,
@@ -58,11 +60,39 @@ def get_category_tree(session: Session, *, active_only: bool = True) -> list[dic
     if len(visited) != len(nodes):
         raise RuntimeError("Category hierarchy contains a cycle or an unreachable parent")
     roots.sort(key=lambda node: (node["display_order"], node["name"]))
-    return roots
+
+    if not active_only:
+        return roots
+
+    visible_roots = []
+    pending = []
+    for root in roots:
+        if root["is_active"]:
+            visible = {**root, "children": []}
+            visible_roots.append(visible)
+            pending.append((root, visible))
+    while pending:
+        source, target = pending.pop()
+        for child in source["children"]:
+            if child["is_active"]:
+                visible_child = {**child, "children": []}
+                target["children"].append(visible_child)
+                pending.append((child, visible_child))
+    return visible_roots
 
 
 def set_category_parent(session: Session, category_id: int, parent_id: int | None) -> ProductCategory:
-    category = session.get(ProductCategory, category_id)
+    # Lock every category in a stable order. Concurrent moves then validate
+    # against the committed hierarchy produced by the previous transaction,
+    # preventing two individually valid moves from creating a cycle together.
+    categories = list(session.scalars(
+        select(ProductCategory)
+        .order_by(ProductCategory.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ))
+    categories_by_id = {category.id: category for category in categories}
+    category = categories_by_id.get(category_id)
     if category is None:
         raise LookupError("Category not found")
     if parent_id is None:
@@ -78,7 +108,7 @@ def set_category_parent(session: Session, category_id: int, parent_id: int | Non
         if current_id in visited:
             raise RuntimeError("Existing category hierarchy contains a cycle")
         visited.add(current_id)
-        parent = session.get(ProductCategory, current_id)
+        parent = categories_by_id.get(current_id)
         if parent is None:
             raise LookupError("Parent category not found")
         current_id = parent.parent_id
@@ -153,7 +183,11 @@ def add_cart_item(session: Session, user_id: int, variant_id: int, quantity: int
         raise ValueError("quantity must be positive")
     variant = session.scalar(
         select(ProductVariant)
-        .where(ProductVariant.id == variant_id, ProductVariant.is_available.is_(True))
+        .where(
+            ProductVariant.id == variant_id,
+            ProductVariant.is_available.is_(True),
+            ProductVariant.product.has(Product.is_active.is_(True)),
+        )
     )
     if variant is None:
         raise LookupError("Available product variant not found")

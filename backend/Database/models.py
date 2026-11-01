@@ -330,6 +330,11 @@ class Inventory(Base):
         CheckConstraint("total_stock >= 0", name="ck_inventory_total_nonnegative"),
         CheckConstraint("reserved_stock <= total_stock", name="ck_inventory_reserved_lte_total"),
         CheckConstraint(
+            "(available_stock > 0 AND stock_status = 'in_stock') OR "
+            "(available_stock = 0 AND stock_status = 'out_of_stock')",
+            name="ck_inventory_stock_status_matches_available",
+        ),
+        CheckConstraint(
             "available_stock + reserved_stock = total_stock",
             name="ck_inventory_stock_balance",
         ),
@@ -342,7 +347,7 @@ class Inventory(Base):
     available_stock = Column(Integer, nullable=False, default=0)
     total_stock = Column(Integer, nullable=False, default=0)
     reserved_stock = Column(Integer, nullable=False, default=0)
-    stock_status = Column(String(24), nullable=False, default="in_stock", index=True)
+    stock_status = Column(String(24), nullable=False, default="out_of_stock", index=True)
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     variant = relationship("ProductVariant", back_populates="inventory")
 

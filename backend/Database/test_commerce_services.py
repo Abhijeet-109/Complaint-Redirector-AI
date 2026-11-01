@@ -134,6 +134,21 @@ class CommerceServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             set_category_parent(self.session, categories["men"].id, categories["men"].id)
 
+    def test_active_category_tree_excludes_descendants_of_inactive_ancestors(self):
+        categories = {category.slug: category for category in list_categories(self.session, active_only=False)}
+        categories["fashion"].is_active = False
+        self.session.commit()
+
+        active_tree = get_category_tree(self.session, active_only=True)
+        all_tree = get_category_tree(self.session, active_only=False)
+        self.assertNotIn("fashion", {node["slug"] for node in active_tree})
+        self.assertNotIn("men", {node["slug"] for node in active_tree})
+        self.assertIn("men", {
+            child["slug"]
+            for root in all_tree
+            for child in root["children"]
+        })
+
     def test_category_tree_detects_corrupt_multi_node_cycle(self):
         categories = {category.slug: category for category in list_categories(self.session)}
         categories["fashion"].parent_id = categories["men"].id
@@ -200,6 +215,13 @@ class CommerceServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             add_cart_item(self.session, self.user.id, variant.id, 4)
 
+    def test_cart_rejects_variant_of_inactive_product(self):
+        variant = self.variant()
+        variant.product.is_active = False
+        self.session.commit()
+        with self.assertRaises(LookupError):
+            add_cart_item(self.session, self.user.id, variant.id, 1)
+
     def test_inventory_database_constraints_and_single_active_cart(self):
         self.session.add(Cart(user_id=self.user.id, status="active"))
         self.session.commit()
@@ -216,6 +238,19 @@ class CommerceServiceTests(unittest.TestCase):
         self.session.commit()
         self.assertEqual(inventory.available_stock, 0)
         self.assertEqual(inventory.stock_status, "out_of_stock")
+        inventory.stock_status = "in_stock"
+        with self.assertRaises(IntegrityError):
+            self.session.commit()
+        self.session.rollback()
+        inventory = self.session.scalar(select(Inventory).where(Inventory.variant_id == variant.id))
+        inventory.total_stock = 2
+        inventory.reserved_stock = 1
+        inventory.available_stock = 1
+        inventory.stock_status = "in_stock"
+        self.session.commit()
+        self.assertEqual(inventory.available_stock, 1)
+        self.assertEqual(inventory.reserved_stock, 1)
+        self.assertEqual(inventory.total_stock, 2)
         inventory.total_stock = 1
         inventory.reserved_stock = 2
         with self.assertRaises(IntegrityError):
