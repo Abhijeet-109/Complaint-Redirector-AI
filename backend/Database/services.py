@@ -1,6 +1,7 @@
 """Controlled commerce queries and cart operations for API and agent callers."""
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from backend.Database.models import (
@@ -21,6 +22,70 @@ def list_categories(session: Session, *, active_only: bool = True) -> list[Produ
     if active_only:
         query = query.where(ProductCategory.is_active.is_(True))
     return list(session.scalars(query))
+
+
+def get_category_tree(session: Session, *, active_only: bool = True) -> list[dict]:
+    categories = list_categories(session, active_only=active_only)
+    nodes = {
+        category.id: {
+            "id": category.id,
+            "name": category.name,
+            "slug": category.slug,
+            "is_active": category.is_active,
+            "display_order": category.display_order,
+            "children": [],
+        }
+        for category in categories
+    }
+    roots = []
+    for category in categories:
+        node = nodes[category.id]
+        if category.parent_id is None or category.parent_id not in nodes:
+            roots.append(node)
+        else:
+            nodes[category.parent_id]["children"].append(node)
+
+    visited = set()
+
+    stack = list(reversed(roots))
+    while stack:
+        node = stack.pop()
+        if node["id"] in visited:
+            raise RuntimeError("Category hierarchy contains a cycle")
+        visited.add(node["id"])
+        node["children"].sort(key=lambda child: (child["display_order"], child["name"]))
+        stack.extend(reversed(node["children"]))
+    if len(visited) != len(nodes):
+        raise RuntimeError("Category hierarchy contains a cycle or an unreachable parent")
+    roots.sort(key=lambda node: (node["display_order"], node["name"]))
+    return roots
+
+
+def set_category_parent(session: Session, category_id: int, parent_id: int | None) -> ProductCategory:
+    category = session.get(ProductCategory, category_id)
+    if category is None:
+        raise LookupError("Category not found")
+    if parent_id is None:
+        category.parent_id = None
+        session.flush()
+        return category
+
+    current_id = parent_id
+    visited = set()
+    while current_id is not None:
+        if current_id == category_id:
+            raise ValueError("A category cannot be moved beneath itself or one of its descendants")
+        if current_id in visited:
+            raise RuntimeError("Existing category hierarchy contains a cycle")
+        visited.add(current_id)
+        parent = session.get(ProductCategory, current_id)
+        if parent is None:
+            raise LookupError("Parent category not found")
+        current_id = parent.parent_id
+
+    category.parent_id = parent_id
+    session.flush()
+    return category
 
 
 def list_products(
@@ -65,9 +130,21 @@ def get_or_create_active_cart(session: Session, user_id: int) -> Cart:
         select(Cart).options(selectinload(Cart.items)).where(Cart.user_id == user_id, Cart.status == "active")
     )
     if cart is None:
-        cart = Cart(user_id=user_id, status="active")
-        session.add(cart)
-        session.flush()
+        try:
+            # The partial unique index is the concurrency authority. Isolate a
+            # losing insert in a savepoint so the caller's transaction survives.
+            with session.begin_nested():
+                cart = Cart(user_id=user_id, status="active")
+                session.add(cart)
+                session.flush()
+        except IntegrityError:
+            cart = session.scalar(
+                select(Cart)
+                .options(selectinload(Cart.items))
+                .where(Cart.user_id == user_id, Cart.status == "active")
+            )
+            if cart is None:
+                raise
     return cart
 
 
@@ -76,24 +153,30 @@ def add_cart_item(session: Session, user_id: int, variant_id: int, quantity: int
         raise ValueError("quantity must be positive")
     variant = session.scalar(
         select(ProductVariant)
-        .options(selectinload(ProductVariant.inventory))
         .where(ProductVariant.id == variant_id, ProductVariant.is_available.is_(True))
     )
     if variant is None:
         raise LookupError("Available product variant not found")
-    if variant.inventory is None or variant.inventory.available_stock < quantity:
+    # Serialize stock checks and cart line changes for this variant. On
+    # PostgreSQL the row lock is retained until the caller commits or rolls back.
+    inventory = session.scalar(
+        select(Inventory).where(Inventory.variant_id == variant_id).with_for_update()
+    )
+    if inventory is None or inventory.available_stock < quantity:
         raise ValueError("Insufficient available stock")
 
     cart = get_or_create_active_cart(session, user_id)
     item = session.scalar(
-        select(CartItem).where(CartItem.cart_id == cart.id, CartItem.variant_id == variant_id)
+        select(CartItem)
+        .where(CartItem.cart_id == cart.id, CartItem.variant_id == variant_id)
+        .with_for_update()
     )
     if item is None:
         item = CartItem(cart_id=cart.id, variant_id=variant_id, quantity=quantity)
         session.add(item)
     else:
         next_quantity = item.quantity + quantity
-        if variant.inventory.available_stock < next_quantity:
+        if inventory.available_stock < next_quantity:
             raise ValueError("Insufficient available stock")
         item.quantity = next_quantity
     session.flush()
@@ -101,10 +184,13 @@ def add_cart_item(session: Session, user_id: int, variant_id: int, quantity: int
 
 
 def remove_cart_item(session: Session, user_id: int, variant_id: int) -> bool:
+    # Keep the same inventory-then-cart-line lock order as add_cart_item.
+    session.scalar(select(Inventory).where(Inventory.variant_id == variant_id).with_for_update())
     item = session.scalar(
         select(CartItem)
         .join(Cart, CartItem.cart_id == Cart.id)
         .where(Cart.user_id == user_id, Cart.status == "active", CartItem.variant_id == variant_id)
+        .with_for_update()
     )
     if item is None:
         return False

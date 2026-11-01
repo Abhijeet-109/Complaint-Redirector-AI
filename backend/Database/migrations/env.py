@@ -28,15 +28,24 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
-    with engine.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-        )
+    connection = config.attributes.get("connection")
+    if connection is None:
+        with engine.connect() as engine_connection:
+            _run_migrations(engine_connection)
+    else:
+        _run_migrations(connection)
 
-        with context.begin_transaction():
-            context.run_migrations()
+
+def _run_migrations(connection):
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        compare_server_default=True,
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
 
 
 if context.is_offline_mode():

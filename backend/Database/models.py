@@ -6,11 +6,13 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     JSON,
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -261,7 +263,13 @@ class ChatbotAuditStage(Base):
 
 class ProductCategory(Base):
     __tablename__ = "product_categories"
-    __table_args__ = (UniqueConstraint("slug", name="uq_product_categories_slug"),)
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_product_categories_slug"),
+        CheckConstraint(
+            "parent_id IS NULL OR parent_id <> id",
+            name="ck_product_categories_not_self_parent",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     parent_id = Column(Integer, ForeignKey("product_categories.id"), nullable=True, index=True)
@@ -319,11 +327,20 @@ class Inventory(Base):
     __table_args__ = (
         CheckConstraint("available_stock >= 0", name="ck_inventory_available_nonnegative"),
         CheckConstraint("reserved_stock >= 0", name="ck_inventory_reserved_nonnegative"),
+        CheckConstraint("total_stock >= 0", name="ck_inventory_total_nonnegative"),
+        CheckConstraint("reserved_stock <= total_stock", name="ck_inventory_reserved_lte_total"),
+        CheckConstraint(
+            "available_stock + reserved_stock = total_stock",
+            name="ck_inventory_stock_balance",
+        ),
     )
 
     id = Column(Integer, primary_key=True)
     variant_id = Column(Integer, ForeignKey("product_variants.id", ondelete="CASCADE"), nullable=False, unique=True)
+    # total_stock is on-hand stock; sellable available_stock plus reserved_stock
+    # must always equal it, enforced by the database.
     available_stock = Column(Integer, nullable=False, default=0)
+    total_stock = Column(Integer, nullable=False, default=0)
     reserved_stock = Column(Integer, nullable=False, default=0)
     stock_status = Column(String(24), nullable=False, default="in_stock", index=True)
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
@@ -332,6 +349,15 @@ class Inventory(Base):
 
 class Cart(Base):
     __tablename__ = "carts"
+    __table_args__ = (
+        Index(
+            "uq_carts_one_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
