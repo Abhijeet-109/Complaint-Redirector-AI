@@ -14,7 +14,6 @@ for root_handler in root_logger.handlers:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.exc import SQLAlchemyError
 
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.admin import router as admin_router
@@ -31,7 +30,7 @@ from backend.api.routes.redirection_analytics import (
     router as redirection_analytics_router,
 )
 from backend.Database.connection import engine
-from backend.Database.models import ChatbotTelemetry, LoginThrottle
+from backend.Database.models import LoginThrottle
 from backend.api.routes.drive import router as drive_router
 from backend.security_config import app_environment, cors_origins
 
@@ -47,11 +46,6 @@ async def lifespan(_app):
                 "The login lockout table must exist before production startup."
             )
 
-    # Create only the telemetry table when absent; preserve all existing data.
-    try:
-        ChatbotTelemetry.__table__.create(bind=engine, checkfirst=True)
-    except SQLAlchemyError as exc:
-        logger.error("Could not initialize chatbot telemetry storage (%s)", type(exc).__name__)
     yield
 
 

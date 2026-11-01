@@ -1,14 +1,13 @@
+"""Apply the Alembic migration chain for a fresh or existing database."""
 
-from backend.Database.connection import Base, engine
-from backend.Database.models import (
-    User, Department, Complaint, ComplaintRedirection, ChatbotTelemetry,
-)
+from alembic import command
+from alembic.config import Config
 
 
-print('Creating Database Tables...')
+def upgrade_database() -> None:
+    config = Config("alembic.ini")
+    command.upgrade(config, "head")
 
-Base.metadata.create_all(
-    bind = engine
-)
 
-print("Database tables Created successfully!")
+if __name__ == "__main__":
+    upgrade_database()

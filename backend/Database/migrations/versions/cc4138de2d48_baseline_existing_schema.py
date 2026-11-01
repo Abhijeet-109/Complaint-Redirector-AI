@@ -178,6 +178,7 @@ def upgrade():
         sa.Column("export_error", sa.String(length=80), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
+    op.create_index("ix_chatbot_audit_requests_id", "chatbot_audit_requests", ["id"])
     op.create_index(
         "ix_chatbot_audit_requests_created_at",
         "chatbot_audit_requests",
@@ -238,6 +239,7 @@ def upgrade():
         ),
         sa.PrimaryKeyConstraint("id"),
     )
+    op.create_index("ix_chatbot_audit_stages_id", "chatbot_audit_stages", ["id"])
     op.create_index(
         "ix_chatbot_audit_stages_failure_category",
         "chatbot_audit_stages",
@@ -261,10 +263,6 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_table("chatbot_audit_stages")
-    op.drop_table("chatbot_audit_requests")
-    op.drop_table("chatbot_telemetry")
-    op.drop_table("complaint_redirections")
-    op.drop_table("complaints")
-    op.drop_table("users")
-    op.drop_table("departments")
+    raise RuntimeError(
+        "The baseline represents pre-existing project data and cannot be downgraded."
+    )

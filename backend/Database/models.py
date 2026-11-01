@@ -1,4 +1,18 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Float, Boolean
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    JSON,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 
@@ -198,7 +212,7 @@ class ChatbotTelemetry(Base):
 class ChatbotAuditRequest(Base):
     __tablename__ = "chatbot_audit_requests"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     request_id = Column(String(36), nullable=False, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, index=True)
     session_id = Column(String(100), nullable=False)
@@ -225,7 +239,7 @@ class ChatbotAuditRequest(Base):
 class ChatbotAuditStage(Base):
     __tablename__ = "chatbot_audit_stages"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     request_id = Column(
         String(36),
         ForeignKey("chatbot_audit_requests.request_id"),
@@ -243,3 +257,168 @@ class ChatbotAuditStage(Base):
     exception_type = Column(String(120), nullable=True)
     retry_count = Column(Integer, nullable=False)
     skip_reason = Column(String(240), nullable=True)
+
+
+class ProductCategory(Base):
+    __tablename__ = "product_categories"
+    __table_args__ = (UniqueConstraint("slug", name="uq_product_categories_slug"),)
+
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(Integer, ForeignKey("product_categories.id"), nullable=True, index=True)
+    name = Column(String(120), nullable=False)
+    slug = Column(String(140), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    display_order = Column(Integer, nullable=False, default=0)
+    parent = relationship("ProductCategory", remote_side=[id], backref="children")
+
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id = Column(Integer, primary_key=True)
+    category_id = Column(Integer, ForeignKey("product_categories.id"), nullable=True, index=True)
+    name = Column(String(200), nullable=False, index=True)
+    slug = Column(String(220), nullable=False, unique=True, index=True)
+    description = Column(String, nullable=True)
+    brand = Column(String(120), nullable=True, index=True)
+    attributes = Column(JSON, nullable=False, default=dict)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    category = relationship("ProductCategory")
+    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan")
+    variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
+
+
+class ProductImage(Base):
+    __tablename__ = "product_images"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    storage_key = Column(String(500), nullable=False)
+    provider = Column(String(40), nullable=False)
+    alt_text = Column(String(240), nullable=True)
+    display_order = Column(Integer, nullable=False, default=0)
+    product = relationship("Product", back_populates="images")
+
+
+class ProductVariant(Base):
+    __tablename__ = "product_variants"
+    __table_args__ = (CheckConstraint("price >= 0", name="ck_product_variants_price_nonnegative"),)
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    sku = Column(String(80), nullable=False, unique=True, index=True)
+    name = Column(String(160), nullable=False)
+    price = Column(Numeric(12, 2), nullable=False)
+    is_available = Column(Boolean, nullable=False, default=True)
+    product = relationship("Product", back_populates="variants")
+    inventory = relationship("Inventory", back_populates="variant", uselist=False, cascade="all, delete-orphan")
+
+
+class Inventory(Base):
+    __tablename__ = "inventory"
+    __table_args__ = (
+        CheckConstraint("available_stock >= 0", name="ck_inventory_available_nonnegative"),
+        CheckConstraint("reserved_stock >= 0", name="ck_inventory_reserved_nonnegative"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    variant_id = Column(Integer, ForeignKey("product_variants.id", ondelete="CASCADE"), nullable=False, unique=True)
+    available_stock = Column(Integer, nullable=False, default=0)
+    reserved_stock = Column(Integer, nullable=False, default=0)
+    stock_status = Column(String(24), nullable=False, default="in_stock", index=True)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    variant = relationship("ProductVariant", back_populates="inventory")
+
+
+class Cart(Base):
+    __tablename__ = "carts"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="active", index=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    items = relationship("CartItem", back_populates="cart", cascade="all, delete-orphan")
+
+
+class CartItem(Base):
+    __tablename__ = "cart_items"
+    __table_args__ = (
+        UniqueConstraint("cart_id", "variant_id", name="uq_cart_items_cart_variant"),
+        CheckConstraint("quantity > 0", name="ck_cart_items_quantity_positive"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    cart_id = Column(Integer, ForeignKey("carts.id", ondelete="CASCADE"), nullable=False, index=True)
+    variant_id = Column(Integer, ForeignKey("product_variants.id"), nullable=False, index=True)
+    quantity = Column(Integer, nullable=False)
+    cart = relationship("Cart", back_populates="items")
+    variant = relationship("ProductVariant")
+
+
+class CommerceOrder(Base):
+    __tablename__ = "commerce_orders"
+
+    id = Column(Integer, primary_key=True)
+    order_number = Column(String(40), nullable=False, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="placed", index=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    items = relationship("CommerceOrderItem", back_populates="order", cascade="all, delete-orphan")
+    shipment = relationship("Shipment", back_populates="order", uselist=False, cascade="all, delete-orphan")
+
+
+class CommerceOrderItem(Base):
+    __tablename__ = "commerce_order_items"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_commerce_order_items_quantity_positive"),
+        CheckConstraint("unit_price >= 0", name="ck_commerce_order_items_price_nonnegative"),
+        UniqueConstraint("id", "order_id", name="uq_commerce_order_items_id_order"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("commerce_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    variant_id = Column(Integer, ForeignKey("product_variants.id"), nullable=False, index=True)
+    product_name = Column(String(200), nullable=False)
+    variant_name = Column(String(160), nullable=False)
+    sku = Column(String(80), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(12, 2), nullable=False)
+    order = relationship("CommerceOrder", back_populates="items")
+    variant = relationship("ProductVariant")
+
+
+class Shipment(Base):
+    __tablename__ = "shipments"
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("commerce_orders.id", ondelete="CASCADE"), nullable=False, unique=True)
+    tracking_reference = Column(String(120), nullable=True, index=True)
+    status = Column(String(24), nullable=False, default="pending", index=True)
+    shipped_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    order = relationship("CommerceOrder", back_populates="shipment")
+
+
+class ReturnRequest(Base):
+    __tablename__ = "return_requests"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_return_requests_quantity_positive"),
+        ForeignKeyConstraint(
+            ["order_item_id", "order_id"],
+            ["commerce_order_items.id", "commerce_order_items.order_id"],
+            name="fk_return_requests_item_belongs_to_order",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("commerce_orders.id"), nullable=False, index=True)
+    order_item_id = Column(Integer, nullable=False, index=True)
+    quantity = Column(Integer, nullable=False)
+    reason = Column(String(500), nullable=False)
+    status = Column(String(24), nullable=False, default="requested", index=True)
+    requested_at = Column(DateTime, nullable=False, server_default=func.now())
+    order = relationship("CommerceOrder")
+    order_item = relationship("CommerceOrderItem", overlaps="order")
