@@ -1,3 +1,4 @@
+
 import logging
 
 from langgraph.graph import StateGraph, START, END
@@ -10,6 +11,7 @@ from backend.agents.supervisor_agent import (
 )
 
 from backend.agents.knowledge_agent import run_knowledge_rag
+from backend.agents.product_agent import run_product_agent
 from backend.agents.order_agent import run_order_agent
 
 
@@ -47,6 +49,21 @@ def knowledge_node(state: GraphState):
     }
 
 
+def product_node(state: GraphState):
+
+    logger.info("[PRODUCT_AGENT] Activated.")
+
+    request = state["user_input"]
+
+    result = run_product_agent(
+        question=request.question,
+    )
+
+    return {
+        "answer": result
+    }
+
+
 def order_node(state: GraphState):
 
     logger.info("[ORDER_AGENT] Activated.")
@@ -69,22 +86,29 @@ def build_graph():
 
     graph = StateGraph(GraphState)
 
+    # Register nodes
     graph.add_node("supervisor", supervisor_node)
     graph.add_node("knowledge", knowledge_node)
+    graph.add_node("product", product_node)
     graph.add_node("order", order_node)
 
+    # Entry point
     graph.add_edge(START, "supervisor")
 
+    # Supervisor routing
     graph.add_conditional_edges(
         "supervisor",
         supervisor_route,
         {
             "knowledge": "knowledge",
+            "product": "product",
             "order": "order",
         }
     )
 
+    # Specialist agents terminate the graph
     graph.add_edge("knowledge", END)
+    graph.add_edge("product", END)
     graph.add_edge("order", END)
 
     return graph.compile()
