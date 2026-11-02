@@ -1,4 +1,3 @@
-
 import logging
 
 from langgraph.graph import StateGraph, START, END
@@ -18,65 +17,52 @@ logger = logging.getLogger(__name__)
 
 
 def supervisor_node(state: GraphState):
-    logger.info("[SUPERVISOR] Supervisor agent activated.")
 
-    try:
-        request = state["user_input"]
+    logger.info("[SUPERVISOR] Supervisor activated.")
 
-        route = select_route(request.question)
+    request = state["user_input"]
 
-        logger.info("[SUPERVISOR] Routing decision: %s", route)
+    route = select_route(request.question)
 
-        return {
-            "route": route
-        }
+    logger.info("[SUPERVISOR] Selected route: %s", route)
 
-    except Exception:
-        logger.exception("[SUPERVISOR] Supervisor execution failed.")
-        raise
+    return {
+        "route": route
+    }
 
 
 def knowledge_node(state: GraphState):
-    logger.info("[KNOWLEDGE_AGENT] Knowledge agent activated.")
 
-    try:
-        request = state["user_input"]
+    logger.info("[KNOWLEDGE_AGENT] Activated.")
 
-        result = run_knowledge_rag(
-            question=request.question,
-            session_id=request.session_id,
-        )
+    request = state["user_input"]
 
-        logger.info("[KNOWLEDGE_AGENT] Knowledge agent execution completed.")
+    result = run_knowledge_rag(
+        question=request.question,
+        session_id=request.session_id,
+    )
 
-        return {
-            "answer": result
-        }
-
-    except Exception:
-        logger.exception("[KNOWLEDGE_AGENT] Knowledge agent execution failed.")
-        raise
+    return {
+        "answer": result
+    }
 
 
 def order_node(state: GraphState):
-    logger.info("[ORDER_AGENT] Order agent activated.")
 
-    try:
-        request = state["user_input"]
+    logger.info("[ORDER_AGENT] Activated.")
 
-        result = run_order_agent(
-            question=request.question,
-        )
+    request = state["user_input"]
 
-        logger.info("[ORDER_AGENT] Order agent execution completed.")
+    user_id = state["user_id"]
 
-        return {
-            "answer": result
-        }
+    result = run_order_agent(
+        question=request.question,
+        user_id=user_id,
+    )
 
-    except Exception:
-        logger.exception("[ORDER_AGENT] Order agent execution failed.")
-        raise
+    return {
+        "answer": result
+    }
 
 
 def build_graph():

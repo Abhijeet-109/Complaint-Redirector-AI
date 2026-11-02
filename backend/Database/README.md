@@ -42,7 +42,7 @@ The default mode inserts missing categories, products, variants, inventory rows,
 
 Catalogue fields can be intentionally refreshed with `--update-catalog`. This updates seeded category/product descriptions, names, brands, category assignments, variant names, and prices. It does not update inventory, image metadata, or remove records. Review the catalogue changes before using this option.
 
-Optional sample cart/order/shipment/return rows require all of `--allow-demo-activity`, `--user-id`, and `--expected-user-email`. The exact email and ID must identify an existing ordinary customer account, production mode is rejected, and the configured database name must clearly identify a test/scratch/disposable database. The script never creates a user. Do not use demo activity on the project database.
+Optional sample cart/order/shipment/return rows for the two existing Flatkart demo customers require both `--populate-known-customers` and the explicit `--allow-development-database` flag. This mode is restricted to `APP_ENV=development` and the configured `flatkart` database; production is rejected. It adds missing catalogue/activity records, never creates users, and is safe to rerun.
 
 ## Category hierarchy and cart concurrency
 

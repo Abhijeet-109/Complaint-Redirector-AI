@@ -262,6 +262,25 @@ def get_order(session: Session, user_id: int, order_id: int) -> CommerceOrder | 
     )
 
 
+def get_order_by_number(
+    session: Session,
+    user_id: int,
+    order_number: str,
+) -> CommerceOrder | None:
+
+    return session.scalar(
+        select(CommerceOrder)
+        .options(
+            selectinload(CommerceOrder.items),
+            selectinload(CommerceOrder.shipment),
+        )
+        .where(
+            CommerceOrder.order_number == order_number,
+            CommerceOrder.user_id == user_id,
+        )
+    )
+
+
 def get_shipment(session: Session, user_id: int, order_id: int) -> Shipment | None:
     return session.scalar(
         select(Shipment)

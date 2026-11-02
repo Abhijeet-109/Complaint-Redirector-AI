@@ -1,132 +1,180 @@
+import logging
+from decimal import Decimal
 
 from langchain.tools import tool
 
+from backend.Database.connection import SessionLocal
+from backend.Database.services import (
+    list_orders,
+    get_order_by_number,
+)
 
-# Temporary demo customer
-DEMO_CUSTOMER_ID = "CUST-1001"
+
+logger = logging.getLogger(__name__)
 
 
-# Temporary in-memory order dataset
-DUMMY_ORDERS = {
-    "ORD-1001": {
-        "order_id": "ORD-1001",
-        "customer_id": "CUST-1001",
-        "order_date": "2026-10-20",
-        "status": "Shipped",
-        "items": [
-            {
-                "product": "Wireless Mouse",
-                "quantity": 1,
-                "price": 799
-            },
-            {
-                "product": "Mechanical Keyboard",
-                "quantity": 1,
-                "price": 2499
-            }
-        ],
-        "total_amount": 3298,
-        "payment_status": "Paid",
-        "delivery_status": "In Transit",
-        "estimated_delivery": "2026-11-02"
-    },
+def serialize_order(order, include_items=False):
 
-    "ORD-1002": {
-        "order_id": "ORD-1002",
-        "customer_id": "CUST-1001",
-        "order_date": "2026-10-24",
-        "status": "Processing",
-        "items": [
-            {
-                "product": "USB-C Hub",
-                "quantity": 1,
-                "price": 1499
-            }
-        ],
-        "total_amount": 1499,
-        "payment_status": "Paid",
-        "delivery_status": "Not Shipped",
-        "estimated_delivery": "2026-11-05"
-    },
+    items = []
 
-    "ORD-1003": {
-        "order_id": "ORD-1003",
-        "customer_id": "CUST-2001",
-        "order_date": "2026-10-25",
-        "status": "Delivered",
-        "items": [
-            {
-                "product": "Bluetooth Headphones",
-                "quantity": 1,
-                "price": 1999
-            }
-        ],
-        "total_amount": 1999,
-        "payment_status": "Paid",
-        "delivery_status": "Delivered",
-        "estimated_delivery": "2026-10-28"
+    total_amount = Decimal("0.00")
+
+    for item in order.items:
+
+        line_total = item.unit_price * item.quantity
+        total_amount += line_total
+
+        if include_items:
+            items.append({
+                "product": item.product_name,
+                "variant": item.variant_name,
+                "sku": item.sku,
+                "quantity": item.quantity,
+                "unit_price": str(item.unit_price),
+                "line_total": str(line_total),
+            })
+
+    result = {
+        "order_number": order.order_number,
+        "status": order.status,
+        "order_date": (
+            order.created_at.isoformat()
+            if order.created_at else None
+        ),
+        "total_amount": str(total_amount),
     }
-}
+
+    if include_items:
+        result["items"] = items
+
+    return result
 
 
-@tool
-def list_my_orders() -> dict:
-    """List all orders belonging to the current demo customer."""
+def build_order_tools(user_id: int):
 
-    orders = [
-        {
-            "order_id": order["order_id"],
-            "order_date": order["order_date"],
-            "status": order["status"],
-            "total_amount": order["total_amount"]
-        }
-        for order in DUMMY_ORDERS.values()
-        if order["customer_id"] == DEMO_CUSTOMER_ID
+    if not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("A valid authenticated user ID is required.")
+
+    @tool
+    def list_my_orders() -> dict:
+        """Retrieve the authenticated customer's recent orders."""
+
+        try:
+            with SessionLocal() as session:
+
+                orders = list_orders(
+                    session,
+                    user_id,
+                    limit=50,
+                )
+
+                return {
+                    "success": True,
+                    "orders": [
+                        serialize_order(order)
+                        for order in orders
+                    ],
+                    "count": len(orders),
+                }
+
+        except Exception:
+            logger.exception("Order listing failed.")
+
+            return {
+                "success": False,
+                "message": "Unable to retrieve orders right now.",
+            }
+
+    @tool
+    def get_order_details(order_number: str) -> dict:
+        """Retrieve complete details of a customer's order using its order number."""
+
+        order_number = order_number.strip()
+
+        if not order_number:
+            return {
+                "success": False,
+                "message": "A valid order number is required.",
+            }
+
+        try:
+            with SessionLocal() as session:
+
+                order = get_order_by_number(
+                    session,
+                    user_id,
+                    order_number,
+                )
+
+                if order is None:
+                    return {
+                        "success": False,
+                        "message": "Order not found.",
+                    }
+
+                return {
+                    "success": True,
+                    "order": serialize_order(
+                        order,
+                        include_items=True,
+                    ),
+                }
+
+        except Exception:
+            logger.exception("Order detail retrieval failed.")
+
+            return {
+                "success": False,
+                "message": "Unable to retrieve order details right now.",
+            }
+
+    @tool
+    def get_order_status(order_number: str) -> dict:
+        """Retrieve the current order status using its order number."""
+
+        order_number = order_number.strip()
+
+        if not order_number:
+            return {
+                "success": False,
+                "message": "A valid order number is required.",
+            }
+
+        try:
+            with SessionLocal() as session:
+
+                order = get_order_by_number(
+                    session,
+                    user_id,
+                    order_number,
+                )
+
+                if order is None:
+                    return {
+                        "success": False,
+                        "message": "Order not found.",
+                    }
+
+                return {
+                    "success": True,
+                    "order_number": order.order_number,
+                    "status": order.status,
+                    "order_date": (
+                        order.created_at.isoformat()
+                        if order.created_at else None
+                    ),
+                }
+
+        except Exception:
+            logger.exception("Order status retrieval failed.")
+
+            return {
+                "success": False,
+                "message": "Unable to retrieve order status right now.",
+            }
+
+    return [
+        list_my_orders,
+        get_order_details,
+        get_order_status,
     ]
-
-    return {
-        "data_source": "MOCK_ORDER_DATA",
-        "customer_id": DEMO_CUSTOMER_ID,
-        "orders": orders
-    }
-
-
-@tool
-def get_order_details(order_id: str) -> dict:
-    """Get complete details of an order belonging to the demo customer."""
-
-    order = DUMMY_ORDERS.get(order_id)
-
-    if not order or order["customer_id"] != DEMO_CUSTOMER_ID:
-        return {
-            "success": False,
-            "message": "Order not found."
-        }
-
-    return {
-        "success": True,
-        "data_source": "MOCK_ORDER_DATA",
-        "order": order
-    }
-
-
-@tool
-def get_order_status(order_id: str) -> dict:
-    """Get the current status and delivery information of an order."""
-
-    order = DUMMY_ORDERS.get(order_id)
-
-    if not order or order["customer_id"] != DEMO_CUSTOMER_ID:
-        return {
-            "success": False,
-            "message": "Order not found."
-        }
-
-    return {
-        "success": True,
-        "data_source": "MOCK_ORDER_DATA",
-        "order_id": order["order_id"],
-        "order_status": order["status"],
-        "delivery_status": order["delivery_status"],
-        "estimated_delivery": order["estimated_delivery"]
-    }

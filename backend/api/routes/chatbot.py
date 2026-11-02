@@ -88,10 +88,11 @@ def ask_chatbot(
     try:
 
         graph_result = agent_graph.invoke({
-            "user_input": request.model_copy(
-                 update={"question": question}
-                  )
-             })
+             "user_input": request.model_copy(
+             update={"question": question}
+             ),
+            "user_id": _current_user.id,
+        })
 
         result = graph_result["answer"]
         

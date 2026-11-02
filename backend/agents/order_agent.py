@@ -1,54 +1,57 @@
-
 from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
-from backend.agents.order_tools import (
-    list_my_orders,
-    get_order_details,
-    get_order_status,
-)
-
-
-ORDER_TOOLS = [
-    list_my_orders,
-    get_order_details,
-    get_order_status,
-]
+from backend.agents.order_tools import build_order_tools
 
 
 ORDER_SYSTEM_PROMPT = """
-You are the Order Management Agent for an e-commerce platform.
+You are the Order Management Agent for Flatkart.
 
-Your responsibility is to answer customer questions about their orders.
+Your responsibility is to answer customer questions
+related to their orders.
 
-Available capabilities:
-- List the customer's orders.
-- Retrieve complete order details.
-- Check order and delivery status.
+Your capabilities:
 
-Instructions:
+1. List customer orders.
+2. Retrieve complete order details.
+3. Check order status.
 
-1. Use the available tools to retrieve order information.
-2. Never invent order IDs, products, prices, statuses, or delivery dates.
-3. Never answer order-related questions using assumptions.
+Rules:
+
+1. Always use the available tools to retrieve order information.
+2. Never invent order numbers, products, prices, dates, or statuses.
+3. Never assume that an order exists.
 4. If an order is not found, clearly inform the customer.
-5. Never expose information belonging to another customer.
-6. Do not claim that an order has been cancelled, refunded, or modified.
-7. The current order dataset is temporary mock data.
-8. Clearly disclose that the information comes from demonstration data.
+5. Never expose another customer's information.
+6. Do not claim that an order was cancelled, refunded,
+   or modified.
+7. Do not invent payment or shipment information.
+8. Only use information returned by the database tools.
 9. Keep responses concise and customer-friendly.
+
+If the customer asks about shipment tracking or returns,
+do not invent an answer. Those specialist capabilities
+will be handled by their respective agents.
 """
 
 
-order_agent = create_agent(
-    model=get_model("order"),
-    tools=ORDER_TOOLS,
-    system_prompt=ORDER_SYSTEM_PROMPT,
-)
+def build_order_agent(user_id: int):
+
+    tools = build_order_tools(user_id)
+
+    return create_agent(
+        model=get_model("order"),
+        tools=tools,
+        system_prompt=ORDER_SYSTEM_PROMPT,
+    )
 
 
-def run_order_agent(question: str) -> dict:
-    """Execute the Order Management Agent."""
+def run_order_agent(
+    question: str,
+    user_id: int,
+) -> dict:
+
+    order_agent = build_order_agent(user_id)
 
     result = order_agent.invoke({
         "messages": [
@@ -63,5 +66,5 @@ def run_order_agent(question: str) -> dict:
 
     return {
         "answer": answer,
-        "data_source": "MOCK_ORDER_DATA",
+        "agent": "order",
     }

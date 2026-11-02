@@ -1,10 +1,11 @@
-"""Idempotently seed the catalogue; optional demo activity requires an existing user."""
+"""Idempotently seed the catalogue and optional activity for existing customers."""
 
 import argparse
 import re
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.Database.connection import DATABASE_URL, SessionLocal
@@ -50,7 +51,33 @@ PRODUCTS = (
     (202, "W for Woman", "Embroidered Cotton Tunic", "Sage Green", 1799, "Breathable woven cotton", "women", "/assets/cat_women_hi.jpg"),
     (203, "Cross", "Classic Century Rollerball", "Brushed Brass", 2450, "Refillable ink cartridge", "stationery", "/assets/cat_books_hi.jpg"),
     (204, "Levi's", "Vintage Straight Fit Denim", "Washed Indigo", 2899, "100% cotton, non-stretch", "men", "/assets/cat_men_hi.jpg"),
+    (205, "Allen Solly", "Oxford Button-Down Shirt", "Sky Blue", 1899, "Cotton, regular fit", "men", "/assets/cat_men_hi.jpg"),
+    (206, "Manyavar", "Textured Nehru Jacket", "Midnight Navy", 4599, "Woven festive jacket", "men", "/assets/cat_men_hi.jpg"),
+    (207, "Biba", "Printed Anarkali Kurta", "Marigold", 2499, "Rayon blend, three-quarter sleeves", "women", "/assets/cat_women_hi.jpg"),
+    (208, "Aurelia", "Straight Fit Cotton Trousers", "Charcoal", 1599, "Mid-rise, stretch cotton", "women", "/assets/cat_women_hi.jpg"),
+    (209, "Libas", "Embroidered Festive Dupatta", "Rose Pink", 1299, "Lightweight woven fabric", "women", "/assets/cat_women_hi.jpg"),
+    (210, "Bata", "Everyday Leather Formal Shoes", "Black", 3299, "Padded insole, lace-up", "footwear", "/assets/cat_sports_hi.jpg"),
+    (211, "Campus", "North Plus Running Shoes", "Grey Lime", 2199, "Lightweight mesh upper", "footwear", "/assets/cat_sports_hi.jpg"),
+    (212, "Metro", "Block Heel Sandals", "Tan", 1799, "Adjustable ankle strap", "footwear", "/assets/cat_sports_hi.jpg"),
+    (213, "Fossil", "Minimalist Leather Wallet", "Dark Brown", 2495, "Six card slots with coin pocket", "accessories", "/assets/cat_men_hi.jpg"),
+    (214, "Accessorize", "Everyday Pendant Necklace", "Gold Tone", 1199, "Nickel-free alloy", "accessories", "/assets/cat_women_hi.jpg"),
+    (215, "Safari", "Aero Cabin Trolley", "Deep Teal", 5499, "55 cm hard-shell cabin case", "accessories", "/assets/cat_sports_hi.jpg"),
+    (216, "Prestige", "Stainless Steel Cookware Set", "Silver", 3299, "Three-piece induction-ready set", "home-living", "/assets/cat_home_living_hi.jpg"),
+    (217, "Sleepyhead", "Contour Memory Foam Pillow", "White", 1499, "Breathable removable cover", "home-living", "/assets/cat_home_living_hi.jpg"),
+    (218, "Home Centre", "Woven Cotton Cushion Covers", "Terracotta", 899, "Set of two, 40 cm square", "home-living", "/assets/cat_home_living_hi.jpg"),
+    (219, "Philips", "Warm Glow LED Desk Lamp", "Matte White", 1899, "Adjustable neck, energy-saving LED", "home-living", "/assets/cat_electronics_hi.jpg"),
+    (220, "Minimalist", "Niacinamide Face Serum", "30 ml", 599, "Fragrance-free daily serum", "beauty", "/assets/cat_beauty_hi.jpg"),
+    (221, "Lakme", "Matte Lip Color", "Berry Rose", 749, "Long-wear creamy matte finish", "beauty", "/assets/cat_beauty_hi.jpg"),
+    (222, "Mamaearth", "Aloe Vera Face Wash", "100 ml", 299, "Gentle daily cleanser", "beauty", "/assets/cat_beauty_hi.jpg"),
+    (223, "Samsung", "Galaxy Buds FE", "Graphite", 7999, "Active noise cancellation", "electronics", "/assets/cat_electronics_hi.jpg"),
+    (224, "Logitech", "Pebble Wireless Mouse", "Off White", 1795, "Bluetooth and USB receiver", "electronics", "/assets/cat_electronics_hi.jpg"),
+    (225, "JBL", "Go 4 Portable Speaker", "Blue", 4499, "Water-resistant compact speaker", "electronics", "/assets/cat_electronics_hi.jpg"),
+    (226, "Classmate", "Hardbound Ruled Notebook", "A5 Blue", 180, "Pack of three, 160 pages each", "stationery", "/assets/cat_books_hi.jpg"),
+    (227, "Parker", "Jotter Ball Pen Set", "Blue Ink", 650, "Set of three refillable pens", "stationery", "/assets/cat_books_hi.jpg"),
+    (228, "Faber-Castell", "Colour Pencil Set", "24 Shades", 420, "Break-resistant pencils", "stationery", "/assets/cat_books_hi.jpg"),
 )
+
+TARGET_CUSTOMERS = ("user1@gmail.com", "user3@gmail.com")
 
 
 def slugify(value: str) -> str:
@@ -107,7 +134,7 @@ def seed_catalog(session, *, update_catalog: bool = False) -> dict[str, int]:
             product = Product(
                 name=name, slug=slug, brand=brand,
                 description=description, category_id=categories[category_slug].id,
-                is_active=True, attributes={"catalogue_id": product_id},
+                is_active=True, attributes={"catalogue_id": product_id, "variant": variant_name},
             )
             session.add(product)
             session.flush()
@@ -152,7 +179,7 @@ def seed_catalog(session, *, update_catalog: bool = False) -> dict[str, int]:
     return variant_ids
 
 
-def seed_demo_activity(session, user_id: int, expected_email: str) -> None:
+def seed_demo_activity(session, user_id: int, expected_email: str, variant_ids: dict[str, int]) -> None:
     if app_environment() == "production":
         raise ValueError("Demo activity is disabled in production")
     if not expected_email or expected_email.strip() != expected_email:
@@ -166,51 +193,142 @@ def seed_demo_activity(session, user_id: int, expected_email: str) -> None:
         cart = Cart(user_id=user_id, status="active")
         session.add(cart)
         session.flush()
-    for sku in ("FK-DEMO-1", "FK-DEMO-3"):
-        variant = session.scalar(select(ProductVariant).where(ProductVariant.sku == sku))
-        if session.scalar(select(CartItem).where(CartItem.cart_id == cart.id, CartItem.variant_id == variant.id)) is None:
-            session.add(CartItem(cart_id=cart.id, variant_id=variant.id, quantity=1))
+    skus = tuple(variant_ids)
+    cart_skus = [skus[(user_id + offset) % len(skus)] for offset in range(6)]
+    for sku in cart_skus:
+        variant_id = variant_ids[sku]
+        if session.scalar(select(CartItem).where(CartItem.cart_id == cart.id, CartItem.variant_id == variant_id)) is None:
+            session.add(CartItem(cart_id=cart.id, variant_id=variant_id, quantity=1 + (user_id + len(sku)) % 2))
+    session.flush()
 
-    order_number = f"FK-SEED-{user_id}-001"
-    order = session.scalar(select(CommerceOrder).where(CommerceOrder.order_number == order_number))
-    if order is None:
-        order = CommerceOrder(order_number=order_number, user_id=user_id, status="shipped")
+    statuses = ("delivered", "delivered", "in_transit", "shipped", "processing", "confirmed", "placed", "cancelled")
+    orders = list(session.scalars(select(CommerceOrder).where(CommerceOrder.user_id == user_id)))
+    order_items = list(session.scalars(
+        select(CommerceOrderItem).join(CommerceOrder).where(CommerceOrder.user_id == user_id)
+    ))
+    item_count = len(order_items)
+    seeded_index = 0
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    while (len(orders) < 8 or item_count < 15) and len(orders) < 10:
+        seeded_index += 1
+        order_number = f"FK-DEMO-{user_id}-{seeded_index:03d}"
+        order = session.scalar(select(CommerceOrder).where(CommerceOrder.order_number == order_number))
+        if order is not None:
+            if order.user_id != user_id:
+                raise ValueError(f"Seed order number is already owned by another account: {order_number}")
+            orders.append(order)
+            item_count += session.scalar(select(func.count()).select_from(CommerceOrderItem).where(CommerceOrderItem.order_id == order.id))
+            continue
+        slot = seeded_index - 1
+        status = statuses[slot % len(statuses)]
+        ordered_at = now - timedelta(days=89 - slot * 8, hours=(user_id + slot) % 12)
+        order = CommerceOrder(
+            order_number=order_number, user_id=user_id, status=status,
+            created_at=ordered_at, updated_at=ordered_at,
+        )
         session.add(order)
         session.flush()
-        variants = [session.scalar(select(ProductVariant).where(ProductVariant.sku == sku)) for sku in ("FK-DEMO-1", "FK-DEMO-3")]
-        for variant in variants:
-            session.add(CommerceOrderItem(
-                order_id=order.id, variant_id=variant.id, product_name=variant.product.name,
-                variant_name=variant.name, sku=variant.sku, quantity=1, unit_price=variant.price,
-            ))
+        line_count = 3 if slot in (1, 5) else 2
+        selected_skus = [skus[(user_id + slot * 3 + line) % len(skus)] for line in range(line_count)]
+        made_items = []
+        for line, sku in enumerate(selected_skus):
+            variant = session.scalar(select(ProductVariant).where(ProductVariant.id == variant_ids[sku]))
+            item = CommerceOrderItem(
+                order_id=order.id, variant_id=variant.id,
+                product_name=variant.product.name, variant_name=variant.name, sku=variant.sku,
+                quantity=1 + ((slot + line) % 2), unit_price=variant.price,
+            )
+            session.add(item)
+            made_items.append(item)
         session.flush()
-        session.add(Shipment(order_id=order.id, tracking_reference=f"TRACK-{user_id}-001", status="in_transit"))
-        first_item = session.scalar(select(CommerceOrderItem).where(CommerceOrderItem.order_id == order.id).order_by(CommerceOrderItem.id))
-        session.add(ReturnRequest(
-            order_id=order.id, order_item_id=first_item.id, quantity=1,
-            reason="Demo return request for isolated testing", status="requested",
-        ))
+        orders.append(order)
+        item_count += len(made_items)
+
+        if status in {"shipped", "in_transit", "delivered"}:
+            tracking_status = status
+            shipped_at = ordered_at + timedelta(days=1)
+            delivered_at = ordered_at + timedelta(days=4) if status == "delivered" else None
+            session.add(Shipment(
+                order_id=order.id, tracking_reference=f"FK-TRK-{user_id}-{seeded_index:03d}",
+                status=tracking_status, shipped_at=shipped_at, delivered_at=delivered_at,
+                created_at=shipped_at,
+            ))
+
+    # Keep previously seeded rows inside the requested 30-to-90-day window
+    # when a seed was first run at the upper boundary.
+    for order in orders:
+        if not order.order_number.startswith(f"FK-DEMO-{user_id}-") or order.created_at is None:
+            continue
+        age_days = (now - order.created_at).total_seconds() / 86400
+        if age_days >= 90 or age_days < 30:
+            slot = int(order.order_number.rsplit("-", 1)[-1]) - 1
+            ordered_at = now - timedelta(days=max(31, 89 - slot * 8), hours=(user_id + slot) % 12)
+            order.created_at = ordered_at
+            order.updated_at = ordered_at
+
+    session.flush()
+    return_rows = list(session.scalars(
+        select(ReturnRequest).join(CommerceOrder).where(CommerceOrder.user_id == user_id)
+    ))
+    return_statuses = ("requested", "approved", "completed")
+    delivered_orders = list(session.scalars(
+        select(CommerceOrder).where(CommerceOrder.user_id == user_id, CommerceOrder.status == "delivered")
+        .order_by(CommerceOrder.created_at)
+    ))
+    for index in range(len(return_rows), min(3, len(delivered_orders))):
+        order = delivered_orders[index]
+        order_item = session.scalar(
+            select(CommerceOrderItem).where(CommerceOrderItem.order_id == order.id).order_by(CommerceOrderItem.id)
+        )
+        if order_item is not None:
+            session.add(ReturnRequest(
+                order_id=order.id, order_item_id=order_item.id, quantity=1,
+                reason=("Changed my mind", "Item arrived with a damaged box", "Size did not fit")[index],
+                status=return_statuses[index], requested_at=order.created_at + timedelta(days=5),
+            ))
+
+    for request, delivered_at in session.execute(
+        select(ReturnRequest, Shipment.delivered_at)
+        .join(CommerceOrder, ReturnRequest.order_id == CommerceOrder.id)
+        .join(Shipment, Shipment.order_id == CommerceOrder.id)
+        .where(
+            CommerceOrder.user_id == user_id,
+            CommerceOrder.order_number.like(f"FK-DEMO-{user_id}-%"),
+            Shipment.delivered_at.is_not(None),
+        )
+    ):
+        if request.requested_at <= delivered_at:
+            request.requested_at = delivered_at + timedelta(days=1)
+    session.flush()
+
+
+def seed_target_customers(session, variant_ids: dict[str, int]) -> None:
+    for email in TARGET_CUSTOMERS:
+        user = session.scalar(select(User).where(func.lower(User.email) == email))
+        if user is None:
+            raise LookupError(f"Required existing customer account not found: {email}")
+        seed_demo_activity(session, user.id, email, variant_ids)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--update-catalog", action="store_true", help="Intentionally update seeded names, descriptions, categories, and prices")
-    parser.add_argument("--user-id", type=int, help="Existing test customer ID for optional demo activity")
-    parser.add_argument("--expected-user-email", help="Exact email to verify the selected test customer")
-    parser.add_argument("--allow-demo-activity", action="store_true", help="Explicitly permit sample cart/order/return records in an isolated test database")
+    parser.add_argument("--populate-known-customers", action="store_true", help="Add rerunnable sample activity for the two existing Flatkart customer accounts")
+    parser.add_argument("--allow-development-database", action="store_true", help="Explicitly authorize sample activity in the configured development database")
     args = parser.parse_args()
-    demo_args = (args.user_id, args.expected_user_email, args.allow_demo_activity)
-    if any(demo_args) and not all(demo_args):
-        parser.error("demo activity requires --user-id, --expected-user-email, and --allow-demo-activity")
-    if args.allow_demo_activity:
+    if args.populate_known_customers:
+        if not args.allow_development_database:
+            parser.error("customer activity requires --allow-development-database")
+        if app_environment() != "development":
+            parser.error("customer activity is allowed only when APP_ENV=development")
         database_name = urlparse(DATABASE_URL).path.strip("/").split("/")[-1]
-        if not re.search(r"(^|[_-])(test|testing|scratch|disposable)([_-]|$)", database_name, re.IGNORECASE):
-            parser.error("demo activity is limited to databases named as isolated test or scratch databases")
+        if database_name.casefold() != "flatkart":
+            parser.error("--populate-known-customers is restricted to the configured flatkart database")
     try:
         with SessionLocal.begin() as session:
-            seed_catalog(session, update_catalog=args.update_catalog)
-            if args.allow_demo_activity:
-                seed_demo_activity(session, args.user_id, args.expected_user_email)
+            variant_ids = seed_catalog(session, update_catalog=args.update_catalog)
+            if args.populate_known_customers:
+                seed_target_customers(session, variant_ids)
     except (LookupError, RuntimeError, ValueError, SQLAlchemyError) as exc:
         parser.error(f"seed transaction rolled back: {exc}")
 
