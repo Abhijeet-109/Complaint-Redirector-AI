@@ -26,8 +26,8 @@ MODEL_CONFIG = {
     # },
 
     "product": {
-        "provider": "openrouter",
-        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "provider": "groq",
+        "model": "openai/gpt-oss-20b",
         "fallback_provider": "openrouter",
         "fallback_model": "google/gemma-4-26b-a4b-it:free",
     },
