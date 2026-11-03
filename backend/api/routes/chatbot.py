@@ -1,9 +1,11 @@
 import logging
 import re
 import time
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -11,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.chatbot.answer_pipeline import answer_question
 from backend.Database.connection import SessionLocal
-from backend.Database.models import ChatbotTelemetry
+from backend.Database.models import ChatbotTelemetry, ChatConversation
 from backend.auth.dependencies import get_db, require_role
 from backend.agents.agent_graph import agent_graph
 
@@ -22,7 +24,105 @@ FALLBACK_ANSWER = "Information not found in the provided documents."
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
-    session_id: str = Field(..., min_length=1, max_length=100)
+    thread_id: str | None = Field(None, min_length=1, max_length=255)
+    # Kept for clients deployed before conversation IDs were introduced.
+    session_id: str | None = Field(None, min_length=1, max_length=100)
+
+
+class ConversationCreateRequest(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=120)
+
+
+def _conversation_payload(conversation):
+    return {
+        "thread_id": conversation.thread_id,
+        "title": conversation.title,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at,
+    }
+
+
+def _get_owned_conversation(db, thread_id, user_id):
+    conversation = db.query(ChatConversation).filter(
+        ChatConversation.thread_id == thread_id,
+        ChatConversation.user_id == user_id,
+    ).first()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return conversation
+
+
+def _thread_state(graph, thread_id):
+    if getattr(graph, "checkpointer", None) is None:
+        return None
+    return graph.get_state({"configurable": {"thread_id": thread_id}})
+
+
+@router.post("/conversations", status_code=201)
+def create_conversation(
+    request: ConversationCreateRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    conversation = ChatConversation(
+        thread_id=str(uuid.uuid4()),
+        user_id=current_user.id,
+        title=(request.title.strip() if request.title and request.title.strip() else "New chat"),
+    )
+    db.add(conversation)
+    db.commit()
+    db.refresh(conversation)
+    return _conversation_payload(conversation)
+
+
+@router.get("/conversations")
+def list_conversations(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    conversations = db.query(ChatConversation).filter(
+        ChatConversation.user_id == current_user.id,
+    ).order_by(ChatConversation.updated_at.desc(), ChatConversation.thread_id.desc()).all()
+    return {"conversations": [_conversation_payload(item) for item in conversations]}
+
+
+@router.get("/conversations/{thread_id}")
+def get_conversation(
+    thread_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    conversation = _get_owned_conversation(db, thread_id, current_user.id)
+    graph = getattr(request.app.state, "agent_graph", agent_graph)
+    state = _thread_state(graph, thread_id)
+    messages = (state.values or {}).get("messages", []) if state else []
+    return {
+        **_conversation_payload(conversation),
+        "messages": [
+            {
+                "role": "assistant" if getattr(message, "type", "") == "ai" else "user",
+                "content": message.content if isinstance(message.content, str) else str(message.content),
+            }
+            for message in messages
+        ],
+    }
+
+
+@router.delete("/conversations/{thread_id}", status_code=204)
+def delete_conversation(
+    thread_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    conversation = _get_owned_conversation(db, thread_id, current_user.id)
+    checkpointer = getattr(request.app.state, "chat_checkpointer", None)
+    if checkpointer is not None:
+        checkpointer.delete_thread(thread_id)
+    db.delete(conversation)
+    db.commit()
+    return None
 
 
 def _safe_question_preview(question: str) -> str:
@@ -78,6 +178,8 @@ def chatbot_health():
 @router.post("/ask")
 def ask_chatbot(
     request: ChatRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
     _current_user=Depends(require_role("user")),
 ):
     question = request.question.strip()
@@ -86,15 +188,67 @@ def ask_chatbot(
 
     started = time.perf_counter()
     try:
+        requested_thread_id = request.thread_id or request.session_id
+        conversation = None
+        if requested_thread_id:
+            conversation = db.query(ChatConversation).filter(
+                ChatConversation.thread_id == requested_thread_id,
+            ).first()
+            if conversation is not None and conversation.user_id != _current_user.id:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            if conversation is None and request.thread_id:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            if conversation is None:
+                # Legacy session_id clients may already hold a tab ID created before
+                # conversation persistence was deployed. Claim it for this user once.
+                conversation = ChatConversation(
+                    thread_id=requested_thread_id,
+                    user_id=_current_user.id,
+                    title="New chat",
+                )
+                db.add(conversation)
+                db.commit()
+                db.refresh(conversation)
+        else:
+            conversation = ChatConversation(
+                thread_id=str(uuid.uuid4()),
+                user_id=_current_user.id,
+                title="New chat",
+            )
+            db.add(conversation)
+            db.commit()
+            db.refresh(conversation)
 
-        graph_result = agent_graph.invoke({
-             "user_input": request.model_copy(
-             update={"question": question}
-             ),
+        graph = getattr(http_request.app.state, "agent_graph", agent_graph)
+        config = {"configurable": {"thread_id": conversation.thread_id}}
+        previous_state = _thread_state(graph, conversation.thread_id)
+        previous_messages = (previous_state.values or {}).get("messages", []) if previous_state else []
+        is_first_message = not any(
+            getattr(message, "type", "") == "ai" for message in previous_messages
+        )
+        retrying_pending_message = bool(
+            previous_messages
+            and getattr(previous_messages[-1], "type", "") == "human"
+            and previous_messages[-1].content == question
+        )
+        graph_result = graph.invoke({
+             "question": question,
             "user_id": _current_user.id,
-        })
+             "messages": [] if retrying_pending_message else [HumanMessage(content=question)],
+        }, config=config)
 
         result = graph_result["answer"]
+
+        if is_first_message:
+            title = re.sub(r"\s+", " ", question).strip()[:120]
+            conversation.title = title or "New chat"
+        conversation.updated_at = datetime.now(timezone.utc)
+        db.commit()
+
+        if isinstance(result, dict):
+            result = {**result, "thread_id": conversation.thread_id}
+        else:
+            result = {"answer": result, "thread_id": conversation.thread_id}
         
         elapsed_ms = (time.perf_counter() - started) * 1000
         sources = result.get("sources") or []
@@ -107,6 +261,8 @@ def ask_chatbot(
             fallback=fallback,
         )
         return result
+    except HTTPException:
+        raise
     except Exception:
         elapsed_ms = (time.perf_counter() - started) * 1000
         _record_telemetry(question, "error", elapsed_ms)

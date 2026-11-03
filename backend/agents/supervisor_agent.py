@@ -1,127 +1,146 @@
-
 from backend.agents.model_factory import get_model
 
 
-def select_route(question: str) -> str:
-    model = get_model("supervisor")
+ALLOWED_ROUTES = {
+    "knowledge",
+    "product",
+    "cart",
+    "order",
+    "shipping",
+    "returns",
+    "support",
+}
 
-    prompt = f"""
-You are the supervisor of a multi-agent e-commerce support system.
 
-Your task is to classify the user's query and route it to exactly ONE
-specialist agent that is best suited to handle the request.
+SUPERVISOR_PROMPT = """
+You are the Supervisor of Flatkart's multi-agent e-commerce support system.
 
-AVAILABLE SPECIALIST AGENTS:
+Your task is to classify the customer's request and select exactly ONE
+specialist agent.
+
+AVAILABLE AGENTS:
 
 1. product
-   Handles all product-related requests, including:
-   - Searching, browsing, and discovering products.
-   - Listing products or showing available products.
-   - Searching by product name, keyword, or description.
-   - Filtering products by category, brand, price, or attributes.
-   - Retrieving product details and specifications.
-   - Checking product prices, stock, and availability.
-   - Finding product variants, sizes, and colors.
-   - Comparing multiple products.
-   - Product recommendations and purchase-related product queries.
+   - Search and browse products.
+   - Product details, specifications and categories.
+   - Product prices, variants and stock availability.
+   - Product comparisons and recommendations.
 
-2. order
-   Handles customer-specific order requests, including:
-   - Viewing orders and order history.
-   - Retrieving details of a particular order.
-   - Checking order status and delivery information.
-   - Tracking shipments.
-   - Questions about cancelled, delivered, or pending orders.
+2. cart
+   - View the customer's active shopping cart.
+   - Add products to the cart.
+   - Remove products from the cart.
+   - Check cart quantities and totals.
 
-3. knowledge
-   Handles company and knowledge-base-related requests, including:
-   - Company information and general business queries.
-   - FAQs and customer support information.
-   - Return, refund, cancellation, and shipping policies.
-   - Payment methods and payment-related policies.
-   - Information contained in uploaded documents.
-   - General information available in the knowledge base.
+3. order
+   - View order history.
+   - Retrieve order details.
+   - Check order status.
+   - Questions about cancelled, pending or delivered orders.
+
+4. shipping
+   - Retrieve stored shipment information.
+   - Check shipment status.
+   - Retrieve tracking references.
+   - Check shipped and delivered dates.
+
+5. returns
+   - View existing return requests.
+   - Check return request status.
+   - Retrieve return requests associated with an order.
+
+6. knowledge
+   - Company information and FAQs.
+   - Return, refund and cancellation policies.
+   - Shipping and payment policies.
+   - Information from uploaded documents and the knowledge base.
+
+7. support
+   - General platform guidance.
+   - How to use Flatkart features.
+   - General customer assistance.
+   - Basic troubleshooting and directing customers to the
+     appropriate platform functionality.
 
 ROUTING RULES:
 
-1. PRODUCT PRIORITY:
-   If the user is asking to search, browse, discover, list, compare,
-   or retrieve information about products, ALWAYS select product.
+1. PRODUCT
+   Product discovery, product information, availability and comparisons
+   must always go to product.
 
-   Examples:
-   - "Show me all available shirts" -> product
-   - "Find red sneakers" -> product
-   - "What products do you sell?" -> product
-   - "Show products under ₹1000" -> product
-   - "Compare these two laptops" -> product
+2. CART
+   Requests to view, add or remove cart items must go to cart.
 
-2. ORDER PRIORITY:
-   If the user is asking about their own orders, order history,
-   order status, or shipment tracking, select order.
+3. ORDER
+   Requests about order history, order details or order status
+   must go to order.
 
-   Examples:
-   - "Show my recent orders" -> order
-   - "Where is my order?" -> order
-   - "Show my cancelled orders" -> order
+4. SHIPPING
+   Requests about shipment status, tracking references and delivery
+   progress must go to shipping.
 
-3. KNOWLEDGE ROUTING:
-   If the user is asking about company information, policies,
-   FAQs, or uploaded documentation, select knowledge.
+5. RETURNS
+   Requests about existing return requests or their status
+   must go to returns.
 
-   Examples:
-   - "What is your return policy?" -> knowledge
-   - "How can I request a refund?" -> knowledge
-   - "What payment methods do you support?" -> knowledge
+6. KNOWLEDGE
+   Questions about company information, policies, FAQs and uploaded
+   documentation must go to knowledge.
 
-4. INTENT-BASED CLASSIFICATION:
-   Classify based on what the user wants to accomplish, not just
-   individual keywords.
+   Return/refund policy questions go to knowledge.
+   Actually checking an existing return request goes to returns.
 
-5. DO NOT CONFUSE PRODUCT AND KNOWLEDGE QUERIES:
-   Product searches and product availability questions must go
-   to product, even if the user uses general language.
+7. SUPPORT
+   General questions about using the platform, feature guidance
+   and basic troubleshooting go to support.
 
-   Questions about company policies related to returns, refunds,
-   shipping, or payments must go to knowledge.
+8. INTENT-BASED ROUTING
+   Classify according to what the customer wants to accomplish,
+   not just individual keywords.
 
-6. SINGLE AGENT:
-   Select exactly one agent. Never combine multiple agent names.
+9. AMBIGUOUS REQUESTS
+   Select the most relevant agent based on the primary intent.
+   Do not select multiple agents.
 
-7. AMBIGUOUS QUERIES:
-   If the request clearly refers to a previous discussion, use its
-   context to identify the relevant specialist.
-   Otherwise, select the agent that best matches the primary intent.
+10. OUTPUT
+    Return exactly one of these values:
 
-USER QUESTION:
+    knowledge
+    product
+    cart
+    order
+    shipping
+    returns
+    support
+
+    Do not return explanations, punctuation or Markdown.
+
+CUSTOMER REQUEST:
 {question}
-
-OUTPUT FORMAT:
-Return exactly one of these agent names:
-
-knowledge
-product
-order
-
-Do not provide explanations, punctuation, additional text,
-or Markdown formatting.
 """
 
-    response = model.invoke(prompt)
+
+def select_route(question: str) -> str:
+
+    model = get_model("supervisor")
+
+    response = model.invoke(
+        SUPERVISOR_PROMPT.format(question=question)
+    )
 
     route = response.content.strip().lower()
 
-    allowed_routes = ["knowledge", "product", "order"]
-
-    if route not in allowed_routes:
+    if route not in ALLOWED_ROUTES:
         raise ValueError(f"Invalid supervisor route: {route}")
 
     return route
 
 
 def supervisor_route(state: dict) -> str:
+
     route = state.get("route")
 
-    if route in ["knowledge", "product", "order"]:
-        return route
+    if route not in ALLOWED_ROUTES:
+        raise ValueError(f"Invalid supervisor route: {route}")
 
-    raise ValueError(f"Invalid supervisor route: {route}")
+    return route

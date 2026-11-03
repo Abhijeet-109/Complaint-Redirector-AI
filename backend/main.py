@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 # Configure root logging once, before importing application modules that log.
@@ -11,6 +12,10 @@ root_logger.setLevel(logging.INFO)
 for root_handler in root_logger.handlers:
     if root_handler.level > logging.INFO:
         root_handler.setLevel(logging.INFO)
+
+# Checkpoint contents include user messages, so restrict deserialization to
+# LangGraph's built-in safe message and primitive types before importing it.
+os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,10 +34,11 @@ from fastapi.openapi.utils import get_openapi
 from backend.api.routes.redirection_analytics import (
     router as redirection_analytics_router,
 )
-from backend.Database.connection import engine
+from backend.Database.connection import engine, DATABASE_URL
 from backend.Database.models import LoginThrottle
 from backend.api.routes.drive import router as drive_router
 from backend.security_config import app_environment, cors_origins
+from sqlalchemy.engine import make_url
 
 logger = logging.getLogger("flatkart.startup")
 APP_ENV = app_environment()
@@ -46,7 +52,33 @@ async def lifespan(_app):
                 "The login lockout table must exist before production startup."
             )
 
-    yield
+    from backend.agents.agent_graph import build_graph
+
+    database_url = make_url(DATABASE_URL)
+    if database_url.get_backend_name() in {"postgres", "postgresql"}:
+        from langgraph.checkpoint.postgres import PostgresSaver
+
+        checkpoint_url = database_url.set(
+            drivername="postgresql"
+        ).render_as_string(hide_password=False)
+        checkpoint_context = PostgresSaver.from_conn_string(checkpoint_url)
+        checkpointer = checkpoint_context.__enter__()
+        try:
+            checkpointer.setup()
+            _app.state.chat_checkpointer = checkpointer
+            _app.state.agent_graph = build_graph(checkpointer=checkpointer)
+            yield
+        finally:
+            checkpoint_context.__exit__(None, None, None)
+    else:
+        if APP_ENV == "production":
+            raise RuntimeError("LangGraph PostgreSQL checkpointing requires PostgreSQL.")
+        from langgraph.checkpoint.memory import MemorySaver
+
+        checkpointer = MemorySaver()
+        _app.state.chat_checkpointer = checkpointer
+        _app.state.agent_graph = build_graph(checkpointer=checkpointer)
+        yield
 
 
 

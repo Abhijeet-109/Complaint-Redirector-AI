@@ -211,6 +211,17 @@ class ChatbotTelemetry(Base):
     source_count = Column(Integer, nullable=False, default=0)
     latency_ms = Column(Float, nullable=False)
 
+
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+    __table_args__ = (Index("ix_chat_conversations_user_updated", "user_id", "updated_at"),)
+
+    thread_id = Column(String(255), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(120), nullable=False, default="New chat")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+
 class ChatbotAuditRequest(Base):
     __tablename__ = "chatbot_audit_requests"
 
