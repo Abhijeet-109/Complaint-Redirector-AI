@@ -1,6 +1,6 @@
 import logging
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 
 from backend.agents.graph_state import GraphState
@@ -47,7 +47,7 @@ def knowledge_node(state: GraphState):
 
     result = run_knowledge_rag(
         question=_question(state),
-        chat_history=state.get("messages", [])[:-1],
+        chat_history=state.get("messages", []),
     )
 
     return {
@@ -61,7 +61,13 @@ def record_assistant_message(state: GraphState):
         content = answer.get("answer") or str(answer)
     else:
         content = str(answer or "")
-    return {"messages": [AIMessage(content=content)]}
+    return {
+        "messages": [
+            HumanMessage(content=_question(state)),
+            AIMessage(content=content),
+        ],
+        "last_request_id": state.get("request_id"),
+    }
 
 
 def product_node(state: GraphState):

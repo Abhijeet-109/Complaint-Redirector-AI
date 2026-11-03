@@ -28,6 +28,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.Database.connection import Base
 from backend.auth.dependencies import get_current_user, get_db
+from backend.api.routes import chatbot as chatbot_module
 from backend.api.routes.chatbot import router
 
 
@@ -37,15 +38,19 @@ class _FakeGraph:
         self.checkpointer = object()
 
     def get_state(self, config):
-        messages = self.threads.get(config["configurable"]["thread_id"], [])
-        return SimpleNamespace(values={"messages": list(messages)} if messages else {})
+        state = self.threads.get(config["configurable"]["thread_id"], {})
+        return SimpleNamespace(values={**state, "messages": list(state.get("messages", []))})
 
     def invoke(self, input_state, config):
         thread_id = config["configurable"]["thread_id"]
-        messages = self.threads.setdefault(thread_id, [])
-        messages.extend(input_state.get("messages", []))
+        state = self.threads.setdefault(thread_id, {"messages": []})
+        messages = state["messages"]
+        messages.append(HumanMessage(content=input_state["question"]))
         messages.append(AIMessage(content="Test answer"))
-        return {"answer": {"answer": "Test answer", "sources": []}}
+        answer = {"answer": "Test answer", "sources": []}
+        state["answer"] = answer
+        state["last_request_id"] = input_state.get("request_id")
+        return {"answer": answer}
 
 
 class _FakeCheckpointer:
@@ -88,7 +93,7 @@ class ChatConversationApiTests(unittest.TestCase):
         self.app.dependency_overrides[get_db] = database_session
         self.app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=701, role="user")
         self.client = TestClient(self.app)
-        self.telemetry_patch = patch("backend.api.routes.chatbot._record_telemetry")
+        self.telemetry_patch = patch.object(chatbot_module, "_record_telemetry")
         self.telemetry_patch.start()
         self.addCleanup(self.telemetry_patch.stop)
         with self.Session() as db:
@@ -129,6 +134,17 @@ class ChatConversationApiTests(unittest.TestCase):
             404,
         )
 
+    def test_request_id_retry_returns_saved_answer_without_duplicating_messages(self):
+        thread_id = self.created["thread_id"]
+        payload = {"question": "Repeat safely", "thread_id": thread_id, "request_id": "request-123"}
+        first = self.client.post("/chatbot/ask", json=payload)
+        retried = self.client.post("/chatbot/ask", json=payload)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(retried.status_code, 200)
+        self.assertEqual(retried.json()["answer"], first.json()["answer"])
+        messages = self.client.get(f"/chatbot/conversations/{thread_id}").json()["messages"]
+        self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
+
     def test_graph_checkpointer_resumes_messages_without_duplicate_turns(self):
         from backend.agents import agent_graph as graph_module
 
@@ -140,17 +156,14 @@ class ChatConversationApiTests(unittest.TestCase):
             graph.invoke({
                 "question": "First question",
                 "user_id": 701,
-                "messages": [HumanMessage(content="First question")],
             }, config=config)
             graph.invoke({
                 "question": "Second question",
                 "user_id": 701,
-                "messages": [HumanMessage(content="Second question")],
             }, config=config)
             graph.invoke({
                 "question": "Other thread question",
                 "user_id": 701,
-                "messages": [HumanMessage(content="Other thread question")],
             }, config=other_config)
 
         messages = graph.get_state(config).values["messages"]
@@ -158,6 +171,22 @@ class ChatConversationApiTests(unittest.TestCase):
         self.assertEqual([message.content for message in messages if message.type == "human"], ["First question", "Second question"])
         other_messages = graph.get_state(other_config).values["messages"]
         self.assertEqual([message.content for message in other_messages if message.type == "human"], ["Other thread question"])
+
+    def test_failed_agent_retry_does_not_checkpoint_a_duplicate_user_turn(self):
+        from backend.agents import agent_graph as graph_module
+
+        graph = graph_module.build_graph(checkpointer=MemorySaver())
+        config = {"configurable": {"thread_id": "retry-thread"}}
+        with patch.object(graph_module, "select_route", return_value="product"), \
+                patch.object(graph_module, "run_product_agent", side_effect=[RuntimeError("temporary"), {"answer": "Recovered"}]):
+            with self.assertRaises(RuntimeError):
+                graph.invoke({"question": "Retry this", "user_id": 701}, config=config)
+            self.assertEqual(graph.get_state(config).values.get("messages", []), [])
+            graph.invoke({"question": "Retry this", "user_id": 701}, config=config)
+
+        messages = graph.get_state(config).values["messages"]
+        self.assertEqual([message.type for message in messages], ["human", "ai"])
+        self.assertEqual(messages[0].content, "Retry this")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,10 @@ class GraphState(TypedDict, total=False):
 
     question: str
 
+    request_id: str | None
+
+    last_request_id: str | None
+
     user_id: int
 
     route: str
