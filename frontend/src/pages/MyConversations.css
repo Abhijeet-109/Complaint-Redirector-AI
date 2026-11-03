@@ -22,10 +22,31 @@
   align-items: start;
 }
 
-/* Sidebar Logout Button Spacing */
-.fk-account-sidebar-logout-wrapper {
-  margin-top: 50px;
-  padding-top: 8px;
+/* Sidebar Sticky Stationary Behavior (does not move down when page is scrolled) */
+.fk-conversations-container .fk-account-sidebar {
+  position: sticky;
+  top: 80px;
+  height: calc(100vh - 110px);
+  max-height: calc(100vh - 110px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.fk-conversations-container .fk-account-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.fk-conversations-container .fk-account-sidebar::-webkit-scrollbar-thumb {
+  background-color: #DFDBD1;
+  border-radius: 4px;
+}
+
+.fk-conversations-container .fk-account-sidebar-logout-wrapper {
+  margin-top: auto;
+  padding-top: 24px;
 }
 
 /* Main Content Area */

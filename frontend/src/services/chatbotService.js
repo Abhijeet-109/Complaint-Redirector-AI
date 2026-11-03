@@ -63,12 +63,14 @@ export const chatbotService = {
   async askQuestion(question, options = {}) {
     const payload = {
       question: question.trim(),
-      session_id: getSessionId(),
     };
 
     if (options.threadId) {
       payload.thread_id = options.threadId;
+    } else if (options.sessionId) {
+      payload.session_id = options.sessionId;
     }
+
     if (options.requestId) {
       payload.request_id = options.requestId;
     }

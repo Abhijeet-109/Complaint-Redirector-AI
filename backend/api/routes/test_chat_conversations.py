@@ -189,5 +189,34 @@ class ChatConversationApiTests(unittest.TestCase):
         self.assertEqual(messages[0].content, "Retry this")
 
 
+    def test_request_id_is_never_treated_as_thread_id(self):
+        # A request with request_id but no thread_id must generate a new UUID thread_id, not use request_id
+        response = self.client.post("/chatbot/ask", json={
+            "question": "What laptops are available?",
+            "request_id": "req-distinct-from-thread-999",
+        })
+        self.assertEqual(response.status_code, 200)
+        returned_thread = response.json()["thread_id"]
+        self.assertNotEqual(returned_thread, "req-distinct-from-thread-999")
+        self.assertEqual(response.json()["title"], "What laptops are available?")
+        self.assertIn("updated_at", response.json())
+
+    def test_multiple_conversations_isolation(self):
+        # Create Conversation A and Conversation B
+        conv_a = self.client.post("/chatbot/conversations", json={}).json()["thread_id"]
+        conv_b = self.client.post("/chatbot/conversations", json={}).json()["thread_id"]
+
+        self.client.post("/chatbot/ask", json={"question": "Message in A 1", "thread_id": conv_a})
+        self.client.post("/chatbot/ask", json={"question": "Message in A 2", "thread_id": conv_a})
+
+        self.client.post("/chatbot/ask", json={"question": "Message in B 1", "thread_id": conv_b})
+
+        history_a = self.client.get(f"/chatbot/conversations/{conv_a}").json()["messages"]
+        history_b = self.client.get(f"/chatbot/conversations/{conv_b}").json()["messages"]
+
+        self.assertEqual([m["content"] for m in history_a if m["role"] == "user"], ["Message in A 1", "Message in A 2"])
+        self.assertEqual([m["content"] for m in history_b if m["role"] == "user"], ["Message in B 1"])
+
+
 if __name__ == "__main__":
     unittest.main()

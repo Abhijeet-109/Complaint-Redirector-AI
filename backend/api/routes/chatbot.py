@@ -207,7 +207,7 @@ def ask_chatbot(
 
     started = time.perf_counter()
     try:
-        requested_thread_id = request.thread_id or request.session_id or request.request_id
+        requested_thread_id = request.thread_id or request.session_id
         conversation = None
         if requested_thread_id:
             conversation = db.query(ChatConversation).filter(
@@ -280,10 +280,15 @@ def ask_chatbot(
         conversation.updated_at = datetime.now(timezone.utc)
         db.commit()
 
+        meta = {
+            "thread_id": conversation.thread_id,
+            "title": conversation.title,
+            "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+        }
         if isinstance(result, dict):
-            result = {**result, "thread_id": conversation.thread_id}
+            result = {**result, **meta}
         else:
-            result = {"answer": result, "thread_id": conversation.thread_id}
+            result = {"answer": result, **meta}
         
         elapsed_ms = (time.perf_counter() - started) * 1000
         sources = result.get("sources") or []
