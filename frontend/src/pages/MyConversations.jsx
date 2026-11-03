@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import {
   MessageSquare,
   Plus,
@@ -19,16 +19,17 @@ import {
   AlertCircle,
   Loader2,
   X,
+  CheckCircle,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
-import { Header } from '../components/layout/Header';
-import { CategoryNav } from '../components/layout/CategoryNav';
-import { AccountSidebar } from '../components/account/AccountSidebar';
+import { AccountLayout } from '../components/account/AccountLayout';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { OrdersModal } from '../components/common/OrdersModal';
+
+const ChatMessageMarkdown = lazy(() => import('../components/chatbot/ChatMessageMarkdown'));
 
 import { chatbotService } from '../services/chatbotService';
 import { useAuth } from '../context/AuthContext';
@@ -101,6 +102,19 @@ export function MyConversations({ onNavigate }) {
   // Dropdown & modal states
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
+
+  // Custom delete confirmation modal & in-app toast states
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'info', duration = 3500) => {
+    const id = Date.now();
+    setToast({ id, message, type });
+    setTimeout(() => {
+      setToast((prev) => (prev?.id === id ? null : prev));
+    }, duration);
+  };
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -364,13 +378,17 @@ export function MyConversations({ onNavigate }) {
     }
   };
 
-  // 5. Delete conversation
-  const handleDeleteConversation = async () => {
+  // 5. Delete conversation (Open custom confirmation modal)
+  const handleDeleteConversation = () => {
     if (!activeThreadId) return;
-    const confirmDelete = window.confirm('Are you sure you want to delete this conversation?');
-    if (!confirmDelete) return;
+    setIsOptionsMenuOpen(false);
+    setIsDeleteModalOpen(true);
+  };
 
+  const confirmDeleteConversation = async () => {
+    if (!activeThreadId) return;
     const threadToDelete = activeThreadId;
+    setIsDeleting(true);
     try {
       await chatbotService.deleteConversation(threadToDelete);
       const remaining = conversations.filter((c) => c.thread_id !== threadToDelete);
@@ -382,17 +400,19 @@ export function MyConversations({ onNavigate }) {
         setActiveThreadId(null);
         setMessages([]);
       }
+      setIsDeleteModalOpen(false);
+      showToast('Conversation deleted successfully', 'success');
     } catch (err) {
-      alert(`Could not delete conversation: ${err.message}`);
+      showToast(`Could not delete conversation: ${err.message}`, 'error');
     } finally {
-      setIsOptionsMenuOpen(false);
+      setIsDeleting(false);
     }
   };
 
   // 6. Download conversation transcript
   const handleDownloadTranscript = () => {
     if (!messages.length) {
-      alert('There are no messages in this conversation to download.');
+      showToast('There are no messages in this conversation to download.', 'warning');
       return;
     }
 
@@ -424,12 +444,13 @@ export function MyConversations({ onNavigate }) {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     setIsOptionsMenuOpen(false);
+    showToast('Conversation transcript downloaded successfully', 'success');
   };
 
   // Voice input toggle (Web Speech API)
   const handleVoiceInput = () => {
     if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      alert('Speech recognition is not supported in this browser.');
+      showToast('Speech recognition is not supported in this browser.', 'info');
       return;
     }
 
@@ -449,7 +470,12 @@ export function MyConversations({ onNavigate }) {
       setInputText((prev) => (prev ? `${prev} ${transcript}` : transcript));
       setIsListening(false);
     };
-    recognition.onerror = () => setIsListening(false);
+    recognition.onerror = (event) => {
+      setIsListening(false);
+      if (event.error && event.error !== 'no-speech') {
+        showToast(`Voice input notice: ${event.error}`, 'warning');
+      }
+    };
     recognition.onend = () => setIsListening(false);
 
     recognition.start();
@@ -467,35 +493,14 @@ export function MyConversations({ onNavigate }) {
   }, [conversations, searchQuery]);
 
   return (
-    <div className="fk-conversations-page">
-      {/* Top Main Navigation Header */}
-      <Header
-        onNavigate={onNavigate}
-        onOpenOrders={() => setIsOrdersOpen(true)}
-      />
-
-      {/* Secondary Category Navigation Bar */}
-      <CategoryNav
-        activeCategory="Home"
-        onSelectCategory={(cat) => {
-          if (cat.toLowerCase() === 'home' && onNavigate) onNavigate('home');
-        }}
-      />
-
-      {/* Main Grid: Stationary Sticky Sidebar + Conversations Content */}
-      <div className="fk-conversations-container">
-        {/* Left Stationary Sidebar */}
-        <AccountSidebar
-          activeItem="conversations"
-          onNavigate={onNavigate}
-          onOpenOrders={() => setIsOrdersOpen(true)}
-          showDecor={false}
-        />
-
-        {/* Right Main Content */}
-        <main className="fk-conversations-main">
-          {/* Breadcrumb Navigation matching screenshot */}
-          <nav className="fk-breadcrumb-nav" aria-label="Breadcrumb">
+    <AccountLayout
+      activeItem="conversations"
+      onNavigate={onNavigate}
+      onOpenOrders={() => setIsOrdersOpen(true)}
+    >
+      <div className="fk-conversations-main">
+        {/* Breadcrumb Navigation matching screenshot */}
+        <nav className="fk-breadcrumb-nav" aria-label="Breadcrumb">
             <span
               className="fk-breadcrumb-link"
               onClick={() => onNavigate && onNavigate('home')}
@@ -765,9 +770,11 @@ export function MyConversations({ onNavigate }) {
                               <span>{msg.content}</span>
                             ) : (
                               <>
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {msg.content}
-                                </ReactMarkdown>
+                                <Suspense fallback={<span>{msg.content}</span>}>
+                                  <ChatMessageMarkdown>
+                                    {msg.content}
+                                  </ChatMessageMarkdown>
+                                </Suspense>
 
                                 {Array.isArray(msg.sources) && msg.sources.length > 0 && (
                                   <div className="fk-chat-sources">
@@ -893,14 +900,94 @@ export function MyConversations({ onNavigate }) {
               </div>
             </section>
           </div>
-        </main>
-      </div>
+        </div>
 
       {/* Global Modals & Drawers */}
       <CartDrawer onNavigate={onNavigate} />
       <WishlistDrawer onNavigate={onNavigate} />
       <OrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} />
-    </div>
+
+      {/* Custom Delete Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div
+          className="fk-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fk-delete-dialog-title"
+          onClick={() => {
+            if (!isDeleting) setIsDeleteModalOpen(false);
+          }}
+        >
+          <div
+            className="fk-delete-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="fk-modal-header">
+              <div className="fk-modal-icon-badge">
+                <Trash2 size={20} />
+              </div>
+              <h3 id="fk-delete-dialog-title" className="fk-delete-modal-title">
+                Delete Conversation
+              </h3>
+            </div>
+            <p className="fk-delete-modal-body">
+              Are you sure you want to delete this conversation? This action cannot be undone and all message history in this thread will be permanently removed.
+            </p>
+            <div className="fk-modal-actions">
+              <button
+                type="button"
+                className="fk-modal-btn fk-modal-btn-cancel"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="fk-modal-btn fk-modal-btn-delete"
+                onClick={confirmDeleteConversation}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 size={15} className="fk-spinner" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={15} />
+                    <span>Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* In-app Toast Notifications */}
+      {toast && (
+        <div className="fk-toast-container" aria-live="polite">
+          <div className={`fk-toast fk-toast-${toast.type}`}>
+            <div className="fk-toast-icon">
+              {toast.type === 'success' && <CheckCircle size={18} />}
+              {toast.type === 'error' && <AlertCircle size={18} />}
+              {toast.type === 'warning' && <AlertTriangle size={18} />}
+              {toast.type === 'info' && <Info size={18} />}
+            </div>
+            <span className="fk-toast-message">{toast.message}</span>
+            <button
+              type="button"
+              className="fk-toast-close"
+              onClick={() => setToast(null)}
+              aria-label="Close notification"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+    </AccountLayout>
   );
 }
 

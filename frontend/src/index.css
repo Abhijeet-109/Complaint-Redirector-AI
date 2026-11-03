@@ -1,5 +1,6 @@
 :root {
   /* Flatkart V2 — locked visual theme */
+  --fk-zoom: 1.1;
   --fk-header: #122D29;
   --fk-hero: #1B3430;
   --fk-text-primary: #1C352F;
@@ -26,7 +27,7 @@
 }
 
 #root {
-  zoom: 1.1;
+  zoom: var(--fk-zoom, 1.1);
 }
 
 .fk-app-loading {
@@ -1499,3 +1500,206 @@ input, textarea, select {
     display: none;
   }
 }
+
+/* ============================================================
+   UNIVERSAL ACCOUNT LAYOUT & SIDEBAR
+   Viewport-constrained independent two-column architecture
+   Shared between My Conversations and My Complaints
+   ============================================================ */
+
+.fk-account-layout {
+  height: calc(100vh / var(--fk-zoom, 1.1));
+  height: calc(100dvh / var(--fk-zoom, 1.1));
+  max-height: calc(100vh / var(--fk-zoom, 1.1));
+  max-height: calc(100dvh / var(--fk-zoom, 1.1));
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Strictly prevents whole document/window vertical scrolling */
+  background-color: var(--fk-background, #F4F1EA);
+}
+
+.fk-account-content-area {
+  flex: 1;
+  min-height: 0; /* Critical: allows flex container to shrink below content and enable inner scroll */
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 36px;
+  box-sizing: border-box;
+  gap: 28px;
+}
+
+/* Left Column: Account Sidebar (Stationary, 260px, Fits Viewport) */
+.fk-account-sidebar {
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px 0 16px 0;
+  box-sizing: border-box;
+  background-color: transparent;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.fk-account-sidebar-title {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--fk-text-primary, #1C352F);
+  margin-bottom: 10px;
+  padding-left: 12px;
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+
+.fk-account-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fk-account-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #4A5658;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+}
+
+.fk-account-nav-btn:hover {
+  background-color: rgba(138, 135, 93, 0.12);
+  color: var(--fk-text-primary, #1C352F);
+}
+
+.fk-account-nav-btn.active {
+  background-color: #858A59;
+  color: #FFFFFF;
+  font-weight: 700;
+  box-shadow: 0 3px 8px rgba(133, 138, 89, 0.28);
+}
+
+.fk-account-sidebar-logout-wrapper {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.fk-account-nav-btn.logout {
+  color: #70797B;
+}
+
+.fk-account-nav-btn.logout:hover {
+  background-color: rgba(208, 91, 75, 0.08);
+  color: #D05B4B;
+}
+
+/* Right Column: Main Content Region */
+.fk-account-main-area {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.fk-account-main-area.no-scroll {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 14px;
+}
+
+.fk-account-main-area.is-scrollable {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 0 36px;
+  scrollbar-width: thin;
+  scrollbar-color: #DFDBD1 transparent;
+}
+
+.fk-account-main-area.is-scrollable::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fk-account-main-area.is-scrollable::-webkit-scrollbar-thumb {
+  background-color: #DFDBD1;
+  border-radius: 4px;
+}
+
+@media (max-width: 960px) {
+  .fk-account-layout {
+    height: auto;
+    min-height: 100vh;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .fk-account-content-area {
+    flex-direction: column;
+    padding: 0 20px;
+    gap: 16px;
+    height: auto;
+    overflow: visible;
+  }
+
+  .fk-account-sidebar {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    height: auto;
+    padding: 16px 0;
+    border-bottom: 1px solid #EAE6DB;
+    overflow: visible;
+  }
+
+  .fk-account-nav-list {
+    flex-direction: row;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding-bottom: 6px;
+    min-height: auto;
+  }
+
+  .fk-account-nav-btn {
+    width: auto;
+  }
+
+  .fk-account-sidebar-logout-wrapper {
+    display: none;
+  }
+
+  .fk-account-main-area {
+    overflow-y: auto;
+    height: auto;
+    max-height: none;
+    padding: 12px 0 40px;
+  }
+
+  .fk-account-layout {
+    position: static;
+  }
+}
+

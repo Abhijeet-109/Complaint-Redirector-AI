@@ -5,7 +5,7 @@
 
 /* Main Layout Grid */
 .fk-dashboard-container {
-  max-width: 1380px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
   padding: 24px 36px 60px;
@@ -16,69 +16,8 @@
 }
 
 /* ============================================================
-   1. LEFT ACCOUNT SIDEBAR
+   1. LEFT ACCOUNT SIDEBAR (Decor styles; universal styles in index.css)
    ============================================================ */
-.fk-account-sidebar {
-  background-color: transparent;
-  display: flex;
-  flex-direction: column;
-}
-
-.fk-account-sidebar-title {
-  font-size: 19px;
-  font-weight: 800;
-  color: var(--fk-text-primary);
-  margin-bottom: 20px;
-  padding-left: 12px;
-  letter-spacing: -0.01em;
-}
-
-.fk-account-nav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.fk-account-nav-btn {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: 11px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #4A5658;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.18s ease;
-}
-
-.fk-account-nav-btn:hover {
-  background-color: rgba(138, 135, 93, 0.12);
-  color: var(--fk-text-primary);
-}
-
-/* Active Highlight Pill matching Reference Image 1 */
-.fk-account-nav-btn.active {
-  background-color: #858A59;
-  color: #FFFFFF;
-  font-weight: 700;
-  box-shadow: 0 3px 8px rgba(133, 138, 89, 0.28);
-}
-
-.fk-account-nav-btn.logout {
-  color: #70797B;
-  margin-top: 6px;
-}
-
-.fk-account-nav-btn.logout:hover {
-  background-color: rgba(208, 91, 75, 0.08);
-  color: #D05B4B;
-}
-
 /* Sidebar Lifestyle Decorative Image */
 .fk-sidebar-decor-wrapper {
   margin-top: 32px;
@@ -758,18 +697,6 @@
     grid-template-columns: 1fr;
     gap: 24px;
     padding: 20px 18px;
-  }
-
-  .fk-account-sidebar {
-    border-bottom: 1px solid #EAE6DB;
-    padding-bottom: 16px;
-  }
-
-  .fk-account-nav-list {
-    flex-direction: row;
-    overflow-x: auto;
-    white-space: nowrap;
-    padding-bottom: 6px;
   }
 
   .fk-sidebar-decor-wrapper {

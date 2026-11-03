@@ -3,57 +3,15 @@
    Exact replica of reference UI specification
    ============================================================ */
 
-.fk-conversations-page {
-  background-color: var(--fk-background, #F4F1EA);
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Main Layout Grid */
-.fk-conversations-container {
-  max-width: 1400px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 24px 36px 60px;
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 36px;
-  align-items: start;
-}
-
-/* Sidebar Sticky Stationary Behavior (does not move down when page is scrolled) */
-.fk-conversations-container .fk-account-sidebar {
-  position: sticky;
-  top: 80px;
-  height: calc(100vh - 110px);
-  max-height: calc(100vh - 110px);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  overflow-y: auto;
-  scrollbar-width: thin;
-}
-
-.fk-conversations-container .fk-account-sidebar::-webkit-scrollbar {
-  width: 4px;
-}
-
-.fk-conversations-container .fk-account-sidebar::-webkit-scrollbar-thumb {
-  background-color: #DFDBD1;
-  border-radius: 4px;
-}
-
-.fk-conversations-container .fk-account-sidebar-logout-wrapper {
-  margin-top: auto;
-  padding-top: 24px;
-}
-
-/* Main Content Area */
+/* Main Content Area — fills the right column entirely */
 .fk-conversations-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 /* Breadcrumb Navigation */
@@ -62,7 +20,8 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
 }
 
 .fk-breadcrumb-link {
@@ -89,30 +48,35 @@
 
 /* Page Header */
 .fk-conversations-header {
-  margin-bottom: 24px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .fk-conversations-title {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 800;
   color: #1C352F;
   letter-spacing: -0.02em;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
 .fk-conversations-subtitle {
-  font-size: 13.5px;
+  font-size: 13px;
   color: #70797B;
   font-weight: 400;
 }
 
-/* Two-Panel Layout */
+/* Two-Panel Layout — fills remaining height of conversations-main */
 .fk-conversations-panels {
   display: grid;
-  grid-template-columns: 350px 1fr;
-  gap: 24px;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
   align-items: stretch;
-  height: 640px;
+  flex: 1;
+  min-height: 0; /* Critical: allows grid children to shrink, enabling inner scroll */
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 /* ============================================================
@@ -120,13 +84,14 @@
    ============================================================ */
 .fk-conv-left-panel {
   background: #FFFFFF;
-  border-radius: 20px;
+  border-radius: 18px;
   border: 1px solid #ECE7DE;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.025);
   display: flex;
   flex-direction: column;
-  padding: 18px;
+  padding: 14px;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -137,14 +102,16 @@
   justify-content: center;
   gap: 8px;
   width: 100%;
-  height: 42px;
+  height: 38px;
   background-color: #758552;
   color: #FFFFFF;
   border: none;
-  border-radius: 12px;
-  font-size: 13.5px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  margin-bottom: 8px;
+  flex-shrink: 0;
   transition: background-color 0.18s ease, transform 0.1s ease;
   user-select: none;
 }
@@ -160,9 +127,10 @@
 /* Search Input Box */
 .fk-conv-search-box {
   position: relative;
-  margin-top: 14px;
-  margin-bottom: 12px;
+  margin-top: 6px;
+  margin-bottom: 8px;
   width: 100%;
+  flex-shrink: 0;
 }
 
 .fk-conv-search-icon {
@@ -344,13 +312,14 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0; /* Critical: allows panel to shrink inside grid cell */
   overflow: hidden;
 }
 
 /* Chat Header */
 .fk-chat-header {
-  height: 64px;
-  padding: 12px 24px;
+  height: 56px;
+  padding: 10px 20px;
   border-bottom: 1px solid #F0ECE4;
   display: flex;
   align-items: center;
@@ -481,7 +450,8 @@
    ============================================================ */
 .fk-chat-body {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0; /* Critical: allows this flex child to shrink and enable inner scroll */
+  overflow: hidden; /* Body itself does NOT scroll; only .fk-chat-messages-container does */
   display: flex;
   flex-direction: column;
 }
@@ -576,11 +546,14 @@
    ============================================================ */
 .fk-chat-messages-container {
   flex: 1;
+  min-height: 0; /* Critical: enables overflow-y: auto to work inside a flex column */
   overflow-y: auto;
   padding: 24px 28px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  scrollbar-width: thin;
+  scrollbar-color: #E0DDD4 transparent;
 }
 
 .fk-chat-messages-container::-webkit-scrollbar {
@@ -650,6 +623,108 @@
   padding: 2px 5px;
   border-radius: 4px;
   font-size: 12px;
+}
+
+/* Assistant Markdown Tables & Status Badges */
+.fk-chat-assistant-bubble .fk-chat-table-scroll {
+  max-width: 100%;
+  margin: 10px 0 12px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border: 1px solid #DFE4D8;
+  border-radius: 8px;
+  background: #FFFFFF;
+  scrollbar-color: #C9C3B5 transparent;
+  scrollbar-width: thin;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll::-webkit-scrollbar-thumb {
+  background-color: #D2CDC2;
+  border-radius: 3px;
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll table {
+  width: 100%;
+  min-width: 380px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll th,
+.fk-chat-assistant-bubble .fk-chat-table-scroll td {
+  min-width: 68px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #ECE7DD;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll th {
+  background: #F4F1EA;
+  color: #1C352F;
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll tbody tr:nth-child(even) {
+  background: #FAF8F4;
+}
+
+.fk-chat-assistant-bubble .fk-chat-table-scroll tbody tr:hover {
+  background: #F2EFE8;
+}
+
+.fk-chat-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.fk-chat-status-green {
+  color: #28633B;
+  background: #E8F3EA;
+  border: 1px solid rgba(40, 99, 59, 0.2);
+}
+
+.fk-chat-status-amber {
+  color: #76510F;
+  background: #FBF1D8;
+  border: 1px solid rgba(118, 81, 15, 0.2);
+}
+
+.fk-chat-status-blue {
+  color: #1D548C;
+  background: #EAF2FB;
+  border: 1px solid rgba(29, 84, 140, 0.2);
+}
+
+.fk-chat-status-red {
+  color: #8C221D;
+  background: #FBEAE9;
+  border: 1px solid rgba(140, 34, 29, 0.2);
+}
+
+.fk-chat-status-neutral {
+  color: #555A52;
+  background: #EDEAE4;
+  border: 1px solid rgba(85, 90, 82, 0.2);
 }
 
 /* Sources Badge Container */
@@ -730,9 +805,10 @@
    BOTTOM INPUT BAR
    ============================================================ */
 .fk-chat-input-area {
-  padding: 14px 24px 18px;
+  padding: 10px 20px 14px;
   flex-shrink: 0;
   background-color: #FFFFFF;
+  border-top: 1px solid #ECE7DE;
 }
 
 .fk-chat-input-pill {
@@ -844,12 +920,6 @@
    RESPONSIVE BEHAVIOR
    ============================================================ */
 @media (max-width: 1100px) {
-  .fk-conversations-container {
-    grid-template-columns: 210px 1fr;
-    gap: 24px;
-    padding: 16px 20px 40px;
-  }
-
   .fk-conversations-panels {
     grid-template-columns: 280px 1fr;
     gap: 16px;
@@ -860,22 +930,241 @@
   }
 }
 
-@media (max-width: 860px) {
-  .fk-conversations-container {
-    grid-template-columns: 1fr;
-  }
-
+@media (max-width: 960px) {
   .fk-conversations-panels {
     grid-template-columns: 1fr;
+    flex: none;
     height: auto;
+    overflow: visible;
+  }
+
+  .fk-conversations-main {
+    height: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .fk-conv-left-panel {
     height: 360px;
+    min-height: 360px;
   }
 
   .fk-conv-right-panel {
     height: 580px;
+    min-height: 580px;
   }
+}
+
+/* ============================================================
+   CUSTOM CONFIRMATION MODAL & TOAST NOTIFICATIONS
+   ============================================================ */
+.fk-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(18, 45, 41, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: fkFadeIn 0.15s ease-out;
+}
+
+.fk-delete-modal-card {
+  background: #FFFFFF;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 420px;
+  padding: 24px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+  border: 1px solid #ECE7DD;
+  animation: fkModalSlideUp 0.18s ease-out;
+}
+
+.fk-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.fk-modal-icon-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background-color: #FDEEEE;
+  color: #D32F2F;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fk-delete-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1C352F;
+  margin: 0;
+}
+
+.fk-delete-modal-body {
+  font-size: 14px;
+  color: #5C6766;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.fk-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.fk-modal-btn {
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+}
+
+.fk-modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.fk-modal-btn-cancel {
+  background-color: #F2EFE8;
+  color: #4A5658;
+  border-color: #E2DDD3;
+}
+
+.fk-modal-btn-cancel:hover:not(:disabled) {
+  background-color: #E7E3D8;
+  color: #1C352F;
+}
+
+.fk-modal-btn-delete {
+  background-color: #D32F2F;
+  color: #FFFFFF;
+}
+
+.fk-modal-btn-delete:hover:not(:disabled) {
+  background-color: #B71C1C;
+}
+
+/* Toast Notifications */
+.fk-toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 380px;
+  pointer-events: none;
+}
+
+.fk-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 9px;
+  background: #FFFFFF;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  border: 1px solid #ECE7DD;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: #1C352F;
+  animation: fkToastIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fk-toast-success {
+  border-left: 4px solid #28633B;
+}
+.fk-toast-success .fk-toast-icon {
+  color: #28633B;
+}
+
+.fk-toast-error {
+  border-left: 4px solid #D32F2F;
+}
+.fk-toast-error .fk-toast-icon {
+  color: #D32F2F;
+}
+
+.fk-toast-warning {
+  border-left: 4px solid #B88549;
+}
+.fk-toast-warning .fk-toast-icon {
+  color: #B88549;
+}
+
+.fk-toast-info {
+  border-left: 4px solid #1D548C;
+}
+.fk-toast-info .fk-toast-icon {
+  color: #1D548C;
+}
+
+.fk-toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fk-toast-message {
+  flex: 1;
+}
+
+.fk-toast-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: #8C826F;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.fk-toast-close:hover {
+  color: #1C352F;
+}
+
+@keyframes fkFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fkModalSlideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fkToastIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fk-spinner {
+  animation: fkSpin 0.9s linear infinite;
+}
+
+@keyframes fkSpin {
+  to { transform: rotate(360deg); }
 }
 
