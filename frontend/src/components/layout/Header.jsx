@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, ShoppingCart, Package, Heart, LogOut, LogIn, ChevronDown } from 'lucide-react';
+import { Search, ShoppingCart, Package, Heart, LogOut, LogIn, ChevronDown, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { FEATURED_PRODUCTS } from '../../data/demoProducts';
@@ -199,6 +199,16 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
                     : user?.role === 'department_handler'
                     ? 'Handler Dashboard'
                     : 'My Orders & Complaints'}
+                </button>
+
+                <button
+                  className="fk-user-dropdown-item"
+                  onClick={() => {
+                    setIsUserMenuOpen(false);
+                    handleNavigate('my-conversations');
+                  }}
+                >
+                  <MessageSquare size={16} /> My Conversations
                 </button>
 
                 <button
