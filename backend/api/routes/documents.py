@@ -25,7 +25,6 @@ from backend.chatbot.vector_store import (
     EMBEDDING_MODEL_NAME,
     CHUNK_SIZE,
     CHUNK_OVERLAP,
-    CHROMA_PATH,
 )
 from backend.auth.dependencies import require_role
 from backend.chatbot.document_validation import (
@@ -377,7 +376,7 @@ def list_documents():
         try:
             actual_chunks = get_document_chunk_count(path.name)
         except Exception as exc:
-            logger.exception("Could not read ChromaDB status for %s", path.name)
+            logger.exception("Could not read PGVector status for %s", path.name)
             raise HTTPException(
                 status_code=503,
                 detail="Document index status is temporarily unavailable.",
@@ -607,10 +606,7 @@ def document_pipeline_config(
         "embedding_model": EMBEDDING_MODEL_NAME,
         "chunk_size": CHUNK_SIZE,
         "chunk_overlap": CHUNK_OVERLAP,
-        "persistent_storage": (
-            "Local persistent ChromaDB storage configured"
-            if CHROMA_PATH else "Persistent storage is not configured"
-        ),
+        "persistent_storage": "PostgreSQL PGVector storage configured",
     }
 
 
@@ -651,7 +647,7 @@ def delete_documents(request: DeleteRequest):
             results.append({
                 "stored_name": filename,
                 "status": "failed",
-                "message": "Document was not found in storage or ChromaDB.",
+                "message": "Document was not found in storage or PGVector.",
             })
             continue
 
@@ -664,7 +660,7 @@ def delete_documents(request: DeleteRequest):
                 results.append({
                     "stored_name": filename,
                     "status": "failed",
-                    "message": "ChromaDB cleanup failed; the saved file was left in place.",
+                    "message": "PGVector cleanup failed; the saved file was left in place.",
                 })
                 continue
 
