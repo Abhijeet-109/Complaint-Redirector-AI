@@ -28,14 +28,18 @@ export function DeleteConfirmationModal({
       await onDeleteComplete?.(results);
 
       if (failures.length > 0) {
-        setDeleteError(failures.map((result) => result.message).filter(Boolean).join(' ')
-          || `${failures.length} document(s) could not be deleted.`);
+        const failureMessage = failures.map((result) => result.message).filter(Boolean).join(' ')
+          || `${failures.length} document(s) could not be deleted.`;
+        setDeleteError(failureMessage);
+        onShowNotice?.(failureMessage, 'error');
       } else {
         onShowNotice?.(`${deletedCount} document${deletedCount === 1 ? '' : 's'} deleted.`);
         onClose();
       }
     } catch (error) {
-      setDeleteError(error.message || 'Document deletion failed. Please try again.');
+      const message = error.message || 'Document deletion failed. Please try again.';
+      setDeleteError(message);
+      onShowNotice?.(message, 'error');
     } finally {
       setIsDeleting(false);
     }
@@ -104,7 +108,7 @@ export function DeleteConfirmationModal({
               lineHeight: '1.45',
             }}
           >
-            <strong>System Impact:</strong> Deleting removes the stored source file and its associated vectors from ChromaDB.
+            <strong>System Impact:</strong> Deleting removes the stored source file and its associated vectors from PGVector.
           </div>
           {deleteError && <p role="alert" style={{ color: '#A63227', fontSize: '12.5px' }}>{deleteError}</p>}
         </div>

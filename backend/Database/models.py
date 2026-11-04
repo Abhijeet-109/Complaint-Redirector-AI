@@ -17,6 +17,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
+from sqlalchemy import Text
+from sqlalchemy.dialects.postgresql import ARRAY
 
 from backend.Database.connection import Base
 
@@ -464,3 +466,38 @@ class ReturnRequest(Base):
     requested_at = Column(DateTime, nullable=False, server_default=func.now())
     order = relationship("CommerceOrder")
     order_item = relationship("CommerceOrderItem", overlaps="order")
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    id = Column(String(64), primary_key=True)
+
+    source = Column(
+        String(500),
+        nullable=False,
+        index=True
+    )
+
+    content = Column(
+        Text,
+        nullable=False
+    )
+
+    chunk_metadata = Column(
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict
+    )
+
+    embedding = Column(
+        ARRAY(Float),
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )

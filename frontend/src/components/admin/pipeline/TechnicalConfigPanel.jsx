@@ -16,7 +16,7 @@ export function TechnicalConfigPanel() {
   }, []);
 
   const rows = [
-    ['ChromaDB collection', config?.collection_name],
+    ['PGVector collection', config?.collection_name],
     ['Embedding model', config?.embedding_model],
     ['Chunk size', config?.chunk_size],
     ['Chunk overlap', config?.chunk_overlap],

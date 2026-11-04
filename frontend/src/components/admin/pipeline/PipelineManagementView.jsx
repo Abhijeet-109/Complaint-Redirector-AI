@@ -4,8 +4,6 @@ import {
   FileCheck,
   Activity,
   ArrowRight,
-  Info,
-  X,
 } from 'lucide-react';
 import './PipelineManagement.css';
 import { PipelineTabs } from './PipelineTabs';
@@ -17,6 +15,7 @@ import { IndexingRetrievalPanel } from './IndexingRetrievalPanel';
 import { TechnicalConfigPanel } from './TechnicalConfigPanel';
 import { ChatbotPerformancePanel } from './ChatbotPerformancePanel';
 import { DeleteConfirmationModal } from './DeleteConfirmationModal';
+import { OperationNoticeDialog } from './OperationNoticeDialog';
 import { documentService } from '../../../services/documentService';
 import { adminService } from '../../../services/adminService';
 
@@ -38,7 +37,7 @@ export function PipelineManagementView() {
     if (status !== undefined) setDriveStatus(status);
   }, []);
 
-  // Notification Toast state
+  // Operation notice dialog state
   const [notice, setNotice] = useState(null);
   const [selectedDocumentNames, setSelectedDocumentNames] = useState(new Set());
   const [isIndexing, setIsIndexing] = useState(false);
@@ -49,14 +48,6 @@ export function PipelineManagementView() {
   const [chatbotPerformance, setChatbotPerformance] = useState(null);
   const [chatbotLoading, setChatbotLoading] = useState(true);
   const [chatbotError, setChatbotError] = useState('');
-
-  // Auto-dismiss notice
-  useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(null), 4500);
-      return () => clearTimeout(timer);
-    }
-  }, [notice]);
 
   const showNotice = useCallback((message, type = 'info') => {
     setNotice({ message, type });
@@ -134,8 +125,13 @@ export function PipelineManagementView() {
       const results = response.results || [];
       setIndexingResults(results);
       await refreshDocuments();
-      const failed = results.filter((result) => result.status === 'failed').length;
-      showNotice(`${results.length - failed} document(s) indexed or already current; ${failed} failed. See per-document results below.`);
+      const resultMessages = results.map((result) => {
+        const name = result.stored_name || 'Document';
+        if (result.status === 'failed') return `${name}: ${result.message || 'Indexing failed.'}`;
+        if (result.status === 'already_indexed') return `${name}: already up to date.`;
+        return `${name}: indexed successfully${result.chunks == null ? '' : ` (${result.chunks} chunks)`}.`;
+      });
+      showNotice(resultMessages.join(' ') || 'No indexing results were returned.');
     } catch (error) {
       setIndexingResults([{ status: 'failed', message: error.message || 'Document indexing failed.' }]);
       showNotice(error.message || 'Document indexing failed.');
@@ -259,7 +255,7 @@ export function PipelineManagementView() {
                     </h3>
                   </div>
                   <p style={{ fontSize: '12.5px', color: '#637073', lineHeight: '1.45', flex: 1 }}>
-                    Check live document index status and manage indexing in ChromaDB.
+                    Check live document index status and manage indexing in PGVector.
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: '700', color: 'var(--fk-olive, #8A875D)', marginTop: '12px' }}>
                     <span>Inspect Pipeline</span>
@@ -340,21 +336,7 @@ export function PipelineManagementView() {
         onDeleteComplete={handleDeleteComplete}
       />
 
-      {/* 7. Notification Toast */}
-      {notice && (
-        <div className={`fk-pipe-toast ${notice.type}`} role={notice.type === 'error' ? 'alert' : 'status'} aria-live={notice.type === 'error' ? 'assertive' : 'polite'}>
-          <Info size={17} color="var(--fk-gold, #C2A15A)" flexShrink={0} />
-          <span style={{ flex: 1 }}>{notice.message}</span>
-          <button
-            type="button"
-            className="fk-pipe-toast-close"
-            onClick={() => setNotice(null)}
-            aria-label="Dismiss message"
-          >
-            <X size={15} />
-          </button>
-        </div>
-      )}
+      <OperationNoticeDialog notice={notice} onClose={() => setNotice(null)} />
     </div>
   );
 }

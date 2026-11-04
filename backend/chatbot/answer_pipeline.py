@@ -256,7 +256,7 @@ def answer_question(question: str, chat_history) -> dict:
 
     logger.info("[CHATBOT] Starting document retrieval.")
 
-    # Retrieve relevant chunks from ChromaDB
+    # Retrieve relevant chunks from PGVector
     try:
         results = vectorstore.similarity_search(
             search_query,
@@ -265,7 +265,7 @@ def answer_question(question: str, chat_history) -> dict:
 
     except Exception as exc:
         logger.error(
-            "[CHATBOT] ChromaDB retrieval failed (%s).",
+            "[CHATBOT] PGVector retrieval failed (%s).",
             type(exc).__name__,
         )
         raise
