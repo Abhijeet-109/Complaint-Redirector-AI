@@ -8,6 +8,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
+"""Chroma DB will be replaced with pg-vector"""
+
 from backend.chatbot.document_loader import load_document
 
 logger = logging.getLogger(__name__)
