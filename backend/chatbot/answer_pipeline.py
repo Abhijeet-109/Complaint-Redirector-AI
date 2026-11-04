@@ -7,10 +7,6 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 
 from backend.chatbot.vector_store import vectorstore
-from backend.chatbot.conversation_memory import (
-    get_conversation_history,
-    save_exchange,
-)
 from backend.chatbot.guardrails.input_guardrails import INPUT_VALIDATION_PROMPT
 from backend.chatbot.guardrails.output_guardrails import OUTPUT_VALIDATION_PROMPT
 
@@ -97,7 +93,7 @@ def validate_question(question: str):
 # Memory management model 
 
 def format_history(chat_history) -> str:
-    """Convert memory messages into readable conversation text."""
+    """Convert checkpointed messages into readable conversation text."""
 
     if isinstance(chat_history, str):
         return chat_history
@@ -225,39 +221,12 @@ Retrieval query:
         return question
 
 
-## Save the memory and chat history
-
-def save_conversation(
-    session_id: str,
-    question: str,
-    answer: str,
-):
-    """Save a successfully processed exchange to session memory."""
-
-    try:
-        save_exchange(
-            session_id=session_id,
-            question=question,
-            answer=answer,
-        )
-
-        logger.info("[CHATBOT] Conversation exchange saved.")
-
-    except Exception as exc:
-        # A memory-save failure should not discard a valid answer.
-        logger.error(
-            "[CHATBOT] Failed to save conversation memory (%s).",
-            type(exc).__name__,
-        )
-
-
 # Main RAG pipeline 
 
-def answer_question(question: str, session_id: str) -> dict:
+def answer_question(question: str, chat_history) -> dict:
     """
-    Validate input, load session history, rewrite follow-up queries,
-    retrieve documents, generate and validate the answer, and save
-    the validated exchange.
+    Validate input, use checkpointed thread history, rewrite follow-up
+    queries, retrieve documents, generate and validate the answer.
     """
 
     # Validate the question before retrieval
@@ -277,25 +246,7 @@ def answer_question(question: str, session_id: str) -> dict:
 
     logger.info("[CHATBOT] Input passed validation.")
 
-    # Load conversation history for this session
-    try:
-        chat_history = get_conversation_history(session_id)
-        history_text = format_history(chat_history)
-
-        logger.info(
-            "[CHATBOT] Conversation history loaded."
-        )
-
-    except Exception as exc:
-        logger.error(
-            "[CHATBOT] Memory retrieval failed (%s).",
-            type(exc).__name__,
-        )
-
-        return {
-            "answer": "Unable to process your request right now.",
-            "sources": [],
-        }
+    history_text = format_history(chat_history)
 
     # Rewrite the query for better retrieval
     search_query = rewrite_query(
@@ -328,12 +279,6 @@ def answer_question(question: str, session_id: str) -> dict:
     if not results:
         fallback_answer = (
             "Information not found in the provided documents."
-        )
-
-        save_conversation(
-            session_id=session_id,
-            question=question,
-            answer=fallback_answer,
         )
 
         return {
@@ -465,13 +410,6 @@ Answer:
         }
         for doc in results
     ]
-
-    # Save only validated answers
-    save_conversation(
-        session_id=session_id,
-        question=question,
-        answer=answer,
-    )
 
     # Return the answer and sources
     return {

@@ -44,8 +44,13 @@ sys.modules.update(_stubs)
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from backend.auth.dependencies import get_current_user
+from backend.Database.connection import Base
+from backend.Database.models import ChatConversation
+from backend.auth.dependencies import get_current_user, get_db
 
 _chatbot = importlib.import_module("backend.api.routes.chatbot")
 _documents = importlib.import_module("backend.api.routes.documents")
@@ -70,6 +75,25 @@ app.include_router(_chatbot.router)
 app.include_router(_documents.router)
 app.include_router(_drive.router)
 
+_chat_test_engine = create_engine(
+    "sqlite://",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+Base.metadata.create_all(_chat_test_engine)
+_ChatTestSession = sessionmaker(bind=_chat_test_engine, autoflush=False, autocommit=False)
+
+
+class _ChatTestGraph:
+    def get_state(self, config):
+        return type("State", (), {"values": {}})()
+
+    def invoke(self, input_state, config):
+        return {"answer": {"answer": "Test answer", "sources": []}}
+
+
+app.state.agent_graph = _ChatTestGraph()
+
 
 @contextmanager
 def _isolated_test_upload_dir():
@@ -83,6 +107,19 @@ class CustomerRoleAccessTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
         app.dependency_overrides.clear()
+        app.state.agent_graph = _ChatTestGraph()
+
+        def database_session():
+            db = _ChatTestSession()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        with _ChatTestSession() as db:
+            db.query(ChatConversation).delete()
+            db.commit()
+        app.dependency_overrides[get_db] = database_session
 
     def tearDown(self):
         app.dependency_overrides.clear()

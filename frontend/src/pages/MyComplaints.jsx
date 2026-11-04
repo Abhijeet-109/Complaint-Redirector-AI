@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, ChevronDown, Plus, AlertCircle, RefreshCw, Inbox, Loader2 } from 'lucide-react';
-import { Header } from '../components/layout/Header';
-import { CategoryNav } from '../components/layout/CategoryNav';
-import { AccountSidebar } from '../components/account/AccountSidebar';
+import { AccountLayout } from '../components/account/AccountLayout';
 import { ComplaintStatusBadge } from '../components/complaints/ComplaintStatusBadge';
 import { ComplaintForm } from '../components/complaints/ComplaintForm';
 import { ComplaintDetailsModal } from '../components/complaints/ComplaintDetailsModal';
@@ -149,34 +147,18 @@ export function MyComplaints({ onNavigate }) {
   };
 
   return (
-    <div className="fk-page-container">
-      {/* 1. Flatkart Header */}
-      <Header
-        onNavigate={onNavigate}
-        onOpenOrders={() => setIsOrdersOpen(true)}
-        onSelectProduct={() => {}}
-      />
-
-      {/* 2. Flatkart Category Subnav */}
-      <CategoryNav
-        activeCategory={activeCategory}
-        onSelectCategory={handleSelectCategory}
-      />
-
-      {/* 3. Main Dashboard Body */}
-      <div className="fk-dashboard-container">
-        {/* Left Sidebar */}
-        <AccountSidebar
-          activeItem="complaints"
-          onNavigate={onNavigate}
-          onOpenOrders={() => setIsOrdersOpen(true)}
-          onOpenWishlist={() => {}}
-          onToggleChatbot={() => setIsChatbotOpen(!isChatbotOpen)}
-        />
-
-        {/* Main Complaints Content */}
-        <main className="fk-dashboard-main">
-          {/* Breadcrumb Navigation */}
+    <AccountLayout
+      activeItem="complaints"
+      onNavigate={onNavigate}
+      onOpenOrders={() => setIsOrdersOpen(true)}
+      onOpenWishlist={() => {}}
+      onToggleChatbot={() => setIsChatbotOpen(!isChatbotOpen)}
+      activeCategory={activeCategory}
+      onSelectCategory={handleSelectCategory}
+      scrollable={true}
+    >
+      <div className="fk-dashboard-main">
+        {/* Breadcrumb Navigation */}
           <nav className="fk-breadcrumbs" aria-label="Breadcrumb">
             <span
               className="fk-breadcrumb-link"
@@ -364,38 +346,37 @@ export function MyComplaints({ onNavigate }) {
               </table>
             )}
           </div>
-        </main>
-      </div>
+        </div>
 
-      {/* Floating Pebble Help / AI Chatbot Assistant */}
-      <ChatbotWidget
-        isOpen={isChatbotOpen}
-        onToggle={() => setIsChatbotOpen(!isChatbotOpen)}
-        onNavigate={onNavigate}
-      />
+        {/* Floating Pebble Help / AI Chatbot Assistant */}
+        <ChatbotWidget
+          isOpen={isChatbotOpen}
+          onToggle={() => setIsChatbotOpen(!isChatbotOpen)}
+          onNavigate={onNavigate}
+        />
 
-      {/* Drawers & Modals */}
-      <CartDrawer />
-      <WishlistDrawer />
-      <OrdersModal
-        isOpen={isOrdersOpen}
-        onClose={() => setIsOrdersOpen(false)}
-        onOpenChatbot={() => setIsChatbotOpen(true)}
-      />
+        {/* Drawers & Modals */}
+        <CartDrawer />
+        <WishlistDrawer />
+        <OrdersModal
+          isOpen={isOrdersOpen}
+          onClose={() => setIsOrdersOpen(false)}
+          onOpenChatbot={() => setIsChatbotOpen(true)}
+        />
 
-      {/* New Complaint Form Modal */}
-      <ComplaintForm
-        isOpen={isNewComplaintOpen}
-        onClose={() => setIsNewComplaintOpen(false)}
-        onComplaintSubmitted={loadComplaints}
-      />
+        {/* New Complaint Form Modal */}
+        <ComplaintForm
+          isOpen={isNewComplaintOpen}
+          onClose={() => setIsNewComplaintOpen(false)}
+          onComplaintSubmitted={loadComplaints}
+        />
 
-      {/* View Complaint Details Modal */}
-      <ComplaintDetailsModal
-        complaint={selectedComplaint}
-        onClose={() => setSelectedComplaint(null)}
-      />
-    </div>
+        {/* View Complaint Details Modal */}
+        <ComplaintDetailsModal
+          complaint={selectedComplaint}
+          onClose={() => setSelectedComplaint(null)}
+        />
+    </AccountLayout>
   );
 }
 

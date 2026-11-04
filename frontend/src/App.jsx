@@ -5,6 +5,7 @@ import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { MyComplaints } from './pages/MyComplaints';
+import { MyConversations } from './pages/MyConversations';
 import { HandlerDashboardPage } from './pages/HandlerDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { SuperAdminDashboardPage } from './pages/SuperAdminDashboardPage';
@@ -17,6 +18,7 @@ function AppContent() {
     if (path === '/login') return 'login';
     if (path === '/register') return 'register';
     if (path === '/my-complaints') return 'my-complaints';
+    if (path === '/my-conversations') return 'my-conversations';
     if (path === '/handler-dashboard') return 'handler-dashboard';
     if (path === '/admin-dashboard') return 'admin-dashboard';
     if (path === '/admin') return 'super-admin-dashboard';
@@ -30,6 +32,7 @@ function AppContent() {
       if (path === '/login') setCurrentPage('login');
       else if (path === '/register') setCurrentPage('register');
       else if (path === '/my-complaints') setCurrentPage('my-complaints');
+      else if (path === '/my-conversations') setCurrentPage('my-conversations');
       else if (path === '/handler-dashboard') setCurrentPage('handler-dashboard');
       else if (path === '/admin-dashboard') setCurrentPage('admin-dashboard');
       else if (path === '/admin') setCurrentPage('super-admin-dashboard');
@@ -46,6 +49,7 @@ function AppContent() {
     if (page === 'login') targetPath = '/login';
     if (page === 'register') targetPath = '/register';
     if (page === 'my-complaints') targetPath = '/my-complaints';
+    if (page === 'my-conversations') targetPath = '/my-conversations';
     if (page === 'handler-dashboard') targetPath = '/handler-dashboard';
     if (page === 'admin-dashboard') targetPath = '/admin-dashboard';
     if (page === 'super-admin-dashboard') targetPath = '/super-admin-dashboard';
@@ -83,6 +87,10 @@ function AppContent() {
 
   if (authorizedPage === 'my-complaints') {
     return <MyComplaints onNavigate={navigateTo} />;
+  }
+
+  if (authorizedPage === 'my-conversations') {
+    return <MyConversations onNavigate={navigateTo} />;
   }
 
   if (authorizedPage === 'handler-dashboard') {

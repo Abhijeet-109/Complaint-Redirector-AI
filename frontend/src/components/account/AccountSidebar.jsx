@@ -6,17 +6,19 @@ import {
   Heart,
   CreditCard,
   Headphones,
+  MessageSquare,
   HelpCircle,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export function AccountSidebar({
-  activeItem = 'complaints',
+  activeItem = 'conversations',
   onNavigate,
   onOpenOrders,
   onOpenWishlist,
   onToggleChatbot,
+  showDecor = false,
 }) {
   const { logout } = useAuth();
 
@@ -27,7 +29,7 @@ export function AccountSidebar({
     }
   };
 
-  const menuItems = [
+  const navItems = [
     {
       id: 'profile',
       label: 'Profile Information',
@@ -71,19 +73,20 @@ export function AccountSidebar({
       },
     },
     {
+      id: 'conversations',
+      label: 'My Conversations',
+      icon: MessageSquare,
+      action: () => {
+        if (onNavigate) onNavigate('my-conversations');
+      },
+    },
+    {
       id: 'help',
       label: 'Help & Support',
       icon: HelpCircle,
       action: () => {
         if (onToggleChatbot) onToggleChatbot();
       },
-    },
-    {
-      id: 'logout',
-      label: 'logout',
-      icon: LogOut,
-      action: handleLogout,
-      isLogout: true,
     },
   ];
 
@@ -92,33 +95,46 @@ export function AccountSidebar({
       <h2 className="fk-account-sidebar-title">My Account</h2>
 
       <nav className="fk-account-nav-list" aria-label="Account navigation">
-        {menuItems.map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeItem === item.id;
 
           return (
             <button
               key={item.id}
-              className={`fk-account-nav-btn ${isActive ? 'active' : ''} ${item.isLogout ? 'logout' : ''}`}
+              className={`fk-account-nav-btn ${isActive ? 'active' : ''}`}
               onClick={item.action}
               aria-current={isActive ? 'page' : undefined}
             >
-              <Icon size={18} strokeWidth={isActive ? 2.4 : 1.9} />
+              <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
               <span>{item.label}</span>
             </button>
           );
         })}
       </nav>
 
-      {/* Decorative Lifestyle Visual at the bottom matching reference */}
-      <div className="fk-sidebar-decor-wrapper">
-        <img
-          src="/assets/dashboard_sidebar_decor.jpg"
-          alt="Flatkart Home Lifestyle"
-          className="fk-sidebar-decor-img"
-          loading="lazy"
-        />
+      {/* Logout button positioned towards bottom matching screenshot */}
+      <div className="fk-account-sidebar-logout-wrapper">
+        <button
+          className="fk-account-nav-btn logout"
+          onClick={handleLogout}
+          aria-label="Logout"
+        >
+          <LogOut size={18} strokeWidth={1.8} />
+          <span>Logout</span>
+        </button>
       </div>
+
+      {showDecor && (
+        <div className="fk-sidebar-decor-wrapper">
+          <img
+            src="/assets/dashboard_sidebar_decor.jpg"
+            alt="Flatkart Home Lifestyle"
+            className="fk-sidebar-decor-img"
+            loading="lazy"
+          />
+        </div>
+      )}
     </aside>
   );
 }

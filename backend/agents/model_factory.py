@@ -1,31 +1,73 @@
-
 import os
+import logging
 
+from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
+load_dotenv()
 
-# Manageable Model config 
+logger = logging.getLogger(__name__)
+
+
 MODEL_CONFIG = {
     "supervisor": {
         "provider": "groq",
         "model": "openai/gpt-oss-120b",
         "fallback_provider": "openrouter",
-        "fallback_model": "nvidia/nemotron-3.5-lightning:free",
+        "fallback_model": "google/gemma-4-26b-a4b-it:free",
     },
+
+    # "knowledge": {
+    #     "provider": "openrouter",
+    #     "model": "google/gemma-4-26b-a4b-it:free",
+    #     "fallback_provider": "groq",
+    #     "fallback_model": "openai/gpt-oss-120b",
+    # },
+
+    "product": {
+        "provider": "groq",
+        "model": "openai/gpt-oss-20b",
+        "fallback_provider": "openrouter",
+        "fallback_model": "google/gemma-4-26b-a4b-it:free",
+    },
+
+    "cart": {
+        "provider": "groq",
+        "model": "openai/gpt-oss-20b",
+        "fallback_provider": "openrouter",
+        "fallback_model": "google/gemma-4-26b-a4b-it:free",
+    },
+
     "order": {
-        "provider": "openrouter",
-        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "fallback_provider": "groq",
-        "fallback_model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "model": "qwen/qwen3.8-27b",
+        "fallback_provider": "openrouter",
+        "fallback_model": "google/gemma-4-26b-a4b-it:free",
     },
-    "customer_support": {
+
+    "shipping": {
+        "provider": "groq",
+        "model": "openai/gpt-oss-20b",
+        "fallback_provider": "openrouter",
+        "fallback_model": "google/gemma-4-26b-a4b-it:free",
+    },
+
+    "returns": {
+        "provider": "groq",
+        "model": "qwen/qwen3.8-27b",
+        "fallback_provider": "openrouter",
+        "fallback_model": "google/gemma-4-26b-a4b-it:free",
+    },
+
+    "support": {
         "provider": "groq",
         "model": "openai/gpt-oss-120b",
         "fallback_provider": "openrouter",
-        "fallback_model": "nvidia/nemotron-3.5-lightning:free",
+        "fallback_model": "google/gemma-4-26b-a4b-it:free",
     },
 }
+
 
 PROVIDERS = {
     "groq": {
@@ -33,6 +75,7 @@ PROVIDERS = {
         "key": "GROQ_API_KEY",
         "base_url": None,
     },
+
     "openrouter": {
         "class": ChatOpenAI,
         "key": "OPENROUTER_API_KEY",
@@ -47,6 +90,7 @@ PROVIDERS = {
 
 
 def _build_model(provider: str, model_name: str):
+
     if provider not in PROVIDERS:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -55,7 +99,7 @@ def _build_model(provider: str, model_name: str):
 
     if not api_key:
         raise ValueError(
-            f"{settings['key']} is missing from the .env file"
+            f"{settings['key']} is missing from .env"
         )
 
     if provider == "groq":
@@ -78,6 +122,12 @@ def _build_model(provider: str, model_name: str):
 
 
 def get_model(agent_name: str):
+
+    if agent_name not in MODEL_CONFIG:
+        raise ValueError(
+            f"Model configuration not found: {agent_name}"
+        )
+
     config = MODEL_CONFIG[agent_name]
 
     try:
@@ -85,18 +135,30 @@ def get_model(agent_name: str):
             config["provider"],
             config["model"],
         )
+
     except ValueError:
-        # Use fallback if the primary provider's key is missing
-        primary = _build_model(
+        logger.warning(
+            "Primary model unavailable for %s. Trying fallback.",
+            agent_name,
+        )
+
+        return _build_model(
             config["fallback_provider"],
             config["fallback_model"],
         )
+
+    try:
+        fallback = _build_model(
+            config["fallback_provider"],
+            config["fallback_model"],
+        )
+
+        return primary.with_fallbacks([fallback])
+
+    except ValueError:
+        logger.warning(
+            "Fallback unavailable for %s. Using primary model only.",
+            agent_name,
+        )
+
         return primary
-
-    fallback = _build_model(
-        config["fallback_provider"],
-        config["fallback_model"],
-    )
-
-    # Retry with the fallback if the primary invocation fails.
-    return primary.with_fallbacks([fallback])

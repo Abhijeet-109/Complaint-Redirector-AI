@@ -1,47 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useRef, useEffect } from 'react';
 import { ChevronDown, Send, Bot, X, Sparkles, LogIn, UserPlus } from 'lucide-react';
 import { chatbotService } from '../../services/chatbotService';
 import { useAuth } from '../../context/AuthContext';
 import './chatbot.css';
 
-function renderInlineMarkdown(text, keyPrefix) {
-  return text.split(/(\*\*[^*\n]+\*\*)/g).map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={`${keyPrefix}-${index}`}>{part.slice(2, -2)}</strong>;
-    }
-    return part;
-  });
-}
-
-function renderMessageMarkdown(text) {
-  return text.split(/\n{2,}/).map((block, blockIndex) => {
-    const lines = block.split('\n');
-    const listItems = lines.map((line) => line.match(/^\s*[-*]\s+(.+)$/));
-
-    if (listItems.every(Boolean)) {
-      return (
-        <ul key={`list-${blockIndex}`}>
-          {listItems.map((match, itemIndex) => (
-            <li key={`item-${itemIndex}`}>
-              {renderInlineMarkdown(match[1], `list-${blockIndex}-${itemIndex}`)}
-            </li>
-          ))}
-        </ul>
-      );
-    }
-
-    return (
-      <p key={`paragraph-${blockIndex}`}>
-        {lines.map((line, lineIndex) => (
-          <React.Fragment key={`line-${lineIndex}`}>
-            {lineIndex > 0 && <br />}
-            {renderInlineMarkdown(line, `paragraph-${blockIndex}-${lineIndex}`)}
-          </React.Fragment>
-        ))}
-      </p>
-    );
-  });
-}
+const ChatMessageMarkdown = lazy(() => import('./ChatMessageMarkdown'));
 
 export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
   const { user, isAuthenticated } = useAuth();
@@ -183,7 +146,13 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
             <div className="fk-chatbot-messages">
               {messages.map((m, idx) => (
                 <div key={idx} className={`fk-chat-bubble ${m.sender}`}>
-                  <div className="fk-chat-message-content">{renderMessageMarkdown(m.text)}</div>
+                  <div className="fk-chat-message-content">
+                    {m.sender === 'bot' ? (
+                      <Suspense fallback={null}>
+                        <ChatMessageMarkdown>{m.text}</ChatMessageMarkdown>
+                      </Suspense>
+                    ) : m.text}
+                  </div>
 
                   {/* Guest Login/Register prompt actions */}
                   {m.isGuestPrompt && (
