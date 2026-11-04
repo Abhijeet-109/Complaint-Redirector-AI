@@ -1492,56 +1492,43 @@
 }
 
 /* ============================================================
-   12. NOTIFICATION TOAST
+   12. OPERATION NOTICE DIALOG
    ============================================================ */
-.fk-pipe-toast {
-  position: fixed;
-  bottom: 24px;
-  right: 28px;
-  z-index: 1000;
-  background-color: #122D29;
-  color: #FFFFFF;
-  border-left: 4px solid var(--fk-olive, #8A875D);
-  padding: 12px 18px;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+.fk-pipe-notice-backdrop {
+  z-index: 1100;
+}
+
+.fk-pipe-notice-dialog {
+  max-width: 480px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+
+.fk-pipe-notice-title {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 13px;
-  font-weight: 600;
-  animation: slideInUp 0.18s ease-out;
-  max-width: 440px;
+  gap: 9px;
 }
 
-.fk-pipe-toast.success {
-  border-left-color: #8AAB78;
+.fk-pipe-notice-title svg {
+  flex: 0 0 auto;
+  color: var(--fk-olive, #8A875D);
 }
 
-.fk-pipe-toast.warning {
-  border-left-color: var(--fk-gold, #C2A15A);
+.fk-pipe-notice-message {
+  margin: 0;
+  color: var(--fk-text-primary, #1C352F);
+  font-size: 13.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: min(55vh, 420px);
+  overflow-y: auto;
 }
 
-.fk-pipe-toast.error {
-  border-left-color: #D87869;
-}
-
-@keyframes slideInUp {
-  from { transform: translateY(16px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.fk-pipe-toast-close {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.6);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-}
-
-.fk-pipe-toast-close:hover {
-  color: #FFFFFF;
+.fk-pipe-notice-footer {
+  justify-content: center;
 }
 
 /* ============================================================

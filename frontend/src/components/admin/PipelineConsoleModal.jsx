@@ -38,7 +38,7 @@ export function PipelineConsoleModal({ isOpen, onClose }) {
                   Knowledge Document Indexing
                 </div>
                 <div style={{ fontSize: '12.5px', color: '#748082' }}>
-                  Upload and index policy and FAQ documents directly into ChromaDB for context-aware customer answers.
+                  Upload and index policy and FAQ documents directly into PGVector for context-aware customer answers.
                 </div>
               </div>
             </div>

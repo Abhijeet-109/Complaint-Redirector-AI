@@ -19,7 +19,7 @@ export function PipelineKpiCards({ documents = [], isLoading = false, error = ''
       id: 'indexed_docs',
       label: 'Indexed Documents',
       value: indexedDocuments.length,
-      subtext: 'Indexed in ChromaDB',
+      subtext: 'Indexed in PGVector',
     },
     {
       id: 'pending_indexing',

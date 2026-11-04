@@ -11,7 +11,7 @@ export function IndexingRetrievalPanel({ documents = [], selectedCount = 0, isLo
       <div className="fk-pipe-panel-header">
         <div>
           <h2 className="fk-pipe-panel-title">Indexing & Retrieval</h2>
-          <span className="fk-pipe-panel-sub">Live file and ChromaDB index status</span>
+          <span className="fk-pipe-panel-sub">Live file and PGVector index status</span>
         </div>
         <button type="button" className="fk-pipe-btn-secondary" onClick={onRefresh} disabled={isLoading || isIndexing}>
           <RefreshCw size={14} /> Refresh Status
@@ -19,7 +19,7 @@ export function IndexingRetrievalPanel({ documents = [], selectedCount = 0, isLo
       </div>
       {loadError ? <p className="fk-pipe-config-error" role="alert">{loadError}</p> : <div className="fk-pipe-tech-list">
         <div className="fk-pipe-tech-item"><span className="fk-pipe-tech-label">Uploaded documents</span><span className="fk-pipe-tech-val">{isLoading ? 'Loading…' : documents.length}</span></div>
-        <div className="fk-pipe-tech-item"><span className="fk-pipe-tech-label">Indexed in ChromaDB</span><span className="fk-pipe-tech-val">{isLoading ? 'Loading…' : indexedCount}</span></div>
+        <div className="fk-pipe-tech-item"><span className="fk-pipe-tech-label">Indexed in PGVector</span><span className="fk-pipe-tech-val">{isLoading ? 'Loading…' : indexedCount}</span></div>
         <div className="fk-pipe-tech-item"><span className="fk-pipe-tech-label">Not indexed</span><span className="fk-pipe-tech-val">{isLoading ? 'Loading…' : pendingCount}</span></div>
       </div>}
       <p className="fk-pipe-panel-sub">Retrieval and answer stages are not reported by the document index endpoint.</p>
