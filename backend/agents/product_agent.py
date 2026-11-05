@@ -48,17 +48,19 @@ def build_product_agent():
 
 def run_product_agent(
     question: str,
+    chat_history=None,
 ) -> dict:
 
     product_agent = build_product_agent()
 
+    messages = list(chat_history or [])
+    messages.append({
+        "role": "user",
+        "content": question,
+    })
+
     result = product_agent.invoke({
-        "messages": [
-            {
-                "role": "user",
-                "content": question,
-            }
-        ]
+        "messages": messages,
     })
 
     answer = result["messages"][-1].content

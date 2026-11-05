@@ -49,17 +49,19 @@ def build_order_agent(user_id: int):
 def run_order_agent(
     question: str,
     user_id: int,
+    chat_history=None,
 ) -> dict:
 
     order_agent = build_order_agent(user_id)
 
+    messages = list(chat_history or [])
+    messages.append({
+        "role": "user",
+        "content": question,
+    })
+
     result = order_agent.invoke({
-        "messages": [
-            {
-                "role": "user",
-                "content": question,
-            }
-        ]
+        "messages": messages,
     })
 
     answer = result["messages"][-1].content

@@ -26,12 +26,36 @@ def _question(state: GraphState) -> str:
     request = state.get("user_input")
     return request.question if request is not None else state["question"]
 
+def _chat_history(state: GraphState, max_messages: int = 10):
+    """Return recent completed conversation messages for agent context."""
+
+    history = []
+
+    for message in state.get("messages", [])[-max_messages:]:
+        if not isinstance(message, (HumanMessage, AIMessage)):
+            continue
+
+        content = message.content
+
+        if not isinstance(content, str) or not content.strip():
+            continue
+
+        if isinstance(message, HumanMessage):
+            history.append(HumanMessage(content=content[:1200]))
+        else:
+            history.append(AIMessage(content=content[:1200]))
+
+    return history
+
 
 def supervisor_node(state: GraphState):
 
     logger.info("[SUPERVISOR] Activated.")
 
-    route = select_route(_question(state))
+    route = select_route(
+        question=_question(state),
+        chat_history=_chat_history(state),
+    )
 
     logger.info("[SUPERVISOR] Selected route: %s", route)
 
@@ -76,6 +100,24 @@ def product_node(state: GraphState):
 
     result = run_product_agent(
         question=_question(state),
+        chat_history=_chat_history(state),
+    )
+
+    return {
+        "answer": result
+    }
+
+
+def cart_node(state: GraphState):
+
+    logger.info("[CART_AGENT] Activated.")
+
+    user_id = state["user_id"]
+
+    result = run_cart_agent(
+        question=_question(state),
+        user_id=user_id,
+        chat_history=_chat_history(state),
     )
 
     return {
@@ -109,6 +151,7 @@ def order_node(state: GraphState):
     result = run_order_agent(
         question=_question(state),
         user_id=user_id,
+        chat_history=_chat_history(state),
     )
 
     return {
@@ -125,12 +168,12 @@ def shipping_node(state: GraphState):
     result = run_shipping_agent(
         question=_question(state),
         user_id=user_id,
+        chat_history=_chat_history(state),
     )
 
     return {
         "answer": result
     }
-
 
 
 def returns_node(state: GraphState):
@@ -142,12 +185,12 @@ def returns_node(state: GraphState):
     result = run_returns_agent(
         question=_question(state),
         user_id=user_id,
+        chat_history=_chat_history(state),
     )
 
     return {
         "answer": result
     }
-
 
 
 def support_node(state: GraphState):
@@ -156,6 +199,7 @@ def support_node(state: GraphState):
 
     result = run_support_agent(
         question=_question(state),
+        chat_history=_chat_history(state),
     )
 
     return {

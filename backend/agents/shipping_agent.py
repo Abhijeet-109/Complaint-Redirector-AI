@@ -26,7 +26,25 @@ def build_shipping_agent(user_id: int):
     )
 
 
-def run_shipping_agent(question: str, user_id: int) -> dict:
+def run_shipping_agent(
+    question: str,
+    user_id: int,
+    chat_history=None,
+) -> dict:
+
     shipping_agent = build_shipping_agent(user_id)
-    result = shipping_agent.invoke({"messages": [{"role": "user", "content": question}]})
-    return {"answer": result["messages"][-1].content, "agent": "shipping"}
+
+    messages = list(chat_history or [])
+    messages.append({
+        "role": "user",
+        "content": question,
+    })
+
+    result = shipping_agent.invoke({
+        "messages": messages,
+    })
+
+    return {
+        "answer": result["messages"][-1].content,
+        "agent": "shipping",
+    }

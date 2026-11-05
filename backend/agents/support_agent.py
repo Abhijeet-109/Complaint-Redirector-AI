@@ -31,7 +31,24 @@ def build_support_agent():
     )
 
 
-def run_support_agent(question: str) -> dict:
+def run_support_agent(
+    question: str,
+    chat_history=None,
+) -> dict:
+
     support_agent = build_support_agent()
-    result = support_agent.invoke({"messages": [{"role": "user", "content": question}]})
-    return {"answer": result["messages"][-1].content, "agent": "support"}
+
+    messages = list(chat_history or [])
+    messages.append({
+        "role": "user",
+        "content": question,
+    })
+
+    result = support_agent.invoke({
+        "messages": messages,
+    })
+
+    return {
+        "answer": result["messages"][-1].content,
+        "agent": "support",
+    }

@@ -30,7 +30,25 @@ def build_cart_agent(user_id: int):
     )
 
 
-def run_cart_agent(question: str, user_id: int) -> dict:
+def run_cart_agent(
+    question: str,
+    user_id: int,
+    chat_history=None,
+) -> dict:
+
     cart_agent = build_cart_agent(user_id)
-    result = cart_agent.invoke({"messages": [{"role": "user", "content": question}]})
-    return {"answer": result["messages"][-1].content, "agent": "cart"}
+
+    messages = list(chat_history or [])
+    messages.append({
+        "role": "user",
+        "content": question,
+    })
+
+    result = cart_agent.invoke({
+        "messages": messages,
+    })
+
+    return {
+        "answer": result["messages"][-1].content,
+        "agent": "cart",
+    }

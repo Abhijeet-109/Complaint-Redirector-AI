@@ -25,7 +25,25 @@ def build_returns_agent(user_id: int):
     )
 
 
-def run_returns_agent(question: str, user_id: int) -> dict:
+def run_returns_agent(
+    question: str,
+    user_id: int,
+    chat_history=None,
+) -> dict:
+
     returns_agent = build_returns_agent(user_id)
-    result = returns_agent.invoke({"messages": [{"role": "user", "content": question}]})
-    return {"answer": result["messages"][-1].content, "agent": "returns"}
+
+    messages = list(chat_history or [])
+    messages.append({
+        "role": "user",
+        "content": question,
+    })
+
+    result = returns_agent.invoke({
+        "messages": messages,
+    })
+
+    return {
+        "answer": result["messages"][-1].content,
+        "agent": "returns",
+    }
