@@ -125,23 +125,6 @@ def cart_node(state: GraphState):
     }
 
 
-
-def cart_node(state: GraphState):
-
-    logger.info("[CART_AGENT] Activated.")
-
-    user_id = state["user_id"]
-
-    result = run_cart_agent(
-        question=_question(state),
-        user_id=user_id,
-    )
-
-    return {
-        "answer": result
-    }
-
-
 def order_node(state: GraphState):
 
     logger.info("[ORDER_AGENT] Activated.")

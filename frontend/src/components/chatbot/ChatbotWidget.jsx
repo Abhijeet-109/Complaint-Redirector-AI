@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useRef, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { ChevronDown, Send, Bot, X, Sparkles, LogIn, UserPlus } from 'lucide-react';
 import { chatbotService } from '../../services/chatbotService';
 import { useAuth } from '../../context/AuthContext';
@@ -8,14 +8,28 @@ const ChatMessageMarkdown = lazy(() => import('./ChatMessageMarkdown'));
 
 export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
   const { user, isAuthenticated } = useAuth();
+  const authenticatedUserId = isAuthenticated && user?.id !== null && user?.id !== undefined
+    ? String(user.id)
+    : null;
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const activeUserIdRef = useRef(authenticatedUserId);
+  const requestGenerationRef = useRef(0);
 
   // Initialize or reset messages when authentication state changes
-  useEffect(() => {
-    if (isAuthenticated) {
+  useLayoutEffect(() => {
+    const previousUserId = activeUserIdRef.current;
+    if (previousUserId !== authenticatedUserId) {
+      requestGenerationRef.current += 1;
+      if (previousUserId !== null) {
+        chatbotService.clearWidgetSessionId(previousUserId);
+      }
+      activeUserIdRef.current = authenticatedUserId;
+    }
+
+    if (authenticatedUserId !== null) {
       setMessages([
         {
           sender: 'bot',
@@ -31,7 +45,8 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
         },
       ]);
     }
-  }, [isAuthenticated, user?.name]);
+    setIsLoading(false);
+  }, [authenticatedUserId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -43,7 +58,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
     const textToSend = (customText || inputText).trim();
     if (!textToSend || isLoading) return;
 
-    if (!isAuthenticated) {
+    if (authenticatedUserId === null) {
       // Guest attempted to send
       setMessages((prev) => [
         ...prev,
@@ -58,6 +73,10 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
       return;
     }
 
+    const sessionId = chatbotService.getWidgetSessionId(authenticatedUserId);
+    const requestId = crypto.randomUUID();
+    const requestGeneration = requestGenerationRef.current;
+
     // Add user message
     const userMsg = { sender: 'user', text: textToSend };
     setMessages((prev) => [...prev, userMsg]);
@@ -66,8 +85,13 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
 
     try {
       // Call document-based RAG endpoint POST /chatbot/ask
-      const result = await chatbotService.askQuestion(textToSend);
+      const result = await chatbotService.askQuestion(textToSend, {
+        sessionId,
+        requestId,
+      });
 
+      if (requestGeneration !== requestGenerationRef.current
+        || activeUserIdRef.current !== authenticatedUserId) return;
       setMessages((prev) => [
         ...prev,
         {
@@ -76,6 +100,8 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
         },
       ]);
     } catch (err) {
+      if (requestGeneration !== requestGenerationRef.current
+        || activeUserIdRef.current !== authenticatedUserId) return;
       const errorMessage = typeof err?.message === 'string' && err.message.trim()
         ? err.message.trim()
         : 'Please check your connection and try again.';
@@ -87,7 +113,10 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
         },
       ]);
     } finally {
-      setIsLoading(false);
+      if (requestGeneration === requestGenerationRef.current
+        && activeUserIdRef.current === authenticatedUserId) {
+        setIsLoading(false);
+      }
     }
   };
 

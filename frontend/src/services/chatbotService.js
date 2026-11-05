@@ -1,17 +1,35 @@
 import { apiRequest } from './api.js';
 
-const SESSION_ID_KEY = 'flatkart_chatbot_session_id';
+const SESSION_ID_KEY_PREFIX = 'flatkart_chatbot_session_id:';
 
-function getSessionId() {
-  let sessionId = sessionStorage.getItem(SESSION_ID_KEY);
+function getWidgetSessionStorageKey(userId) {
+  if (userId === null || userId === undefined || String(userId).trim() === '') {
+    throw new TypeError('A stable authenticated user ID is required for the widget session.');
+  }
+  return `${SESSION_ID_KEY_PREFIX}${encodeURIComponent(String(userId))}`;
+}
+
+function getWidgetSessionId(userId) {
+  const storageKey = getWidgetSessionStorageKey(userId);
+  let sessionId = sessionStorage.getItem(storageKey);
   if (!sessionId) {
     sessionId = crypto.randomUUID();
-    sessionStorage.setItem(SESSION_ID_KEY, sessionId);
+    sessionStorage.setItem(storageKey, sessionId);
   }
   return sessionId;
 }
 
+function clearWidgetSessionId(userId) {
+  sessionStorage.removeItem(getWidgetSessionStorageKey(userId));
+}
+
 export const chatbotService = {
+  /** Retrieve or create the floating widget session ID for an authenticated user. */
+  getWidgetSessionId,
+
+  /** Clear only the floating widget session ID belonging to an authenticated user. */
+  clearWidgetSessionId,
+
   /**
    * Retrieve list of conversations for current user.
    * Endpoint: GET /chatbot/conversations
