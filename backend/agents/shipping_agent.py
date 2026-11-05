@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
 from backend.agents.shipping_tools import build_shipping_tools
+from backend.agents.response_builder import build_agent_response
 
 
 SHIPPING_SYSTEM_PROMPT = """
@@ -44,7 +45,6 @@ def run_shipping_agent(
         "messages": messages,
     })
 
-    return {
-        "answer": result["messages"][-1].content,
-        "agent": "shipping",
-    }
+    messages = result.get("messages", [])
+    answer = messages[-1].content if messages else "I couldn't retrieve shipment information right now."
+    return build_agent_response("shipping", messages, answer)

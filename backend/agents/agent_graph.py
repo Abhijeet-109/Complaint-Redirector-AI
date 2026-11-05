@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 
 from backend.agents.graph_state import GraphState
+from backend.agents.response_schema import AgentResponse, STRUCTURED_RESPONSE_KEY, text_response
 
 from backend.agents.supervisor_agent import (
     select_route,
@@ -81,14 +82,17 @@ def knowledge_node(state: GraphState):
 
 def record_assistant_message(state: GraphState):
     answer = state.get("answer")
-    if isinstance(answer, dict):
-        content = answer.get("answer") or str(answer)
-    else:
-        content = str(answer or "")
+    try:
+        response = AgentResponse.model_validate(answer)
+    except Exception:
+        response = AgentResponse.model_validate(
+            text_response("support", answer if isinstance(answer, str) else "I couldn't process that request.")
+        )
+    content = response.answer
     return {
         "messages": [
             HumanMessage(content=_question(state)),
-            AIMessage(content=content),
+            AIMessage(content=content, additional_kwargs={STRUCTURED_RESPONSE_KEY: response.as_json()}),
         ],
         "last_request_id": state.get("request_id"),
     }

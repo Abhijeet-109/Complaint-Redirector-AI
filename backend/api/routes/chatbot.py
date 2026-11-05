@@ -5,19 +5,21 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from backend.chatbot.answer_pipeline import answer_question
-from backend.chatbot.guardrails.input_guardrails import (
+from backend.chatbot.answer_pipeline import (
+    answer_question,
     detect_obvious_security_request,
 )
 from backend.Database.connection import SessionLocal
 from backend.Database.models import ChatbotTelemetry, ChatConversation
 from backend.auth.dependencies import get_db, require_role
 from backend.agents.agent_graph import agent_graph
+from backend.agents.response_schema import AgentResponse, STRUCTURED_RESPONSE_KEY, text_response
 
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 logger = logging.getLogger("flatkart.chatbot.telemetry")
@@ -44,6 +46,36 @@ def _conversation_payload(conversation):
         "created_at": conversation.created_at,
         "updated_at": conversation.updated_at,
     }
+
+
+def _validated_response(value, *, fallback_agent="support"):
+    try:
+        return AgentResponse.model_validate(value).as_json()
+    except Exception:
+        if isinstance(value, dict) and isinstance(value.get("answer"), str):
+            answer = value["answer"]
+        elif isinstance(value, str):
+            answer = value
+        else:
+            answer = "I couldn't process that request."
+        return text_response(fallback_agent, answer)
+
+
+def _conversation_message(message):
+    role = "assistant" if getattr(message, "type", "") == "ai" else "user"
+    item = {
+        "role": role,
+        "content": message.content if isinstance(message.content, str) else str(message.content),
+    }
+    if role == "assistant":
+        metadata = (getattr(message, "additional_kwargs", {}) or {}).get(STRUCTURED_RESPONSE_KEY)
+        if metadata is not None:
+            try:
+                item["structured_response"] = AgentResponse.model_validate(metadata).as_json()
+            except Exception:
+                # A legacy or malformed value must not block history loading.
+                pass
+    return item
 
 
 def _get_owned_conversation(db, thread_id, user_id, *, lock=False):
@@ -121,10 +153,7 @@ def get_conversation(
     return {
         **_conversation_payload(conversation),
         "messages": [
-            {
-                "role": "assistant" if getattr(message, "type", "") == "ai" else "user",
-                "content": message.content if isinstance(message.content, str) else str(message.content),
-            }
+            _conversation_message(message)
             for message in messages
             if getattr(message, "type", "") in {"human", "ai"}
         ],
@@ -293,10 +322,22 @@ def ask_chatbot(
                     prefilter_category,
                 )
 
-                result = {
-                    "answer": "Your request cannot be processed.",
-                    "sources": [],
-                }
+                result = text_response("guardrail", "Your request cannot be processed.")
+                if callable(getattr(graph, "update_state", None)):
+                    graph.update_state(
+                        config,
+                        {
+                            "answer": result,
+                            "last_request_id": request.request_id,
+                            "messages": [
+                                HumanMessage(content=question),
+                                AIMessage(
+                                    content=result["answer"],
+                                    additional_kwargs={STRUCTURED_RESPONSE_KEY: result},
+                                ),
+                            ],
+                        },
+                    )
 
             else:
                 graph_result = graph.invoke({
@@ -305,7 +346,7 @@ def ask_chatbot(
                     "request_id": request.request_id,
                 }, config=config)
 
-                result = graph_result["answer"]
+                result = _validated_response(graph_result.get("answer"))
 
                 if is_first_message:
                     title = re.sub(r"\s+", " ", question).strip()[:120]
@@ -319,19 +360,15 @@ def ask_chatbot(
             "title": conversation.title,
             "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
         }
-        if isinstance(result, dict):
-            result = {**result, **meta}
-        else:
-            result = {"answer": result, **meta}
+        result = {**_validated_response(result), **meta}
         
         elapsed_ms = (time.perf_counter() - started) * 1000
-        sources = result.get("sources") or []
+        sources = []
 
         fallback = (
             not prefilter_blocked
             and (
                 result.get("answer") == FALLBACK_ANSWER
-                or not sources
             )
         )
 

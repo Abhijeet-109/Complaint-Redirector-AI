@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
 from backend.agents.order_tools import build_order_tools
+from backend.agents.response_builder import build_agent_response
 
 
 ORDER_SYSTEM_PROMPT = """
@@ -64,9 +65,6 @@ def run_order_agent(
         "messages": messages,
     })
 
-    answer = result["messages"][-1].content
-
-    return {
-        "answer": answer,
-        "agent": "order",
-    }
+    messages = result.get("messages", [])
+    answer = messages[-1].content if messages else "I couldn't retrieve your orders right now."
+    return build_agent_response("order", messages, answer)

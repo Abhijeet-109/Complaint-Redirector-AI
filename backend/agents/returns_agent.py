@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
 from backend.agents.returns_tools import build_returns_tools
+from backend.agents.response_builder import build_agent_response
 
 
 RETURNS_SYSTEM_PROMPT = """
@@ -43,7 +44,6 @@ def run_returns_agent(
         "messages": messages,
     })
 
-    return {
-        "answer": result["messages"][-1].content,
-        "agent": "returns",
-    }
+    messages = result.get("messages", [])
+    answer = messages[-1].content if messages else "I couldn't retrieve return requests right now."
+    return build_agent_response("returns", messages, answer)

@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 
 from backend.agents.cart_tools import build_cart_tools
 from backend.agents.model_factory import get_model
+from backend.agents.response_builder import build_agent_response
 
 
 CART_SYSTEM_PROMPT = """
@@ -48,7 +49,6 @@ def run_cart_agent(
         "messages": messages,
     })
 
-    return {
-        "answer": result["messages"][-1].content,
-        "agent": "cart",
-    }
+    messages = result.get("messages", [])
+    answer = messages[-1].content if messages else "I couldn't retrieve your cart right now."
+    return build_agent_response("cart", messages, answer)

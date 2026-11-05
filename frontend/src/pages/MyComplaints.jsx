@@ -158,38 +158,18 @@ export function MyComplaints({ onNavigate }) {
       scrollable={true}
     >
       <div className="fk-dashboard-main">
-        {/* Breadcrumb Navigation */}
-          <nav className="fk-breadcrumbs" aria-label="Breadcrumb">
-            <span
-              className="fk-breadcrumb-link"
-              onClick={() => onNavigate && onNavigate('home')}
-            >
-              Home
-            </span>
-            <span className="fk-breadcrumb-sep">&gt;</span>
-            <span className="fk-breadcrumb-link">My Account</span>
-            <span className="fk-breadcrumb-sep">&gt;</span>
-            <span className="fk-breadcrumb-current">My Complaints</span>
-          </nav>
+        <div className="fk-complaints-header-row">
+          <h1 className="fk-complaints-title">My Complaints</h1>
 
-          {/* Page Heading & New Complaint Action */}
-          <div className="fk-complaints-header-row">
-            <div>
-              <h1 className="fk-complaints-title">My Complaints</h1>
-              <p className="fk-complaints-desc">
-                Track and manage all your complaints in one place.
-              </p>
-            </div>
-
-            <button
-              className="fk-btn-new-complaint"
-              onClick={() => setIsNewComplaintOpen(true)}
-              aria-label="Submit a new complaint"
-            >
-              <Plus size={18} strokeWidth={2.5} />
-              <span>New Complaint</span>
-            </button>
-          </div>
+          <button
+            className="fk-btn-new-complaint"
+            onClick={() => setIsNewComplaintOpen(true)}
+            aria-label="Submit a new complaint"
+          >
+            <Plus size={18} strokeWidth={2.5} />
+            <span>New Complaint</span>
+          </button>
+        </div>
 
           {/* Search and Filters Bar */}
           <div className="fk-complaints-filter-bar">

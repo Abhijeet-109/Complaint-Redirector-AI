@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
 from backend.agents.product_tools import build_product_tools
+from backend.agents.response_builder import build_agent_response
 
 
 PRODUCT_SYSTEM_PROMPT = """
@@ -63,9 +64,6 @@ def run_product_agent(
         "messages": messages,
     })
 
-    answer = result["messages"][-1].content
-
-    return {
-        "answer": answer,
-        "agent": "product",
-    }
+    messages = result.get("messages", [])
+    answer = messages[-1].content if messages else "I couldn't retrieve product information right now."
+    return build_agent_response("product", messages, answer)

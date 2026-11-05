@@ -14,40 +14,13 @@
   overflow: hidden;
 }
 
-/* Breadcrumb Navigation */
-.fk-breadcrumb-nav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  margin-bottom: 6px;
-  flex-shrink: 0;
-}
-
-.fk-breadcrumb-link {
-  color: #8C826F;
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.fk-breadcrumb-link:hover {
-  color: #1C352F;
-}
-
-.fk-breadcrumb-sep {
-  color: #8C826F;
-  font-size: 12px;
-}
-
-.fk-breadcrumb-current {
-  color: #B87333;
-  font-weight: 600;
-}
-
 /* Page Header */
 .fk-conversations-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 4px;
   margin-bottom: 10px;
   flex-shrink: 0;
 }
@@ -57,13 +30,14 @@
   font-weight: 800;
   color: #1C352F;
   letter-spacing: -0.02em;
-  margin-bottom: 2px;
+  margin: 0;
 }
 
 .fk-conversations-subtitle {
   font-size: 13px;
   color: #70797B;
   font-weight: 400;
+  margin: 0;
 }
 
 /* Two-Panel Layout — fills remaining height of conversations-main */

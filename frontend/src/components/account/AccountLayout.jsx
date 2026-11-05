@@ -7,7 +7,7 @@ import { AccountSidebar } from './AccountSidebar';
  * Universal Account Layout Component
  * Provides a viewport-constrained, independent two-column architecture:
  * - Header & Category Navigation pinned at top (stationary)
- * - Stationary Account Sidebar (280px) on left (no page-level movement)
+ * - Stationary Account Sidebar (220px) on left (no page-level movement)
  * - Main content area on right:
  *     - scrollable={false}: completely non-scrolling wrapper (used by MyConversations where only chat messages scroll)
  *     - scrollable={true}: independently scrollable right pane (used by MyComplaints)

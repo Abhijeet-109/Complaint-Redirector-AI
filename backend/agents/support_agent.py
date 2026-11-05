@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
 from backend.agents.support_tools import build_support_tools
+from backend.agents.response_schema import text_response
 
 
 SUPPORT_SYSTEM_PROMPT = """
@@ -48,7 +49,6 @@ def run_support_agent(
         "messages": messages,
     })
 
-    return {
-        "answer": result["messages"][-1].content,
-        "agent": "support",
-    }
+    messages = result.get("messages", [])
+    answer = messages[-1].content if messages else "I couldn't retrieve support information right now."
+    return text_response("support", answer)

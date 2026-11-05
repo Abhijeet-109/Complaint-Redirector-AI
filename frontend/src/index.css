@@ -1533,11 +1533,11 @@ input, textarea, select {
   gap: 28px;
 }
 
-/* Left Column: Account Sidebar (Stationary, 260px, Fits Viewport) */
+/* Left Column: Account Sidebar (Stationary, 220px, Fits Viewport) */
 .fk-account-sidebar {
-  width: 260px;
-  min-width: 260px;
-  max-width: 260px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
   height: 100%;
   max-height: 100%;
   display: flex;
@@ -1585,6 +1585,10 @@ input, textarea, select {
   text-align: left;
   transition: all 0.18s ease;
   flex-shrink: 0;
+}
+
+.fk-account-nav-btn span {
+  white-space: nowrap;
 }
 
 .fk-account-nav-btn:hover {

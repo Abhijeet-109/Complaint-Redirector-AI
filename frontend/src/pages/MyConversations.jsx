@@ -30,6 +30,7 @@ import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { OrdersModal } from '../components/common/OrdersModal';
 
 const ChatMessageMarkdown = lazy(() => import('../components/chatbot/ChatMessageMarkdown'));
+const AgentResponseRenderer = lazy(() => import('../components/chatbot/AgentResponseRenderer'));
 
 import { chatbotService } from '../services/chatbotService';
 import { useAuth } from '../context/AuthContext';
@@ -328,12 +329,10 @@ export function MyConversations({ onNavigate }) {
       const returnedTitle = response?.title;
       const returnedUpdatedAt = response?.updated_at || new Date().toISOString();
       const answer = response?.answer || 'Thank you. How else may I assist you today?';
-      const sources = Array.isArray(response?.sources) ? response.sources : [];
-
       const assistantMsg = {
         role: 'assistant',
         content: answer,
-        sources,
+        structured_response: response?.response_type ? response : null,
         timestamp: returnedUpdatedAt,
       };
 
@@ -499,32 +498,12 @@ export function MyConversations({ onNavigate }) {
       onOpenOrders={() => setIsOrdersOpen(true)}
     >
       <div className="fk-conversations-main">
-        {/* Breadcrumb Navigation matching screenshot */}
-        <nav className="fk-breadcrumb-nav" aria-label="Breadcrumb">
-            <span
-              className="fk-breadcrumb-link"
-              onClick={() => onNavigate && onNavigate('home')}
-            >
-              Home
-            </span>
-            <span className="fk-breadcrumb-sep">&gt;</span>
-            <span
-              className="fk-breadcrumb-link"
-              onClick={() => onNavigate && onNavigate('my-complaints')}
-            >
-              My Account
-            </span>
-            <span className="fk-breadcrumb-sep">&gt;</span>
-            <span className="fk-breadcrumb-current">My Conversations</span>
-          </nav>
-
-          {/* Heading and Subtitle */}
-          <div className="fk-conversations-header">
-            <h1 className="fk-conversations-title">My Conversations</h1>
-            <p className="fk-conversations-subtitle">
-              Chat with Flatkart AI for products, orders, returns, shipping and more.
-            </p>
-          </div>
+        <div className="fk-conversations-header">
+          <h1 className="fk-conversations-title">My Conversations</h1>
+          <p className="fk-conversations-subtitle">
+            AI shopping &amp; support
+          </p>
+        </div>
 
           {/* Two Panels Layout */}
           <div className="fk-conversations-panels">
@@ -776,19 +755,12 @@ export function MyConversations({ onNavigate }) {
                                   </ChatMessageMarkdown>
                                 </Suspense>
 
-                                {Array.isArray(msg.sources) && msg.sources.length > 0 && (
-                                  <div className="fk-chat-sources">
-                                    <span className="fk-chat-sources-label">Sources:</span>
-                                    {msg.sources.map((src, sIdx) => {
-                                      const label = typeof src === 'string' ? src : (src.document || 'Document');
-                                      return (
-                                        <span key={sIdx} className="fk-chat-source-tag">
-                                          {label}
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
+                                {msg.structured_response && (
+                                  <Suspense fallback={null}>
+                                    <AgentResponseRenderer response={msg.structured_response} />
+                                  </Suspense>
                                 )}
+
                               </>
                             )}
                           </div>

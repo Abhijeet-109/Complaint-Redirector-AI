@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import './chatbot.css';
 
 const ChatMessageMarkdown = lazy(() => import('./ChatMessageMarkdown'));
+const AgentResponseRenderer = lazy(() => import('./AgentResponseRenderer'));
 
 export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
   const { user, isAuthenticated } = useAuth();
@@ -97,6 +98,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
         {
           sender: 'bot',
           text: result.answer || 'Information not found in the provided documents.',
+          structuredResponse: result?.response_type ? result : null,
         },
       ]);
     } catch (err) {
@@ -181,6 +183,11 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                         <ChatMessageMarkdown>{m.text}</ChatMessageMarkdown>
                       </Suspense>
                     ) : m.text}
+                    {m.sender === 'bot' && m.structuredResponse && (
+                      <Suspense fallback={null}>
+                        <AgentResponseRenderer response={m.structuredResponse} />
+                      </Suspense>
+                    )}
                   </div>
 
                   {/* Guest Login/Register prompt actions */}
