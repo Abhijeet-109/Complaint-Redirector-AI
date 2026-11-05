@@ -113,6 +113,62 @@ def format_history(chat_history) -> str:
 
     return "\n".join(formatted_messages)
 
+def parse_output_validation(response_text: str) -> dict | None:
+    """Parse and validate the structured output-guardrail response."""
+
+    expected_fields = {
+        "SECURITY",
+        "GROUNDING",
+        "RELEVANCE",
+        "DECISION",
+    }
+
+    if not isinstance(response_text, str):
+        return None
+
+    parsed = {}
+
+    for line in response_text.strip().splitlines():
+
+        line = line.strip()
+
+        if not line:
+            continue
+
+        key, separator, value = line.partition(":")
+
+        if not separator:
+            return None
+
+        key = key.strip().upper()
+        value = value.strip().upper()
+
+        if key not in expected_fields or key in parsed:
+            return None
+
+        parsed[key] = value
+
+    if set(parsed) != expected_fields:
+        return None
+
+    for check in ("SECURITY", "GROUNDING", "RELEVANCE"):
+        if parsed[check] not in {"PASS", "FAIL"}:
+            return None
+
+    expected_decision = (
+        "ALLOW"
+        if all(
+            parsed[check] == "PASS"
+            for check in ("SECURITY", "GROUNDING", "RELEVANCE")
+        )
+        else "REJECT"
+    )
+
+    if parsed["DECISION"] != expected_decision:
+        return None
+
+    return parsed
+
 
 # follow up query handler 
 
@@ -369,6 +425,7 @@ Answer:
     try:
         validation_prompt = OUTPUT_VALIDATION_PROMPT.format(
             question=question,
+            retrieval_query=search_query,
             context=context,
             answer=answer,
         )
@@ -377,11 +434,33 @@ Answer:
             validation_prompt
         )
 
-        decision = validation_response.content.strip().upper()
+        validation_result = parse_output_validation(
+            validation_response.content
+        )
 
-        if decision != "ALLOW":
+        if validation_result is None:
+            logger.error(
+                "[CHATBOT] Output validator returned a malformed "
+                "or inconsistent assessment."
+            )
+
+            return {
+                "answer": "Unable to validate the generated answer.",
+                "sources": [],
+            }
+
+        failed_checks = [
+            check
+            for check in ("SECURITY", "GROUNDING", "RELEVANCE")
+            if validation_result[check] == "FAIL"
+        ]
+
+        if validation_result["DECISION"] == "REJECT":
+
             logger.warning(
-                "[CHATBOT] Output rejected by guardrails."
+                "[CHATBOT] Output rejected by guardrails. "
+                "Failed checks: %s",
+                ", ".join(failed_checks),
             )
 
             return {
@@ -414,5 +493,5 @@ Answer:
     # Return the answer and sources
     return {
         "answer": answer,
-        "sources": sources,
+        "sources": [],
     }
