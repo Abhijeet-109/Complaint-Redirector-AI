@@ -113,6 +113,40 @@ def _structured_data(messages, response_type: str):
     return None
 
 
+def _structured_summary(response: AgentResponse) -> str:
+    """Create a short introduction from the already-validated business data."""
+    data = response.data
+    response_type = response.response_type
+
+    if response_type == "product_list":
+        count = len(data.products)
+        return f"I found {count} matching product{'s' if count != 1 else ''}." if count else "I couldn't find any matching products."
+    if response_type == "product_details":
+        return "Here are the requested product details."
+    if response_type == "product_comparison":
+        return "Here is the product comparison." if data.products else "There are no matching products to compare."
+    if response_type == "cart_summary":
+        return "Here is your current cart." if data.items else "Your cart is empty."
+    if response_type == "cart_update":
+        return "Your cart has been updated."
+    if response_type == "order_list":
+        count = len(data.orders)
+        return f"Here are your {count} recent orders." if count else "You don't have any recent orders."
+    if response_type == "order_details":
+        return "Here are your order details."
+    if response_type == "order_status":
+        return "Here is your order status."
+    if response_type == "shipment_list":
+        count = len(data.shipments)
+        return f"Here is shipment information for {count} order{'s' if count != 1 else ''}." if count else "No shipment information was found."
+    if response_type == "shipment_details":
+        return "Here are your shipment details."
+    if response_type == "return_request_list":
+        count = len(data.return_requests)
+        return f"Here are your {count} existing return requests." if count else "You don't have any existing return requests."
+    return response.answer
+
+
 def build_agent_response(agent: str, messages, answer: str) -> dict:
     """Validate a specialist response; safely fall back to text on any mismatch."""
     safe_answer = answer if isinstance(answer, str) else ""
@@ -144,12 +178,13 @@ def build_agent_response(agent: str, messages, answer: str) -> dict:
             if response_type == "cart_update":
                 return text_response(agent, "I couldn't verify the updated cart, so I can't confirm that change.")
             return text_response(agent, safe_answer)
-        return AgentResponse(
+        validated = AgentResponse(
             agent=agent,
             response_type=response_type,
             answer=safe_answer,
             data=data,
-        ).as_json()
+        )
+        return validated.model_copy(update={"answer": _structured_summary(validated)}).as_json()
     except (ValidationError, TypeError, ValueError, KeyError):
         logger.info("Agent structured response validation failed; returning text.")
         return text_response(agent, safe_answer)

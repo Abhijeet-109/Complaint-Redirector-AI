@@ -28,9 +28,9 @@ import { AccountLayout } from '../components/account/AccountLayout';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { OrdersModal } from '../components/common/OrdersModal';
+import { isValidStructuredResponse } from '../components/chatbot/agentResponsePresentation';
 
-const ChatMessageMarkdown = lazy(() => import('../components/chatbot/ChatMessageMarkdown'));
-const AgentResponseRenderer = lazy(() => import('../components/chatbot/AgentResponseRenderer'));
+const AssistantMessageContent = lazy(() => import('../components/chatbot/AssistantMessageContent'));
 
 import { chatbotService } from '../services/chatbotService';
 import { useAuth } from '../context/AuthContext';
@@ -749,18 +749,15 @@ export function MyConversations({ onNavigate }) {
                               <span>{msg.content}</span>
                             ) : (
                               <>
-                                <Suspense fallback={<span>{msg.content}</span>}>
-                                  <ChatMessageMarkdown>
-                                    {msg.content}
-                                  </ChatMessageMarkdown>
+                                <Suspense fallback={
+                                  isValidStructuredResponse(msg.structured_response)
+                                    && msg.structured_response.response_type !== 'text' ? null : <span>{msg.content}</span>
+                                }>
+                                  <AssistantMessageContent
+                                    content={msg.content}
+                                    response={msg.structured_response}
+                                  />
                                 </Suspense>
-
-                                {msg.structured_response && (
-                                  <Suspense fallback={null}>
-                                    <AgentResponseRenderer response={msg.structured_response} />
-                                  </Suspense>
-                                )}
-
                               </>
                             )}
                           </div>

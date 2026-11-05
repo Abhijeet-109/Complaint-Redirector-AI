@@ -2,10 +2,10 @@ import React, { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect } f
 import { ChevronDown, Send, Bot, X, Sparkles, LogIn, UserPlus } from 'lucide-react';
 import { chatbotService } from '../../services/chatbotService';
 import { useAuth } from '../../context/AuthContext';
+import { isValidStructuredResponse } from './agentResponsePresentation';
 import './chatbot.css';
 
-const ChatMessageMarkdown = lazy(() => import('./ChatMessageMarkdown'));
-const AgentResponseRenderer = lazy(() => import('./AgentResponseRenderer'));
+const AssistantMessageContent = lazy(() => import('./AssistantMessageContent'));
 
 export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
   const { user, isAuthenticated } = useAuth();
@@ -179,15 +179,13 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
                 <div key={idx} className={`fk-chat-bubble ${m.sender}`}>
                   <div className="fk-chat-message-content">
                     {m.sender === 'bot' ? (
-                      <Suspense fallback={null}>
-                        <ChatMessageMarkdown>{m.text}</ChatMessageMarkdown>
+                      <Suspense fallback={
+                        isValidStructuredResponse(m.structuredResponse)
+                          && m.structuredResponse.response_type !== 'text' ? null : <span>{m.text}</span>
+                      }>
+                        <AssistantMessageContent content={m.text} response={m.structuredResponse} />
                       </Suspense>
                     ) : m.text}
-                    {m.sender === 'bot' && m.structuredResponse && (
-                      <Suspense fallback={null}>
-                        <AgentResponseRenderer response={m.structuredResponse} />
-                      </Suspense>
-                    )}
                   </div>
 
                   {/* Guest Login/Register prompt actions */}

@@ -34,11 +34,12 @@ def test_product_data_comes_from_named_tool_result_not_generated_answer():
     }
     messages = [ToolMessage(content=json.dumps(tool_result), name="search_products", tool_call_id="call-1")]
 
-    response = build_agent_response("product", messages, "The price is ₹1.00.")
+    response = build_agent_response("product", messages, "| Price |\n| --- |\n| ₹1.00 |")
 
     assert response["response_type"] == "product_list"
     assert response["data"]["products"][0]["variants"][0]["price"] == "1200.00"
-    assert response["answer"] == "The price is ₹1.00."
+    assert response["answer"] == "I found 1 matching product."
+    assert "| Price |" not in response["answer"]
     AgentResponse.model_validate(response)
 
 
@@ -63,8 +64,22 @@ def test_multiple_calls_of_one_operation_aggregate_only_their_own_tool_data():
         ToolMessage(content=json.dumps({"success": True, "products": [{"name": "Watch"}]}), name="search_products", tool_call_id="call-1"),
         ToolMessage(content=json.dumps({"success": True, "products": [{"name": "Bag"}]}), name="search_products_by_category", tool_call_id="call-2"),
     ]
-    response = build_agent_response("product", messages, "I found two products.")
+    response = build_agent_response("product", messages, "Verbose table omitted")
     assert [product["name"] for product in response["data"]["products"]] == ["Watch", "Bag"]
+    assert response["answer"] == "I found 2 matching products."
+
+
+def test_empty_structured_results_get_meaningful_summaries():
+    cases = [
+        ("search_products", {"success": True, "products": []}, "I couldn't find any matching products."),
+        ("list_my_orders", {"success": True, "orders": []}, "You don't have any recent orders."),
+        ("list_my_shipments", {"success": True, "shipments": []}, "No shipment information was found."),
+        ("list_my_return_requests", {"success": True, "return_requests": []}, "You don't have any existing return requests."),
+    ]
+    for index, (tool_name, output, expected_answer) in enumerate(cases):
+        message = ToolMessage(content=json.dumps(output), name=tool_name, tool_call_id=f"empty-{index}")
+        response = build_agent_response("support", [message], "Verbose empty-result answer.")
+        assert response["answer"] == expected_answer
 
 
 def test_cart_mutation_requires_confirmed_tool_success():
@@ -81,6 +96,7 @@ def test_cart_mutation_requires_confirmed_tool_success():
     response = build_agent_response("cart", [succeeded], "The item was removed.")
     assert response["response_type"] == "cart_update"
     assert response["data"]["total"] == "0.00"
+    assert response["answer"] == "Your cart has been updated."
 
     unverifiable = ToolMessage(content=json.dumps({"success": True, "message": "Item removed."}), name="remove_item_from_my_cart", tool_call_id="call-3")
     response = build_agent_response("cart", [unverifiable], "The item was removed.")
@@ -130,6 +146,22 @@ def test_every_business_response_type_extracts_its_actual_tool_fields():
         tool_message = ToolMessage(content=json.dumps(output), name=tool_name, tool_call_id=f"call-{index}")
         response = build_agent_response("support", [tool_message], "Retrieved stored information.")
         assert AgentResponse.model_validate(response).response_type == expected_type
+        assert "Retrieved stored information." not in response["answer"]
+        assert "|" not in response["answer"]
+        if expected_type == "cart_summary":
+            assert response["answer"] == "Your cart is empty."
+
+
+def test_structured_summaries_use_actual_counts_for_lists():
+    cases = [
+        ("list_my_orders", {"success": True, "orders": [{"order_number": "O1"}, {"order_number": "O2"}]}, "Here are your 2 recent orders."),
+        ("list_my_shipments", {"success": True, "shipments": [{"order_number": "O1", "shipment_available": False}]}, "Here is shipment information for 1 order."),
+        ("list_my_return_requests", {"success": True, "return_requests": [{"return_request_id": 1, "quantity": 1}, {"return_request_id": 2, "quantity": 2}]}, "Here are your 2 existing return requests."),
+    ]
+    for index, (tool_name, output, expected) in enumerate(cases):
+        message = ToolMessage(content=json.dumps(output), name=tool_name, tool_call_id=f"count-{index}")
+        response = build_agent_response("support", [message], "A long generated table follows.")
+        assert response["answer"] == expected
 
 
 def test_langgraph_checkpoint_restores_json_response_metadata():
