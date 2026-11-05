@@ -11,6 +11,9 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from backend.chatbot.answer_pipeline import answer_question
+from backend.chatbot.guardrails.input_guardrails import (
+    detect_obvious_security_request,
+)
 from backend.Database.connection import SessionLocal
 from backend.Database.models import ChatbotTelemetry, ChatConversation
 from backend.auth.dependencies import get_db, require_role
@@ -257,25 +260,56 @@ def ask_chatbot(
         completed_request_values = _completed_request_values(
             graph, config, request.request_id, previous_values
         )
+        
+        prefilter_blocked = False
+
         if completed_request_values is not None:
             result = completed_request_values["answer"]
+
             if conversation.title == "New chat":
                 first_user_message = next(
-                    (message.content for message in previous_messages if getattr(message, "type", "") == "human"),
+                    (
+                        message.content
+                        for message in previous_messages
+                        if getattr(message, "type", "") == "human"
+                    ),
                     question,
                 )
-                conversation.title = re.sub(r"\s+", " ", first_user_message).strip()[:120] or "New chat"
-        else:
-            graph_result = graph.invoke({
-                "question": question,
-                "user_id": _current_user.id,
-                "request_id": request.request_id,
-            }, config=config)
 
-            result = graph_result["answer"]
-            if is_first_message:
-                title = re.sub(r"\s+", " ", question).strip()[:120]
-                conversation.title = title or "New chat"
+                conversation.title = (
+                    re.sub(r"\s+", " ", first_user_message).strip()[:120]
+                    or "New chat"
+                )
+
+        else:
+            prefilter_category = detect_obvious_security_request(question)
+
+            if prefilter_category:
+                prefilter_blocked = True
+
+                logger.warning(
+                    "[CHATBOT] Request blocked by regex input prefilter. "
+                    "Category: %s",
+                    prefilter_category,
+                )
+
+                result = {
+                    "answer": "Your request cannot be processed.",
+                    "sources": [],
+                }
+
+            else:
+                graph_result = graph.invoke({
+                    "question": question,
+                    "user_id": _current_user.id,
+                    "request_id": request.request_id,
+                }, config=config)
+
+                result = graph_result["answer"]
+
+                if is_first_message:
+                    title = re.sub(r"\s+", " ", question).strip()[:120]
+                    conversation.title = title or "New chat"
 
         conversation.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -292,10 +326,26 @@ def ask_chatbot(
         
         elapsed_ms = (time.perf_counter() - started) * 1000
         sources = result.get("sources") or []
-        fallback = result.get("answer") == FALLBACK_ANSWER or not sources
+
+        fallback = (
+            not prefilter_blocked
+            and (
+                result.get("answer") == FALLBACK_ANSWER
+                or not sources
+            )
+        )
+
+        outcome = (
+            "rejected"
+            if prefilter_blocked
+            else "fallback"
+            if fallback
+            else "answered"
+        )
+
         _record_telemetry(
             question,
-            "fallback" if fallback else "answered",
+            outcome,
             elapsed_ms,
             sources=sources,
             fallback=fallback,

@@ -1,4 +1,3 @@
-
 import os
 import logging
 import re
@@ -13,6 +12,66 @@ from backend.chatbot.guardrails.output_guardrails import OUTPUT_VALIDATION_PROMP
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+#INPUT FILTERING BY re 
+INPUT_PREFILTER_PATTERNS = (
+    (
+        "system_prompt_extraction",
+        re.compile(
+            r"\b(?:reveal|show|print|display|repeat|dump|extract)"
+            r"\b.{0,60}\b(?:(?:your|the)\s+)?"
+            r"(?:system|developer|hidden|internal)\s+prompt\b"
+            r"|\b(?:reveal|show|print|display|repeat|dump|extract)"
+            r"\b.{0,40}\byour\s+prompt\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "credential_extraction",
+        re.compile(
+            r"\b(?:give\s+me|show|reveal|display|print|dump|extract|"
+            r"retrieve|what\s+is)\b.{0,45}\b(?:the\s+)?"
+            r"(?:admin(?:istrator)?|root|database|account|user)\s+"
+            r"(?:login\s+)?"
+            r"(?:password|passphrase|credentials?|api\s*key|secret\s*key|"
+            r"access\s*token|refresh\s*token)\b"
+            r"(?!\s*(?:policy|rules|guidelines|requirements|management|"
+            r"security|protection|reset))",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "bulk_credential_extraction",
+        re.compile(
+            r"\b(?:give\s+me|show|reveal|display|print|dump|extract|"
+            r"retrieve|list)\b.{0,40}\b(?:all\s+)?"
+            r"(?:passwords?|passphrases?|credentials?|api\s*keys?|"
+            r"secret\s*keys?|access\s*tokens?|refresh\s*tokens?)\b"
+            r"(?!\s*(?:policy|rules|guidelines|requirements|management|"
+            r"security|protection|storage|reset))",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+
+def detect_obvious_security_request(question: str) -> str | None:
+    """Detect only explicit, high-confidence attempts to extract secrets."""
+
+    if not isinstance(question, str) or not question.strip():
+        return None
+
+    normalized_question = re.sub(
+        r"\s+",
+        " ",
+        question,
+    ).strip()
+
+    for category, pattern in INPUT_PREFILTER_PATTERNS:
+        if pattern.search(normalized_question):
+            return category
+
+    return None
 
 FOLLOW_UP_REFERENCE_PATTERN = re.compile(
     r"\b(?:it|its|they|them|their|this|that|these|those|one|ones|he|she|him|her)\b",
