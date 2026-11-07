@@ -29,7 +29,7 @@ export function CartProvider({ children }) {
         // ignore
       }
     }
-    return [FEATURED_PRODUCTS[1]];
+    return [];
   });
 
   const [isCartOpen, setIsCartOpen] = useState(false);

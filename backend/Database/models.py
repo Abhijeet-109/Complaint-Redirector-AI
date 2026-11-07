@@ -301,6 +301,13 @@ class Product(Base):
     name = Column(String(200), nullable=False, index=True)
     slug = Column(String(220), nullable=False, unique=True, index=True)
     description = Column(String, nullable=True)
+    short_description = Column(String(250), nullable=True)
+    highlights = Column(JSON, nullable=False, default=list)
+    specifications = Column(JSON, nullable=False, default=dict)
+    is_returnable = Column(Boolean, nullable=True)
+    return_window_days = Column(Integer, nullable=True)
+    is_refundable = Column(Boolean, nullable=True)
+    payment_methods = Column(JSON, nullable=False, default=list)
     brand = Column(String(120), nullable=True, index=True)
     attributes = Column(JSON, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
@@ -324,13 +331,17 @@ class ProductImage(Base):
 
 class ProductVariant(Base):
     __tablename__ = "product_variants"
-    __table_args__ = (CheckConstraint("price >= 0", name="ck_product_variants_price_nonnegative"),)
+    __table_args__ = (
+        CheckConstraint("price >= 0", name="ck_product_variants_price_nonnegative"),
+        CheckConstraint("mrp >= price", name="ck_product_variants_mrp_gte_price"),
+    )
 
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     sku = Column(String(80), nullable=False, unique=True, index=True)
     name = Column(String(160), nullable=False)
     price = Column(Numeric(12, 2), nullable=False)
+    mrp = Column(Numeric(12, 2), nullable=False)
     is_available = Column(Boolean, nullable=False, default=True)
     product = relationship("Product", back_populates="variants")
     inventory = relationship("Inventory", back_populates="variant", uselist=False, cascade="all, delete-orphan")

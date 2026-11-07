@@ -5,8 +5,9 @@ import re
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 admin_access = require_role("admin", "super_admin")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
+MAX_PRODUCT_IMAGES = 8
+
+
+class ImageOrderInput(BaseModel):
+    image_ids: list[int] = Field(default_factory=list)
 
 
 def _slug(value: str) -> str:
@@ -64,12 +70,14 @@ def _set_variants(db: Session, product: Product, variant_inputs):
             raise HTTPException(422, "Variant does not belong to this product")
         if variant is None:
             variant = ProductVariant(product_id=product.id, sku=item.sku, name=item.name, price=item.price,
+                                     mrp=item.mrp if item.mrp is not None else item.price,
                                      is_available=item.is_available)
             db.add(variant)
             db.flush()
             product.variants.append(variant)
         else:
             variant.sku, variant.name, variant.price = item.sku, item.name, item.price
+            variant.mrp = item.mrp if item.mrp is not None else item.price
             variant.is_available = item.is_available
         retained.add(variant.id)
         inventory = variant.inventory
@@ -117,6 +125,10 @@ def create_product(payload: ProductInput, db: Session = Depends(get_db), _actor=
     if payload.category_id is not None and db.get(ProductCategory, payload.category_id) is None:
         raise HTTPException(404, "Category not found")
     product = Product(name=payload.name, brand=payload.brand, description=payload.description,
+                      short_description=payload.short_description, highlights=payload.highlights,
+                      specifications=payload.specifications, is_returnable=payload.is_returnable,
+                      return_window_days=payload.return_window_days if payload.is_returnable else None,
+                      is_refundable=payload.is_refundable, payment_methods=payload.payment_methods,
                       category_id=payload.category_id,
                       slug=_unique_slug(db, Product, payload.slug or payload.name),
                       is_active=payload.is_active, attributes={})
@@ -136,6 +148,8 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     product = _read_product(db, product_id)
     changes = payload.model_dump(exclude_unset=True)
     variants = changes.pop("variants", None)
+    if changes.get("is_returnable") is False:
+        changes["return_window_days"] = None
     if "category_id" in changes and changes["category_id"] is not None and db.get(ProductCategory, changes["category_id"]) is None:
         raise HTTPException(404, "Category not found")
     if "slug" in changes:
@@ -258,6 +272,9 @@ async def upload_product_image(
     product = db.get(Product, product_id)
     if product is None:
         raise HTTPException(404, "Product not found")
+    image_count = db.scalar(select(func.count(ProductImage.id)).where(ProductImage.product_id == product_id)) or 0
+    if image_count >= MAX_PRODUCT_IMAGES:
+        raise HTTPException(409, "A product can have no more than 8 images")
     content = await file.read(MAX_IMAGE_BYTES + 1)
     if len(content) > MAX_IMAGE_BYTES:
         raise HTTPException(413, "Image must be 5 MB or smaller")
@@ -284,30 +301,76 @@ async def upload_product_image(
             raise ValueError("ImageKit response omitted file ID or URL")
     except Exception as exc:
         raise HTTPException(502, "ImageKit could not store the image") from exc
-    old_imagekit_images = list(db.scalars(select(ProductImage).where(
-        ProductImage.product_id == product_id, ProductImage.provider == "imagekit"
-    )))
-    existing_images = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)))
-    for existing in existing_images:
-        existing.display_order += 1
+    existing_images = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
+                                      .order_by(ProductImage.display_order, ProductImage.id)))
+    for order, existing in enumerate(existing_images):
+        existing.display_order = order
     reference = ProductImage(product_id=product_id, storage_key=url, provider="imagekit",
                              provider_file_id=file_id, alt_text=f"{product.brand or ''} {product.name}".strip(),
-                             display_order=0)
-    for old in old_imagekit_images:
-        db.delete(old)
+                             display_order=len(existing_images))
     db.add(reference)
     try:
         db.commit()
-    except Exception:
+        db.refresh(reference)
+    except Exception as exc:
         db.rollback()
-        # The remote upload may be orphaned, but the catalogue transaction stays consistent.
-        raise HTTPException(500, "Image uploaded, but its catalogue reference could not be saved")
-    for old in old_imagekit_images:
-        if old.provider_file_id and db.scalar(select(ProductImage.id).where(
-            ProductImage.provider_file_id == old.provider_file_id
-        ).limit(1)) is None:
-            try:
-                client.files.delete(old.provider_file_id)
-            except Exception:
-                logger.warning("ImageKit cleanup failed for replaced product image %s", old.provider_file_id)
-    return {"url": url, "file_id": file_id, "image_id": reference.id}
+        logger.error("Orphaned ImageKit product upload file_id=%s product_id=%s", file_id, product_id)
+        raise HTTPException(500, "Image uploaded, but its catalogue reference could not be saved") from exc
+    return {"url": url, "file_id": file_id, "image_id": reference.id, "display_order": reference.display_order}
+
+
+@router.put("/products/{product_id}/images/order")
+def order_product_images(
+    product_id: int,
+    payload: ImageOrderInput,
+    db: Session = Depends(get_db),
+    _actor=Depends(admin_access),
+):
+    if db.get(Product, product_id) is None:
+        raise HTTPException(404, "Product not found")
+    images = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
+                             .order_by(ProductImage.display_order, ProductImage.id)))
+    current_ids = {image.id for image in images}
+    if len(payload.image_ids) != len(set(payload.image_ids)) or set(payload.image_ids) != current_ids:
+        raise HTTPException(422, "Image order must include every product image exactly once")
+    by_id = {image.id: image for image in images}
+    try:
+        for order, image_id in enumerate(payload.image_ids):
+            by_id[image_id].display_order = order
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(500, "Image order could not be saved") from exc
+    return {"image_ids": payload.image_ids}
+
+
+@router.delete("/products/{product_id}/images/{image_id}", status_code=204)
+def delete_product_image(
+    product_id: int,
+    image_id: int,
+    db: Session = Depends(get_db),
+    _actor=Depends(admin_access),
+):
+    image = db.scalar(select(ProductImage).where(
+        ProductImage.id == image_id, ProductImage.product_id == product_id
+    ))
+    if image is None:
+        raise HTTPException(404, "Product image not found")
+    provider, file_id = image.provider, image.provider_file_id
+    db.delete(image)
+    remaining = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
+                                .order_by(ProductImage.display_order, ProductImage.id)))
+    for order, item in enumerate(remaining):
+        item.display_order = order
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(500, "Product image could not be deleted") from exc
+    if provider == "imagekit" and file_id and db.scalar(select(ProductImage.id).where(
+        ProductImage.provider == "imagekit", ProductImage.provider_file_id == file_id
+    ).limit(1)) is None:
+        try:
+            _imagekit_client().files.delete(file_id)
+        except Exception:
+            logger.warning("ImageKit cleanup failed for deleted product image file_id=%s", file_id)

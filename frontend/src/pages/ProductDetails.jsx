@@ -1,28 +1,90 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Heart } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Footer } from '../components/layout/Footer';
 import { productService } from '../services/productService';
+import { useCart } from '../context/CartContext';
+
+const currency = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
+const methodLabels = { cod: 'Cash on Delivery', upi: 'UPI', netbanking: 'Net Banking' };
+
+function ProductGallery({ product }) {
+  const images = useMemo(() => [...(product.images || [])].sort((a, b) => a.display_order - b.display_order), [product.images]);
+  const [activeId, setActiveId] = useState(images[0]?.id ?? null);
+  const [failedIds, setFailedIds] = useState([]);
+  useEffect(() => { setActiveId(images[0]?.id ?? null); setFailedIds([]); }, [product.id, images]);
+  const activeImage = images.find((item) => item.id === activeId) || images[0];
+  return <section className="fk-detail-gallery" aria-label="Product images">
+    <div className="fk-detail-thumbnails" role="list" aria-label="Choose product image">
+      {images.map((image, index) => <button type="button" role="listitem" key={image.id}
+        className={`fk-detail-thumbnail ${image.id === activeImage?.id ? 'is-active' : ''}`}
+        aria-label={`Show product image ${index + 1}`} aria-pressed={image.id === activeImage?.id}
+        onMouseEnter={() => setActiveId(image.id)} onFocus={() => setActiveId(image.id)} onClick={() => setActiveId(image.id)}>
+        {failedIds.includes(image.id) ? <span>Image unavailable</span> : <img src={image.url} alt={image.alt_text || `${product.name} ${index + 1}`} onError={() => setFailedIds((items) => [...items, image.id])} />}
+      </button>)}
+    </div>
+    <div className="fk-detail-image-stage">
+      {activeImage && !failedIds.includes(activeImage.id)
+        ? <img src={activeImage.url} alt={activeImage.alt_text || product.name} onError={() => setFailedIds((items) => [...items, activeImage.id])} />
+        : <div className="fk-detail-image-empty">{images.length ? 'Product image unavailable' : 'No product images available'}</div>}
+    </div>
+  </section>;
+}
+
+function PurchaseActions() {
+  return <div className="fk-detail-purchase" aria-label="Purchase actions">
+    <div className="fk-detail-purchase-buttons"><button type="button" disabled>Add to Cart</button><button type="button" disabled>Order Now</button></div>
+    <p>Cart and checkout will be enabled in the next purchasing phase.</p>
+  </div>;
+}
+
+function PolicySummary({ product }) {
+  const returnText = product.is_returnable === null || product.is_returnable === undefined
+    ? 'Return policy not specified' : product.is_returnable
+      ? `Returnable${product.return_window_days ? ` within ${product.return_window_days} days` : ''}` : 'Not returnable';
+  const refundText = product.is_refundable === null || product.is_refundable === undefined
+    ? 'Refund policy not specified' : product.is_refundable ? 'Refunds supported' : 'Not refundable';
+  return <>{returnText}. {refundText}.</>;
+}
 
 export function ProductDetails({ slug, onNavigate }) {
   const [product, setProduct] = useState(null);
-  const [selectedVariant, setSelectedVariant] = useState(null);
-  const [image, setImage] = useState('');
+  const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [pin, setPin] = useState('');
+  const [pinFeedback, setPinFeedback] = useState('');
   const [state, setState] = useState({ loading: true, error: '' });
+  const { wishlistItems, toggleWishlist } = useCart();
 
   useEffect(() => {
     let active = true;
     setState({ loading: true, error: '' });
+    setProduct(null);
     productService.get(slug)
       .then((result) => {
         if (!active) return;
         setProduct(result);
-        setSelectedVariant(result.variants?.[0] || null);
-        setImage(result.images?.[0]?.url || '/assets/cat_men_hi.jpg');
+        const initial = result.variants?.find((variant) => variant.is_available && (variant.inventory?.available_stock ?? 0) > 0)
+          || result.variants?.[0] || null;
+        setSelectedVariantId(initial?.id ?? null);
       })
       .catch((error) => { if (active) setState({ loading: false, error: error.message || 'Product could not be loaded.' }); })
       .finally(() => { if (active) setState((current) => ({ ...current, loading: false })); });
     return () => { active = false; };
   }, [slug]);
+
+  const selectedVariant = product?.variants?.find((variant) => variant.id === selectedVariantId) || product?.variants?.[0] || null;
+  const isWishlisted = product && wishlistItems.some((item) => item.id === product.id);
+  const availableStock = selectedVariant?.inventory?.available_stock;
+  const isAvailable = Boolean(selectedVariant?.is_available && availableStock > 0);
+  const hasInventory = Number.isInteger(availableStock);
+  const discount = selectedVariant && Number(selectedVariant.mrp) > Number(selectedVariant.price) && Number(selectedVariant.mrp) > 0
+    ? Math.round(((Number(selectedVariant.mrp) - Number(selectedVariant.price)) / Number(selectedVariant.mrp)) * 100) : 0;
+
+  const checkPin = (event) => {
+    event.preventDefault();
+    if (!/^\d{6}$/.test(pin)) setPinFeedback('Enter a valid six-digit PIN code.');
+    else setPinFeedback('Delivery availability will be confirmed at checkout.');
+  };
 
   return <div className="fk-page-container">
     <Header onNavigate={onNavigate} onSelectProduct={(item) => onNavigate('product', item.slug)} />
@@ -30,23 +92,43 @@ export function ProductDetails({ slug, onNavigate }) {
       {state.loading ? <div role="status" className="fk-catalog-state">Loading product…</div>
         : state.error ? <section className="fk-product-not-found"><h1>Product unavailable</h1><p>{state.error}</p><button onClick={() => onNavigate('home')}>Back to Flatkart</button></section>
           : product && <>
-            <nav className="fk-product-breadcrumb"><button onClick={() => onNavigate('home')}>Home</button><span> / </span>{product.category?.name || 'Products'}<span> / </span>{product.name}</nav>
+            <nav className="fk-product-breadcrumb" aria-label="Breadcrumb"><button onClick={() => onNavigate('home')}>Home</button><span> / </span>{product.category?.name || 'Products'}<span> / </span>{product.name}</nav>
             <section className="fk-product-detail-layout">
-              <div className="fk-product-detail-image"><img src={image} onError={() => setImage('/assets/cat_men_hi.jpg')} alt={product.name} /></div>
+              <ProductGallery product={product} />
               <div className="fk-product-detail-info">
-                <p className="fk-product-brand">{product.brand}</p>
-                <h1>{product.name}</h1>
-                {selectedVariant && <>
-                  <p className="fk-product-detail-price">₹{Number(selectedVariant.price).toLocaleString('en-IN')}</p>
-                  <p className="fk-product-detail-stock">{selectedVariant.is_available && (selectedVariant.inventory?.available_stock ?? 0) > 0 ? 'In stock' : 'Currently unavailable'}</p>
-                </>}
-                {product.variants?.length > 1 && <label className="fk-product-variant-select">Choose option
-                  <select value={selectedVariant?.id || ''} onChange={(event) => setSelectedVariant(product.variants.find((item) => String(item.id) === event.target.value))}>
-                    {product.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name} · {variant.sku}</option>)}
-                  </select>
-                </label>}
-                <p className="fk-product-detail-description">{product.description || 'Product details will be available soon.'}</p>
-                {selectedVariant && <p className="fk-product-detail-sku">SKU: {selectedVariant.sku}</p>}
+                <div className="fk-detail-scroll-content">
+                  <div className="fk-detail-title-row"><div>{product.brand && <p className="fk-product-brand">{product.brand}</p>}<h1>{product.name}</h1></div>
+                    <button type="button" className={`fk-detail-wishlist ${isWishlisted ? 'is-selected' : ''}`} aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'} aria-pressed={Boolean(isWishlisted)} onClick={() => toggleWishlist(product)}><Heart fill={isWishlisted ? 'currentColor' : 'none'} /></button>
+                  </div>
+                  <p className="fk-detail-rating">No ratings yet</p>
+                  {selectedVariant && <div className="fk-detail-pricing"><strong>{currency(selectedVariant.price)}</strong>
+                    {discount > 0 && <><del>{currency(selectedVariant.mrp)}</del><span className="fk-detail-discount">{discount}% off</span></>}
+                  </div>}
+                  <p className={`fk-product-detail-stock ${isAvailable ? 'is-in-stock' : ''}`}>{!selectedVariant ? 'Availability not available' : !selectedVariant.is_available ? 'Currently unavailable' : !hasInventory ? 'Availability will be confirmed' : isAvailable ? `${availableStock} available` : 'Out of stock'}</p>
+                  {selectedVariant && <p className="fk-product-detail-sku">SKU: {selectedVariant.sku}</p>}
+                  {!!product.variants?.length && <fieldset className="fk-detail-variants"><legend>Options</legend><div>{product.variants.map((variant) => {
+                    const available = variant.is_available && (variant.inventory?.available_stock ?? 0) > 0;
+                    return <button type="button" key={variant.id} className={variant.id === selectedVariant?.id ? 'is-selected' : ''}
+                      aria-pressed={variant.id === selectedVariant?.id} disabled={!available} onClick={() => setSelectedVariantId(variant.id)}>
+                      <span>{variant.name}</span><small>{currency(variant.price)}</small>
+                    </button>;
+                  })}</div></fieldset>}
+                  {product.short_description && <p className="fk-detail-short-description">{product.short_description}</p>}
+                  <p className="fk-detail-seller">Sold by <strong>Flatkart</strong></p>
+                  <section className="fk-detail-payment"><h2>Payment options</h2>{product.payment_methods?.length
+                    ? <p>{product.payment_methods.map((method) => methodLabels[method]).filter(Boolean).join(' · ')}</p>
+                    : <p>Payment options will be confirmed at checkout.</p>}</section>
+                  <form className="fk-detail-pin" onSubmit={checkPin} noValidate><label htmlFor="fk-delivery-pin">Check delivery availability</label><div><input id="fk-delivery-pin" inputMode="numeric" autoComplete="postal-code" maxLength="6" value={pin} onChange={(event) => { setPin(event.target.value.replace(/\D/g, '').slice(0, 6)); setPinFeedback(''); }} placeholder="6-digit PIN code" /><button type="submit">Check</button></div>{pinFeedback && <p role="status">{pinFeedback}</p>}</form>
+                  {!!product.highlights?.length && <section className="fk-detail-highlights"><h2>Key highlights</h2><ul>{product.highlights.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section>}
+                  {!!Object.keys(product.specifications || {}).length && <section className="fk-detail-specifications"><h2>Specifications</h2><dl>{Object.entries(product.specifications).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></section>}
+                  <div className="fk-detail-accordions">
+                    {!!product.description && <details><summary>Product description</summary><p className="fk-detail-description-text">{product.description}</p></details>}
+                    {!!Object.keys(product.specifications || {}).length && <details><summary>Technical specifications</summary><dl>{Object.entries(product.specifications).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></details>}
+                    <details><summary>Return & refund policy</summary><p><PolicySummary product={product} /></p></details>
+                    <details><summary>Payment information</summary><p>{product.payment_methods?.length ? product.payment_methods.map((method) => methodLabels[method]).filter(Boolean).join(' · ') : 'Payment options will be confirmed at checkout.'}</p></details>
+                  </div>
+                </div>
+                <PurchaseActions />
               </div>
             </section>
           </>}
