@@ -4,7 +4,7 @@ import os
 import re
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, select
@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from backend.Database.models import (
-    Inventory, Product, ProductCategory,
+    CartItem, CommerceOrderItem, Inventory, Product, ProductCategory,
     ProductImage, ProductVariant,
 )
 from backend.Database.services import get_category_tree, set_category_parent
@@ -443,3 +443,69 @@ def delete_product_image(
             _imagekit_client().files.delete(file_id)
         except Exception:
             logger.warning("ImageKit cleanup failed for deleted product image file_id=%s", file_id)
+
+
+@router.delete("/products/{product_id}", status_code=204)
+def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    _actor=Depends(admin_access),
+):
+    product = _read_product(db, product_id)
+    variant_ids = [v.id for v in product.variants]
+    if variant_ids:
+        cart_ref = db.scalar(select(CartItem.id).where(CartItem.variant_id.in_(variant_ids)).limit(1))
+        order_ref = db.scalar(select(CommerceOrderItem.id).where(CommerceOrderItem.variant_id.in_(variant_ids)).limit(1))
+        if cart_ref or order_ref:
+            raise HTTPException(
+                409,
+                "This product is referenced by cart or order history and cannot be permanently deleted. Archive it instead.",
+            )
+    file_ids = list({
+        img.provider_file_id
+        for img in product.images
+        if img.provider == "imagekit" and img.provider_file_id
+    })
+    try:
+        db.delete(product)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Product cannot be deleted due to a catalogue constraint. Archive it instead.") from exc
+    for file_id in file_ids:
+        still_used = db.scalar(
+            select(ProductImage.id).where(
+                ProductImage.provider == "imagekit",
+                ProductImage.provider_file_id == file_id,
+            ).limit(1)
+        )
+        if not still_used:
+            try:
+                _imagekit_client().files.delete(file_id)
+            except Exception:
+                logger.warning("ImageKit cleanup failed after product deletion file_id=%s product_id=%s", file_id, product_id)
+    return Response(status_code=204)
+
+
+@router.delete("/categories/{category_id}", status_code=204)
+def delete_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+    _actor=Depends(admin_access),
+):
+    category = db.get(ProductCategory, category_id)
+    if category is None:
+        raise HTTPException(404, "Category not found")
+    used = db.scalar(select(Product.id).where(Product.category_id == category_id).limit(1))
+    if used:
+        raise HTTPException(409, "This category has assigned products and cannot be deleted. Reassign or delete its products first.")
+    child = db.scalar(select(ProductCategory.id).where(ProductCategory.parent_id == category_id).limit(1))
+    if child:
+        raise HTTPException(409, "This category has child categories and cannot be deleted. Remove or reassign them first.")
+    try:
+        db.delete(category)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Category cannot be deleted due to a constraint conflict.") from exc
+    return Response(status_code=204)

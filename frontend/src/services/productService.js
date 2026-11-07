@@ -24,6 +24,8 @@ export const productService = {
   createCategory: (data) => apiRequest('/api/admin/catalog/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateCategory: (id, data) => apiRequest(`/api/admin/catalog/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveCategory: (id, archived) => apiRequest(`/api/admin/catalog/categories/${id}/${archived ? 'restore' : 'archive'}`, { method: 'PATCH' }),
+  deleteProduct: (id) => apiRequest(`/api/admin/catalog/products/${id}`, { method: 'DELETE' }),
+  deleteCategory: (id) => apiRequest(`/api/admin/catalog/categories/${id}`, { method: 'DELETE' }),
   uploadImage: (productId, file, onProgress = () => {}, variantId = null) => new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/admin/catalog/products/${productId}/images`);

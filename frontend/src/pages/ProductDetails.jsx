@@ -9,6 +9,47 @@ const currency = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
 const methodLabels = { cod: 'Cash on Delivery', upi: 'UPI', netbanking: 'Net Banking' };
 const displaySku = (value) => String(value || '').replace(/^(?:SKU:\s*)+/i, '');
 
+function ProductImageLightbox({ images, initialIndex, onClose, onSyncActive }) {
+  const [index, setIndex] = useState(initialIndex);
+  const closeRef = React.useRef(null);
+  const activeImage = images[index];
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (event.key === 'Escape') { onClose(); return; }
+      if (event.key === 'ArrowLeft') { setIndex((i) => { const next = Math.max(0, i - 1); onSyncActive(images[next]?.id); return next; }); }
+      if (event.key === 'ArrowRight') { setIndex((i) => { const next = Math.min(images.length - 1, i + 1); onSyncActive(images[next]?.id); return next; }); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [images, onClose, onSyncActive]);
+
+  const go = (delta) => {
+    setIndex((i) => {
+      const next = Math.min(Math.max(0, i + delta), images.length - 1);
+      onSyncActive(images[next]?.id);
+      return next;
+    });
+  };
+
+  return <div className="fk-lightbox-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Product image viewer">
+    <div className="fk-lightbox-content" onClick={(e) => e.stopPropagation()}>
+      {images.length > 1 && <button type="button" className="fk-lightbox-nav fk-lightbox-prev" aria-label="Previous image" disabled={index === 0} onClick={() => go(-1)}>&#8249;</button>}
+      {activeImage && <img className="fk-lightbox-image" src={activeImage.url} alt={activeImage.alt_text || `Image ${index + 1}`} />}
+      {images.length > 1 && <button type="button" className="fk-lightbox-nav fk-lightbox-next" aria-label="Next image" disabled={index === images.length - 1} onClick={() => go(1)}>&#8250;</button>}
+    </div>
+    <button ref={closeRef} type="button" className="fk-lightbox-close" aria-label="Close image viewer" onClick={onClose}>&#10005;</button>
+    {images.length > 1 && <p className="fk-lightbox-counter" aria-live="polite">{index + 1} / {images.length}</p>}
+  </div>;
+}
+
 function ProductGallery({ product, selectedVariant, firstVariantId }) {
   const images = useMemo(() => {
     const allImages = product.images || [];
@@ -23,9 +64,16 @@ function ProductGallery({ product, selectedVariant, firstVariantId }) {
   }, [product.images, selectedVariant?.id, firstVariantId]);
   const [activeId, setActiveId] = useState(images[0]?.id ?? null);
   const [failedIds, setFailedIds] = useState([]);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const triggerRef = React.useRef(null);
   const galleryKey = images.map((image) => image.id).join(':');
   useEffect(() => { setActiveId(images[0]?.id ?? null); setFailedIds([]); }, [product.id, selectedVariant?.id, galleryKey]);
   const activeImage = images.find((item) => item.id === activeId) || images[0];
+  const lightboxIndex = activeImage ? images.indexOf(activeImage) : 0;
+
+  const openLightbox = () => { if (activeImage && !failedIds.includes(activeImage.id)) setLightboxOpen(true); };
+  const closeLightbox = () => { setLightboxOpen(false); triggerRef.current?.focus(); };
+
   return <section className="fk-detail-gallery" aria-label="Product images">
     <div className="fk-detail-thumbnails" role="list" aria-label="Choose product image">
       {images.map((image, index) => <button type="button" role="listitem" key={image.id}
@@ -37,11 +85,14 @@ function ProductGallery({ product, selectedVariant, firstVariantId }) {
     </div>
     <div className="fk-detail-image-stage">
       {activeImage && !failedIds.includes(activeImage.id)
-        ? <img src={activeImage.url} alt={activeImage.alt_text || product.name} onError={() => setFailedIds((items) => [...items, activeImage.id])} />
+        ? <button ref={triggerRef} type="button" className="fk-detail-image-trigger" aria-label="View full-size image" onClick={openLightbox}>
+            <img src={activeImage.url} alt={activeImage.alt_text || product.name} onError={() => setFailedIds((items) => [...items, activeImage.id])} />
+          </button>
         : <div className="fk-detail-image-empty">{images.length ? 'Product image unavailable'
           : selectedVariant?.id != null && selectedVariant.id !== firstVariantId
             ? 'No images uploaded for this option yet.' : 'No product images available'}</div>}
     </div>
+    {lightboxOpen && <ProductImageLightbox images={images.filter((img) => !failedIds.includes(img.id))} initialIndex={lightboxIndex} onClose={closeLightbox} onSyncActive={setActiveId} />}
   </section>;
 }
 
@@ -113,7 +164,7 @@ export function ProductDetails({ slug, onNavigate }) {
             <section className="fk-product-detail-layout">
               <ProductGallery product={product} selectedVariant={currentVariant} firstVariantId={firstVariantId} />
               <div className="fk-product-detail-info">
-                <div className="fk-detail-scroll-content">
+                <div className="fk-detail-scroll-content" tabIndex={0} aria-label="Product information">
                   <div className="fk-detail-title-row"><div>{product.brand && <p className="fk-product-brand">{product.brand}</p>}<h1>{product.name}</h1></div>
                     <button type="button" className={`fk-detail-wishlist ${isWishlisted ? 'is-selected' : ''}`} aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'} aria-pressed={Boolean(isWishlisted)} onClick={() => toggleWishlist(product)}><Heart fill={isWishlisted ? 'currentColor' : 'none'} /></button>
                   </div>

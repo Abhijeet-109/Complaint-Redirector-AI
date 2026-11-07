@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { productService } from '../../services/productService';
+import { CenterToast } from '../common/CenterToast';
 
 const nextClientKey = () => globalThis.crypto?.randomUUID?.() || `variant-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const blankVariant = () => ({ clientKey: nextClientKey(), sku: '', name: '', price: '', mrp: '', total_stock: 0, is_available: true, images: [] });
@@ -9,6 +11,7 @@ const blankProduct = () => ({ name: '', brand: '', description: '', short_descri
 const flatten = (rows) => rows.flatMap((row) => [row, ...flatten(row.children || [])]);
 const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const numeric = (value) => Number(value || 0);
+const displaySku = (value) => String(value || '').replace(/^(?:SKU:\s*)+/i, '');
 
 function EditorSection({ title, description, children }) {
   return <section className="fk-editor-card"><div className="fk-editor-card-heading"><h2>{title}</h2>{description && <p>{description}</p>}</div>{children}</section>;
@@ -36,6 +39,9 @@ export function ProductManagement() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'success' });
   const flatCategories = useMemo(() => flatten(categories), [categories]);
 
   const load = async () => {
@@ -242,11 +248,23 @@ export function ProductManagement() {
         .some((image) => image.file && (image.status === 'failed' || image.status === 'queued'));
       if (hasFailures) {
         setForm({ ...nextForm, pendingDeleteImages });
-        setMessage('Product details saved; some images failed to upload. Retry the failed images below.');
+        if (!form.id) {
+          setToast({ visible: true, message: 'Product record created but some images need retry. Retry the failed images below.', type: 'warning' });
+        } else {
+          setMessage('Product details saved; some images failed to upload. Retry the failed images below.');
+        }
       } else {
+        const isNewProduct = !form.id;
+        const toastName = saved.name;
+        const toastCategory = saved.category?.name || 'Uncategorised';
+        const toastSku = displaySku(saved.variants?.[0]?.sku || '');
         await load();
         setForm(null);
-        setMessage('Product saved.');
+        if (isNewProduct) {
+          setToast({ visible: true, message: `${toastName} has been added to inventory · Category: ${toastCategory} · SKU: ${toastSku}`, type: 'success' });
+        } else {
+          setMessage('Product saved.');
+        }
       }
     } catch (error) { setMessage(error.message || 'Product details could not be saved.'); }
     finally { setBusy(false); }
@@ -255,6 +273,25 @@ export function ProductManagement() {
   const toggleArchive = async (product) => {
     try { await productService.archiveProduct(product.id, !product.is_active); await load(); }
     catch (error) { setMessage(error.message || 'Could not update product status.'); }
+  };
+
+  const handleDeleteProduct = async () => {
+    if (!deleteTarget) return;
+    const product = deleteTarget.product;
+    const name = product.name;
+    const categoryName = product.category?.name || 'Uncategorised';
+    const sku = displaySku(product.variants?.[0]?.sku || '');
+    setDeleteBusy(true);
+    try {
+      await productService.deleteProduct(product.id);
+      await load();
+      setDeleteTarget(null);
+      setToast({ visible: true, message: `${name} was deleted from inventory · Category: ${categoryName} · SKU: ${sku}`, type: 'success' });
+    } catch (error) {
+      setMessage(error.message || 'Product could not be deleted.');
+    } finally {
+      setDeleteBusy(false);
+    }
   };
   const visibleProducts = products.filter((product) =>
     (!search || `${product.name} ${product.brand || ''}`.toLowerCase().includes(search.toLowerCase()))
@@ -271,7 +308,7 @@ export function ProductManagement() {
         {visibleProducts.map((product) => { const stock = product.variants.reduce((sum, variant) => sum + (variant.inventory?.available_stock || 0), 0); return <tr key={product.id}>
           <td className="fk-admin-product-name">{product.images?.[0]?.url && <img src={product.images[0].url} alt="" />}<strong>{product.name}</strong></td><td>{product.brand || '—'}<small>{product.category?.name || 'Uncategorised'}</small></td><td>{product.variants.length}<small>{product.variants[0]?.sku || ''}</small></td>
           <td>{product.variants[0] ? `₹${Number(product.variants[0].price).toLocaleString('en-IN')}` : '—'}</td><td>{stock}</td><td>{product.is_active ? 'Active' : 'Archived'}</td>
-          <td><button onClick={() => edit(product)}>Edit</button> <button onClick={() => toggleArchive(product)}>{product.is_active ? 'Archive' : 'Restore'}</button></td>
+          <td><button onClick={() => edit(product)}>Edit</button> <button onClick={() => toggleArchive(product)}>{product.is_active ? 'Archive' : 'Restore'}</button> <button title="Permanently delete product" aria-label={`Permanently delete ${product.name}`} onClick={() => { setMessage(''); setDeleteTarget({ product }); }} style={{ color: '#C03E33', borderColor: '#f3d3d0' }}><Trash2 size={14} /></button></td>
         </tr>; })}
         {!visibleProducts.length && <tr><td colSpan="7">{loadError ? 'Catalogue is unavailable.' : 'No matching products.'}</td></tr>}
       </tbody></table></div>
@@ -343,6 +380,18 @@ export function ProductManagement() {
       </aside></div>
       <div className="fk-editor-bottom-actions"><span>{form.id ? 'Editing product details' : 'New product'}</span><div><button type="button" onClick={cancelEdit}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div></div>
     </form>}
+    {deleteTarget && <div className="fk-catalog-form-backdrop" onClick={() => { if (!deleteBusy) setDeleteTarget(null); }}>
+      <div className="ad-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="fk-prod-delete-title">
+        <div className="ad-modal-header"><span className="ad-modal-title" id="fk-prod-delete-title">Permanently delete product?</span><button className="ad-modal-close" aria-label="Close" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>&#10005;</button></div>
+        <div className="ad-modal-body">
+          <p style={{ fontSize: '13.5px', lineHeight: '1.55', color: 'var(--fk-text-primary)' }}>You are about to permanently delete <strong>{deleteTarget.product.name}</strong>. This action cannot be undone.</p>
+          <p style={{ fontSize: '13px', color: '#8a3228', background: '#fdf2f0', border: '1px solid #f3d3d0', borderRadius: '6px', padding: '10px 12px', margin: '8px 0 0' }}>Permanent deletion removes the product and all its images from the catalogue. If this product has order or cart history, deletion is blocked — archive it instead.</p>
+          {message && <p role="alert" style={{ fontSize: '13px', color: '#a63227', marginTop: '8px' }}>{message}</p>}
+        </div>
+        <div className="ad-modal-footer"><button type="button" className="ad-btn-secondary" disabled={deleteBusy} onClick={() => { setMessage(''); setDeleteTarget(null); }}>Cancel</button><button type="button" className="ad-btn-danger" disabled={deleteBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} onClick={handleDeleteProduct}><Trash2 size={14} />{deleteBusy ? 'Deleting…' : 'Delete permanently'}</button></div>
+      </div>
+    </div>}
+    <CenterToast visible={toast.visible} message={toast.message} type={toast.type} onDismiss={() => setToast((t) => ({ ...t, visible: false }))} />
   </section>;
 }
 
