@@ -14,10 +14,10 @@ function EditorSection({ title, description, children }) {
   return <section className="fk-editor-card"><div className="fk-editor-card-heading"><h2>{title}</h2>{description && <p>{description}</p>}</div>{children}</section>;
 }
 
-function ImageGalleryEditor({ title, gallery, remaining, busy, onAdd, onMove, onRemove, onRetry }) {
+function ImageGalleryEditor({ title, gallery, busy, uploadEnabled = true, onAdd, onMove, onRemove, onRetry }) {
   return <div className="fk-variant-gallery">
-    <div className="fk-variant-gallery-heading"><strong>{title}</strong><span>{8 - remaining}/8 total product images</span></div>
-    <label className="fk-gallery-picker">Add images<input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={onAdd} disabled={remaining <= 0 || busy} /></label>
+    <div className="fk-variant-gallery-heading"><strong>{title}</strong><span>{gallery.length}/8 images in this gallery</span></div>
+    {uploadEnabled && <label className="fk-gallery-picker">Add images<input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={onAdd} disabled={gallery.length >= 8 || busy} /></label>}
     <div className="fk-editor-gallery">{gallery.map((image, index) => <article className="fk-editor-image-card" key={image.id || `${image.file?.name}-${index}`}>
       <div className="fk-editor-image-stage"><img src={image.url} alt={image.alt_text || image.file?.name || ''} />{index === 0 && <span className="fk-editor-cover">Primary / Cover</span>}</div>
       <div className="fk-editor-image-meta"><span>Image {index + 1}</span><span>{image.status === 'saved' ? 'Uploaded' : image.status === 'uploading' ? `Uploading ${image.progress || 0}%` : image.status === 'failed' ? 'Upload failed' : 'Ready to upload'}</span></div>
@@ -57,7 +57,7 @@ export function ProductManagement() {
       is_refundable: product.is_refundable ?? null, payment_methods: product.payment_methods || [],
       specificationRows: Object.entries(product.specifications || {}).map(([key, value]) => ({ key, value })),
       pendingDeleteImages: [],
-      variants: product.variants.map((variant) => ({ clientKey: String(variant.id), id: variant.id, sku: variant.sku, name: variant.name, price: variant.price,
+      variants: [...product.variants].sort((a, b) => a.id - b.id).map((variant) => ({ clientKey: String(variant.id), id: variant.id, sku: variant.sku, name: variant.name, price: variant.price,
         mrp: variant.mrp ?? variant.price, total_stock: variant.inventory?.total_stock ?? 0, is_available: variant.is_available,
         reserved_stock: variant.inventory?.reserved_stock ?? 0, images: images.filter((image) => image.variant_id === variant.id) })),
       images: images.filter((image) => image.variant_id == null),
@@ -74,7 +74,6 @@ export function ProductManagement() {
   const removeSpecification = (index) => setForm((current) => ({ ...current,
     specificationRows: current.specificationRows.filter((_, rowIndex) => rowIndex !== index) }));
 
-  const imageCount = (value = form) => value.images.length + value.variants.reduce((total, variant) => total + variant.images.length, 0);
   const galleryFor = (groupKey, value = form) => groupKey === 'shared'
     ? value.images : value.variants.find((variant) => variant.clientKey === groupKey)?.images || [];
   const updateGallery = (groupKey, images) => setForm((current) => groupKey === 'shared'
@@ -84,9 +83,9 @@ export function ProductManagement() {
   const addFiles = (groupKey, event) => {
     const selected = Array.from(event.target.files || []);
     event.target.value = '';
-    const remaining = 8 - imageCount();
+    const remaining = 8 - galleryFor(groupKey).length;
     if (selected.length > remaining) {
-      setMessage(`Only ${Math.max(remaining, 0)} more image${remaining === 1 ? '' : 's'} can be added. The product gallery limit is 8 across shared and variant galleries.`);
+      setMessage(`Only ${Math.max(remaining, 0)} more image${remaining === 1 ? '' : 's'} can be added to this gallery.`);
       return;
     }
     const additions = selected.map((file) => ({ file, url: URL.createObjectURL(file), status: 'queued', progress: 0, error: '' }));
@@ -142,6 +141,11 @@ export function ProductManagement() {
       setMessage('Each MRP must be greater than or equal to its selling price.');
       return;
     }
+    const submittedSkus = form.variants.map((variant) => variant.sku.trim().toLocaleLowerCase());
+    if (new Set(submittedSkus).size !== submittedSkus.length) {
+      setMessage('Each variant must have a unique SKU.');
+      return;
+    }
     if (form.is_returnable && numeric(form.return_window_days) < 1) {
       setMessage('Enter a positive return window for a returnable product.');
       return;
@@ -156,7 +160,7 @@ export function ProductManagement() {
         specifications: Object.fromEntries(rows.map(({ key, value }) => [key.trim(), String(value).trim()])),
         is_returnable: form.is_returnable, return_window_days: form.is_returnable ? Number(form.return_window_days) : null,
         is_refundable: form.is_refundable, payment_methods: form.payment_methods,
-        variants: form.variants.map((variant) => ({ id: variant.id, name: variant.name.trim(), sku: variant.sku.trim(),
+        variants: form.variants.map((variant) => ({ id: variant.id ?? null, name: variant.name.trim(), sku: variant.sku.trim(),
           price: Number(variant.price), mrp: Number(variant.mrp || variant.price), total_stock: Number(variant.total_stock), is_available: variant.is_available })),
       };
       const saved = form.id ? await productService.updateProduct(form.id, payload) : await productService.createProduct(payload);
@@ -255,7 +259,6 @@ export function ProductManagement() {
   const visibleProducts = products.filter((product) =>
     (!search || `${product.name} ${product.brand || ''}`.toLowerCase().includes(search.toLowerCase()))
     && (!categoryFilter || String(product.category?.id) === categoryFilter));
-  const remainingImages = form ? Math.max(0, 8 - imageCount()) : 8;
 
   return <section className="fk-catalog-admin">
     {!form ? <>
@@ -290,8 +293,8 @@ export function ProductManagement() {
           </div>
         </EditorSection>
 
-        <EditorSection title="Product gallery" description={`${imageCount()} of 8 images across all galleries. The first shared image is the cover when no variant images are configured.`}>
-          <ImageGalleryEditor title="Shared product images" gallery={form.images} remaining={remainingImages} busy={busy}
+        <EditorSection title="Product gallery" description={`${form.images.length} / 8 images for the default variant gallery.`}>
+          <ImageGalleryEditor title="Default variant images" gallery={form.images} busy={busy}
             onAdd={(event) => addFiles('shared', event)} onMove={(index, delta) => moveImage('shared', index, delta)}
             onRemove={(index) => removeImage('shared', index)} onRetry={(index) => retryImage('shared', index)} />
         </EditorSection>
@@ -314,9 +317,13 @@ export function ProductManagement() {
               <label>Selling price<input type="number" min="0" step="0.01" required value={variant.price} onChange={(event) => changeVariant(index, 'price', event.target.value)} /></label><label>MRP<input type="number" min={variant.price || 0} step="0.01" required value={variant.mrp} onChange={(event) => changeVariant(index, 'mrp', event.target.value)} /></label>
               <label>Total stock<input type="number" min={variant.reserved_stock || 0} step="1" required value={variant.total_stock} onChange={(event) => changeVariant(index, 'total_stock', event.target.value)} /></label><label className="fk-editor-toggle"><input type="checkbox" checked={variant.is_available} onChange={(event) => changeVariant(index, 'is_available', event.target.checked)} /> Available</label>
             </div>
-            <ImageGalleryEditor title={`Images for ${variant.name || `variant ${index + 1}`}`} gallery={variant.images} remaining={remainingImages} busy={busy}
-              onAdd={(event) => addFiles(variant.clientKey, event)} onMove={(imageIndex, delta) => moveImage(variant.clientKey, imageIndex, delta)}
-              onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} />
+            {index === 0 && !variant.images.length ? <p className="fk-editor-note">Uses the default product gallery.</p>
+              : <>
+                {index === 0 && <p className="fk-editor-note">Existing first variant images are preserved here for safe ordering and removal.</p>}
+                <ImageGalleryEditor title={`Images for ${variant.name || `variant ${index + 1}`}`} gallery={variant.images} busy={busy} uploadEnabled={index !== 0}
+                  onAdd={(event) => addFiles(variant.clientKey, event)} onMove={(imageIndex, delta) => moveImage(variant.clientKey, imageIndex, delta)}
+                  onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} />
+              </>}
             <button className="fk-editor-remove" type="button" disabled={form.variants.length === 1} onClick={() => {
               variant.images.filter((image) => image.file && image.url).forEach((image) => URL.revokeObjectURL(image.url));
               change('variants', form.variants.filter((_, row) => row !== index));

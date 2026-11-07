@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 admin_access = require_role("admin", "super_admin")
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
-MAX_PRODUCT_IMAGES = 8
+MAX_GALLERY_IMAGES = 8
 
 
 class ImageOrderInput(BaseModel):
@@ -64,9 +64,21 @@ def _read_product(db: Session, product_id: int) -> Product:
 
 
 def _set_variants(db: Session, product: Product, variant_inputs):
+    variant_inputs = list(variant_inputs)
+    variants_by_id = {variant.id: variant for variant in product.variants}
+    sku_changes = []
+    for item in variant_inputs:
+        variant = variants_by_id.get(item.id) if item.id is not None else None
+        if variant is not None and variant.sku != item.sku:
+            sku_changes.append(variant)
+    for variant in sku_changes:
+        variant.sku = f"_pending_{uuid4().hex}"
+    if sku_changes:
+        db.flush()
+
     retained = set()
     for item in variant_inputs:
-        variant = next((v for v in product.variants if item.id is not None and v.id == item.id), None)
+        variant = variants_by_id.get(item.id) if item.id is not None else None
         if item.id is not None and variant is None:
             raise HTTPException(422, "Variant does not belong to this product")
         if variant is None:
@@ -97,6 +109,41 @@ def _set_variants(db: Session, product: Product, variant_inputs):
         if variant.id not in retained:
             # Preserve cart/order foreign-key history and reservation balances.
             variant.is_available = False
+
+
+def _validate_variant_update(db: Session, product: Product, variant_inputs) -> None:
+    if variant_inputs is None:
+        return
+    variant_inputs = list(variant_inputs)
+    submitted_ids = [item.id for item in variant_inputs if item.id is not None]
+    if len(submitted_ids) != len(set(submitted_ids)):
+        raise HTTPException(422, "Each existing variant may appear only once in an update")
+
+    product_variant_ids = {variant.id for variant in product.variants}
+    if any(variant_id not in product_variant_ids for variant_id in submitted_ids):
+        raise HTTPException(422, "Variant does not belong to this product")
+
+    submitted_skus = [item.sku for item in variant_inputs]
+    if len(submitted_skus) != len(set(submitted_skus)):
+        raise HTTPException(409, "Each SKU must be unique within this product")
+
+    owners = db.scalars(select(ProductVariant).where(ProductVariant.sku.in_(set(submitted_skus)))).all()
+    submitted_id_set = set(submitted_ids)
+    for owner in owners:
+        if owner.id not in submitted_id_set:
+            raise HTTPException(409, f"SKU '{owner.sku}' is already assigned to another variant")
+
+
+def _integrity_error_detail(exc: IntegrityError) -> tuple[str, str | None]:
+    original = exc.orig
+    diagnostic = getattr(original, "diag", None)
+    constraint = getattr(diagnostic, "constraint_name", None) or getattr(original, "constraint_name", None)
+    normalized = str(constraint or "").casefold()
+    if "sku" in normalized:
+        return "SKU is already assigned to another variant", constraint
+    if "slug" in normalized:
+        return "Product slug is already in use", constraint
+    return "Product update conflicts with a catalogue constraint", constraint
 
 
 @router.get("/products", response_model=list[AdminProductRead])
@@ -155,15 +202,21 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
         raise HTTPException(404, "Category not found")
     if "slug" in changes:
         changes["slug"] = _unique_slug(db, Product, changes["slug"] or changes.get("name", product.name), product.id)
+    _validate_variant_update(db, product, payload.variants if variants is not None else None)
     for key, value in changes.items():
         setattr(product, key, value)
     try:
         if variants is not None:
             _set_variants(db, product, payload.variants)
         db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(409, "Product slug or SKU already exists") from exc
+        detail, constraint = _integrity_error_detail(exc)
+        logger.warning("Product update integrity conflict product_id=%s constraint=%s", product_id, constraint or "unknown")
+        raise HTTPException(409, detail) from exc
     return _read_product(db, product_id)
 
 
@@ -278,9 +331,12 @@ async def upload_product_image(
         variant = db.get(ProductVariant, variant_id)
         if variant is None or variant.product_id != product_id:
             raise HTTPException(422, "Variant does not belong to this product")
-    image_count = db.scalar(select(func.count(ProductImage.id)).where(ProductImage.product_id == product_id)) or 0
-    if image_count >= MAX_PRODUCT_IMAGES:
-        raise HTTPException(409, "A product can have no more than 8 images")
+    image_count = db.scalar(select(func.count(ProductImage.id)).where(
+        ProductImage.product_id == product_id,
+        ProductImage.variant_id == variant_id,
+    )) or 0
+    if image_count >= MAX_GALLERY_IMAGES:
+        raise HTTPException(409, "A gallery can contain no more than 8 images")
     content = await file.read(MAX_IMAGE_BYTES + 1)
     if len(content) > MAX_IMAGE_BYTES:
         raise HTTPException(413, "Image must be 5 MB or smaller")

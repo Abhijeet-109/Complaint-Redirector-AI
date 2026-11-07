@@ -9,13 +9,18 @@ const currency = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
 const methodLabels = { cod: 'Cash on Delivery', upi: 'UPI', netbanking: 'Net Banking' };
 const displaySku = (value) => String(value || '').replace(/^(?:SKU:\s*)+/i, '');
 
-function ProductGallery({ product, selectedVariant }) {
+function ProductGallery({ product, selectedVariant, firstVariantId }) {
   const images = useMemo(() => {
     const allImages = product.images || [];
     const variantImages = allImages.filter((image) => image.variant_id === selectedVariant?.id);
-    return [...(variantImages.length ? variantImages : allImages.filter((image) => image.variant_id == null))]
+    const selectedImages = variantImages.length
+      ? variantImages
+      : selectedVariant?.id == null || selectedVariant.id === firstVariantId
+        ? allImages.filter((image) => image.variant_id == null)
+        : [];
+    return [...selectedImages]
       .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
-  }, [product.images, selectedVariant?.id]);
+  }, [product.images, selectedVariant?.id, firstVariantId]);
   const [activeId, setActiveId] = useState(images[0]?.id ?? null);
   const [failedIds, setFailedIds] = useState([]);
   const galleryKey = images.map((image) => image.id).join(':');
@@ -33,7 +38,9 @@ function ProductGallery({ product, selectedVariant }) {
     <div className="fk-detail-image-stage">
       {activeImage && !failedIds.includes(activeImage.id)
         ? <img src={activeImage.url} alt={activeImage.alt_text || product.name} onError={() => setFailedIds((items) => [...items, activeImage.id])} />
-        : <div className="fk-detail-image-empty">{images.length ? 'Product image unavailable' : 'No product images available'}</div>}
+        : <div className="fk-detail-image-empty">{images.length ? 'Product image unavailable'
+          : selectedVariant?.id != null && selectedVariant.id !== firstVariantId
+            ? 'No images uploaded for this option yet.' : 'No product images available'}</div>}
     </div>
   </section>;
 }
@@ -70,8 +77,9 @@ export function ProductDetails({ slug, onNavigate }) {
       .then((result) => {
         if (!active) return;
         setProduct(result);
-        const initial = result.variants?.find((variant) => variant.is_available && (variant.inventory?.available_stock ?? 0) > 0)
-          || result.variants?.[0] || null;
+        const orderedVariants = [...(result.variants || [])].sort((a, b) => a.id - b.id);
+        const initial = orderedVariants.find((variant) => variant.is_available && (variant.inventory?.available_stock ?? 0) > 0)
+          || orderedVariants[0] || null;
         setSelectedVariant(initial);
       })
       .catch((error) => { if (active) setState({ loading: false, error: error.message || 'Product could not be loaded.' }); })
@@ -79,7 +87,9 @@ export function ProductDetails({ slug, onNavigate }) {
     return () => { active = false; };
   }, [slug]);
 
-  const currentVariant = product?.variants?.find((variant) => variant.id === selectedVariant?.id) || product?.variants?.[0] || null;
+  const productVariants = useMemo(() => [...(product?.variants || [])].sort((a, b) => a.id - b.id), [product?.variants]);
+  const firstVariantId = productVariants[0]?.id;
+  const currentVariant = productVariants.find((variant) => variant.id === selectedVariant?.id) || productVariants[0] || null;
   const isWishlisted = product && wishlistItems.some((item) => item.id === product.id);
   const availableStock = currentVariant?.inventory?.available_stock;
   const isAvailable = Boolean(currentVariant?.is_available && availableStock > 0);
@@ -101,19 +111,18 @@ export function ProductDetails({ slug, onNavigate }) {
           : product && <>
             <nav className="fk-product-breadcrumb" aria-label="Breadcrumb"><button onClick={() => onNavigate('home')}>Home</button><span> / </span>{product.category?.name || 'Products'}<span> / </span>{product.name}</nav>
             <section className="fk-product-detail-layout">
-              <ProductGallery product={product} selectedVariant={currentVariant} />
+              <ProductGallery product={product} selectedVariant={currentVariant} firstVariantId={firstVariantId} />
               <div className="fk-product-detail-info">
                 <div className="fk-detail-scroll-content">
                   <div className="fk-detail-title-row"><div>{product.brand && <p className="fk-product-brand">{product.brand}</p>}<h1>{product.name}</h1></div>
                     <button type="button" className={`fk-detail-wishlist ${isWishlisted ? 'is-selected' : ''}`} aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'} aria-pressed={Boolean(isWishlisted)} onClick={() => toggleWishlist(product)}><Heart fill={isWishlisted ? 'currentColor' : 'none'} /></button>
                   </div>
-                  <p className="fk-detail-rating">No ratings yet</p>
                   {currentVariant && <div className="fk-detail-pricing"><strong>{currency(currentVariant.price)}</strong>
                     {discount > 0 && <><del>{currency(currentVariant.mrp)}</del><span className="fk-detail-discount">{discount}% off</span></>}
                   </div>}
                   <p className={`fk-product-detail-stock ${isAvailable ? 'is-in-stock' : ''}`}>{!currentVariant ? 'Availability not available' : !currentVariant.is_available ? 'Currently unavailable' : !hasInventory ? 'Availability will be confirmed' : isAvailable ? `${availableStock} available` : 'Out of stock'}</p>
                   {currentVariant && <p className="fk-product-detail-sku">SKU: {displaySku(currentVariant.sku)}</p>}
-                  {!!product.variants?.length && <fieldset className="fk-detail-variants"><legend>Options</legend><div>{product.variants.map((variant) => {
+                  {!!productVariants.length && <fieldset className="fk-detail-variants"><legend>Options</legend><div>{productVariants.map((variant) => {
                     const available = variant.is_available && (variant.inventory?.available_stock ?? 0) > 0;
                     return <button type="button" key={variant.id} className={variant.id === currentVariant?.id ? 'is-selected' : ''}
                       aria-pressed={variant.id === currentVariant?.id} disabled={!available} onClick={() => setSelectedVariant(variant)}>
