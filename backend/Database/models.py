@@ -312,7 +312,12 @@ class Product(Base):
     attributes = Column(JSON, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     category = relationship("ProductCategory")
-    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by=("ProductImage.display_order", "ProductImage.id"))
+    images = relationship(
+        "ProductImage",
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by=lambda: (ProductImage.display_order, ProductImage.id),
+    )
     variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
 
 
