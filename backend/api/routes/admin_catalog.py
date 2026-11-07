@@ -4,7 +4,7 @@ import os
 import re
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, select
@@ -17,7 +17,7 @@ from backend.Database.models import (
 )
 from backend.Database.services import get_category_tree, set_category_parent
 from backend.api.catalog_schemas import (
-    CategoryInput, CategoryNode, CategoryUpdate, ProductInput, ProductRead, ProductUpdate,
+    AdminProductRead, CategoryInput, CategoryNode, CategoryUpdate, ProductInput, ProductUpdate,
 )
 from backend.auth.dependencies import get_db, require_role
 
@@ -31,6 +31,7 @@ MAX_PRODUCT_IMAGES = 8
 
 class ImageOrderInput(BaseModel):
     image_ids: list[int] = Field(default_factory=list)
+    variant_id: int | None = None
 
 
 def _slug(value: str) -> str:
@@ -98,7 +99,7 @@ def _set_variants(db: Session, product: Product, variant_inputs):
             variant.is_available = False
 
 
-@router.get("/products", response_model=list[ProductRead])
+@router.get("/products", response_model=list[AdminProductRead])
 def list_admin_products(
     search: str | None = Query(default=None, max_length=120),
     category_id: int | None = None,
@@ -115,12 +116,12 @@ def list_admin_products(
     return db.scalars(query.order_by(Product.name).limit(limit)).unique().all()
 
 
-@router.get("/products/{product_id}", response_model=ProductRead)
+@router.get("/products/{product_id}", response_model=AdminProductRead)
 def get_admin_product(product_id: int, db: Session = Depends(get_db), _actor=Depends(admin_access)):
     return _read_product(db, product_id)
 
 
-@router.post("/products", response_model=ProductRead, status_code=201)
+@router.post("/products", response_model=AdminProductRead, status_code=201)
 def create_product(payload: ProductInput, db: Session = Depends(get_db), _actor=Depends(admin_access)):
     if payload.category_id is not None and db.get(ProductCategory, payload.category_id) is None:
         raise HTTPException(404, "Category not found")
@@ -143,7 +144,7 @@ def create_product(payload: ProductInput, db: Session = Depends(get_db), _actor=
     return _read_product(db, product.id)
 
 
-@router.put("/products/{product_id}", response_model=ProductRead)
+@router.put("/products/{product_id}", response_model=AdminProductRead)
 def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db), _actor=Depends(admin_access)):
     product = _read_product(db, product_id)
     changes = payload.model_dump(exclude_unset=True)
@@ -166,7 +167,7 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     return _read_product(db, product_id)
 
 
-@router.patch("/products/{product_id}/archive", response_model=ProductRead)
+@router.patch("/products/{product_id}/archive", response_model=AdminProductRead)
 def archive_product(product_id: int, db: Session = Depends(get_db), _actor=Depends(admin_access)):
     product = _read_product(db, product_id)
     product.is_active = False
@@ -174,7 +175,7 @@ def archive_product(product_id: int, db: Session = Depends(get_db), _actor=Depen
     return _read_product(db, product_id)
 
 
-@router.patch("/products/{product_id}/restore", response_model=ProductRead)
+@router.patch("/products/{product_id}/restore", response_model=AdminProductRead)
 def restore_product(product_id: int, db: Session = Depends(get_db), _actor=Depends(admin_access)):
     product = _read_product(db, product_id)
     product.is_active = True
@@ -266,12 +267,17 @@ def _imagekit_client():
 async def upload_product_image(
     product_id: int,
     file: UploadFile = File(...),
+    variant_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
     _actor=Depends(admin_access),
 ):
-    product = db.get(Product, product_id)
+    product = db.scalar(select(Product).where(Product.id == product_id).with_for_update())
     if product is None:
         raise HTTPException(404, "Product not found")
+    if variant_id is not None:
+        variant = db.get(ProductVariant, variant_id)
+        if variant is None or variant.product_id != product_id:
+            raise HTTPException(422, "Variant does not belong to this product")
     image_count = db.scalar(select(func.count(ProductImage.id)).where(ProductImage.product_id == product_id)) or 0
     if image_count >= MAX_PRODUCT_IMAGES:
         raise HTTPException(409, "A product can have no more than 8 images")
@@ -302,10 +308,11 @@ async def upload_product_image(
     except Exception as exc:
         raise HTTPException(502, "ImageKit could not store the image") from exc
     existing_images = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
+                                      .where(ProductImage.variant_id == variant_id)
                                       .order_by(ProductImage.display_order, ProductImage.id)))
     for order, existing in enumerate(existing_images):
         existing.display_order = order
-    reference = ProductImage(product_id=product_id, storage_key=url, provider="imagekit",
+    reference = ProductImage(product_id=product_id, variant_id=variant_id, storage_key=url, provider="imagekit",
                              provider_file_id=file_id, alt_text=f"{product.brand or ''} {product.name}".strip(),
                              display_order=len(existing_images))
     db.add(reference)
@@ -328,7 +335,12 @@ def order_product_images(
 ):
     if db.get(Product, product_id) is None:
         raise HTTPException(404, "Product not found")
+    if payload.variant_id is not None:
+        variant = db.get(ProductVariant, payload.variant_id)
+        if variant is None or variant.product_id != product_id:
+            raise HTTPException(422, "Variant does not belong to this product")
     images = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
+                             .where(ProductImage.variant_id == payload.variant_id)
                              .order_by(ProductImage.display_order, ProductImage.id)))
     current_ids = {image.id for image in images}
     if len(payload.image_ids) != len(set(payload.image_ids)) or set(payload.image_ids) != current_ids:
@@ -356,9 +368,10 @@ def delete_product_image(
     ))
     if image is None:
         raise HTTPException(404, "Product image not found")
-    provider, file_id = image.provider, image.provider_file_id
+    provider, file_id, variant_id = image.provider, image.provider_file_id, image.variant_id
     db.delete(image)
     remaining = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
+                                .where(ProductImage.variant_id == variant_id)
                                 .order_by(ProductImage.display_order, ProductImage.id)))
     for order, item in enumerate(remaining):
         item.display_order = order

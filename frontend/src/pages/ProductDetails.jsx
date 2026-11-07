@@ -7,12 +7,19 @@ import { useCart } from '../context/CartContext';
 
 const currency = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
 const methodLabels = { cod: 'Cash on Delivery', upi: 'UPI', netbanking: 'Net Banking' };
+const displaySku = (value) => String(value || '').replace(/^(?:SKU:\s*)+/i, '');
 
-function ProductGallery({ product }) {
-  const images = useMemo(() => [...(product.images || [])].sort((a, b) => a.display_order - b.display_order), [product.images]);
+function ProductGallery({ product, selectedVariant }) {
+  const images = useMemo(() => {
+    const allImages = product.images || [];
+    const variantImages = allImages.filter((image) => image.variant_id === selectedVariant?.id);
+    return [...(variantImages.length ? variantImages : allImages.filter((image) => image.variant_id == null))]
+      .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
+  }, [product.images, selectedVariant?.id]);
   const [activeId, setActiveId] = useState(images[0]?.id ?? null);
   const [failedIds, setFailedIds] = useState([]);
-  useEffect(() => { setActiveId(images[0]?.id ?? null); setFailedIds([]); }, [product.id, images]);
+  const galleryKey = images.map((image) => image.id).join(':');
+  useEffect(() => { setActiveId(images[0]?.id ?? null); setFailedIds([]); }, [product.id, selectedVariant?.id, galleryKey]);
   const activeImage = images.find((item) => item.id === activeId) || images[0];
   return <section className="fk-detail-gallery" aria-label="Product images">
     <div className="fk-detail-thumbnails" role="list" aria-label="Choose product image">
@@ -49,7 +56,7 @@ function PolicySummary({ product }) {
 
 export function ProductDetails({ slug, onNavigate }) {
   const [product, setProduct] = useState(null);
-  const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [selectedVariant, setSelectedVariant] = useState(null);
   const [pin, setPin] = useState('');
   const [pinFeedback, setPinFeedback] = useState('');
   const [state, setState] = useState({ loading: true, error: '' });
@@ -65,20 +72,20 @@ export function ProductDetails({ slug, onNavigate }) {
         setProduct(result);
         const initial = result.variants?.find((variant) => variant.is_available && (variant.inventory?.available_stock ?? 0) > 0)
           || result.variants?.[0] || null;
-        setSelectedVariantId(initial?.id ?? null);
+        setSelectedVariant(initial);
       })
       .catch((error) => { if (active) setState({ loading: false, error: error.message || 'Product could not be loaded.' }); })
       .finally(() => { if (active) setState((current) => ({ ...current, loading: false })); });
     return () => { active = false; };
   }, [slug]);
 
-  const selectedVariant = product?.variants?.find((variant) => variant.id === selectedVariantId) || product?.variants?.[0] || null;
+  const currentVariant = product?.variants?.find((variant) => variant.id === selectedVariant?.id) || product?.variants?.[0] || null;
   const isWishlisted = product && wishlistItems.some((item) => item.id === product.id);
-  const availableStock = selectedVariant?.inventory?.available_stock;
-  const isAvailable = Boolean(selectedVariant?.is_available && availableStock > 0);
+  const availableStock = currentVariant?.inventory?.available_stock;
+  const isAvailable = Boolean(currentVariant?.is_available && availableStock > 0);
   const hasInventory = Number.isInteger(availableStock);
-  const discount = selectedVariant && Number(selectedVariant.mrp) > Number(selectedVariant.price) && Number(selectedVariant.mrp) > 0
-    ? Math.round(((Number(selectedVariant.mrp) - Number(selectedVariant.price)) / Number(selectedVariant.mrp)) * 100) : 0;
+  const discount = currentVariant && Number(currentVariant.mrp) > Number(currentVariant.price) && Number(currentVariant.mrp) > 0
+    ? Math.round(((Number(currentVariant.mrp) - Number(currentVariant.price)) / Number(currentVariant.mrp)) * 100) : 0;
 
   const checkPin = (event) => {
     event.preventDefault();
@@ -94,39 +101,41 @@ export function ProductDetails({ slug, onNavigate }) {
           : product && <>
             <nav className="fk-product-breadcrumb" aria-label="Breadcrumb"><button onClick={() => onNavigate('home')}>Home</button><span> / </span>{product.category?.name || 'Products'}<span> / </span>{product.name}</nav>
             <section className="fk-product-detail-layout">
-              <ProductGallery product={product} />
+              <ProductGallery product={product} selectedVariant={currentVariant} />
               <div className="fk-product-detail-info">
                 <div className="fk-detail-scroll-content">
                   <div className="fk-detail-title-row"><div>{product.brand && <p className="fk-product-brand">{product.brand}</p>}<h1>{product.name}</h1></div>
                     <button type="button" className={`fk-detail-wishlist ${isWishlisted ? 'is-selected' : ''}`} aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'} aria-pressed={Boolean(isWishlisted)} onClick={() => toggleWishlist(product)}><Heart fill={isWishlisted ? 'currentColor' : 'none'} /></button>
                   </div>
                   <p className="fk-detail-rating">No ratings yet</p>
-                  {selectedVariant && <div className="fk-detail-pricing"><strong>{currency(selectedVariant.price)}</strong>
-                    {discount > 0 && <><del>{currency(selectedVariant.mrp)}</del><span className="fk-detail-discount">{discount}% off</span></>}
+                  {currentVariant && <div className="fk-detail-pricing"><strong>{currency(currentVariant.price)}</strong>
+                    {discount > 0 && <><del>{currency(currentVariant.mrp)}</del><span className="fk-detail-discount">{discount}% off</span></>}
                   </div>}
-                  <p className={`fk-product-detail-stock ${isAvailable ? 'is-in-stock' : ''}`}>{!selectedVariant ? 'Availability not available' : !selectedVariant.is_available ? 'Currently unavailable' : !hasInventory ? 'Availability will be confirmed' : isAvailable ? `${availableStock} available` : 'Out of stock'}</p>
-                  {selectedVariant && <p className="fk-product-detail-sku">SKU: {selectedVariant.sku}</p>}
+                  <p className={`fk-product-detail-stock ${isAvailable ? 'is-in-stock' : ''}`}>{!currentVariant ? 'Availability not available' : !currentVariant.is_available ? 'Currently unavailable' : !hasInventory ? 'Availability will be confirmed' : isAvailable ? `${availableStock} available` : 'Out of stock'}</p>
+                  {currentVariant && <p className="fk-product-detail-sku">SKU: {displaySku(currentVariant.sku)}</p>}
                   {!!product.variants?.length && <fieldset className="fk-detail-variants"><legend>Options</legend><div>{product.variants.map((variant) => {
                     const available = variant.is_available && (variant.inventory?.available_stock ?? 0) > 0;
-                    return <button type="button" key={variant.id} className={variant.id === selectedVariant?.id ? 'is-selected' : ''}
-                      aria-pressed={variant.id === selectedVariant?.id} disabled={!available} onClick={() => setSelectedVariantId(variant.id)}>
+                    return <button type="button" key={variant.id} className={variant.id === currentVariant?.id ? 'is-selected' : ''}
+                      aria-pressed={variant.id === currentVariant?.id} disabled={!available} onClick={() => setSelectedVariant(variant)}>
                       <span>{variant.name}</span><small>{currency(variant.price)}</small>
                     </button>;
                   })}</div></fieldset>}
                   {product.short_description && <p className="fk-detail-short-description">{product.short_description}</p>}
-                  <p className="fk-detail-seller">Sold by <strong>Flatkart</strong></p>
-                  <section className="fk-detail-payment"><h2>Payment options</h2>{product.payment_methods?.length
-                    ? <p>{product.payment_methods.map((method) => methodLabels[method]).filter(Boolean).join(' · ')}</p>
-                    : <p>Payment options will be confirmed at checkout.</p>}</section>
-                  <form className="fk-detail-pin" onSubmit={checkPin} noValidate><label htmlFor="fk-delivery-pin">Check delivery availability</label><div><input id="fk-delivery-pin" inputMode="numeric" autoComplete="postal-code" maxLength="6" value={pin} onChange={(event) => { setPin(event.target.value.replace(/\D/g, '').slice(0, 6)); setPinFeedback(''); }} placeholder="6-digit PIN code" /><button type="submit">Check</button></div>{pinFeedback && <p role="status">{pinFeedback}</p>}</form>
                   {!!product.highlights?.length && <section className="fk-detail-highlights"><h2>Key highlights</h2><ul>{product.highlights.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section>}
                   {!!Object.keys(product.specifications || {}).length && <section className="fk-detail-specifications"><h2>Specifications</h2><dl>{Object.entries(product.specifications).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></section>}
                   <div className="fk-detail-accordions">
                     {!!product.description && <details><summary>Product description</summary><p className="fk-detail-description-text">{product.description}</p></details>}
                     {!!Object.keys(product.specifications || {}).length && <details><summary>Technical specifications</summary><dl>{Object.entries(product.specifications).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></details>}
                     <details><summary>Return & refund policy</summary><p><PolicySummary product={product} /></p></details>
-                    <details><summary>Payment information</summary><p>{product.payment_methods?.length ? product.payment_methods.map((method) => methodLabels[method]).filter(Boolean).join(' · ') : 'Payment options will be confirmed at checkout.'}</p></details>
                   </div>
+                  <section className="fk-detail-store-delivery" aria-label="Store and delivery information">
+                    <h2>Store & delivery information</h2>
+                    <p className="fk-detail-seller">Sold by <strong>Flatkart</strong></p>
+                    <section className="fk-detail-payment"><h3>Accepted payment methods</h3>{product.payment_methods?.length
+                      ? <p>{product.payment_methods.map((method) => methodLabels[method]).filter(Boolean).join(' · ')}</p>
+                      : <p>Payment options will be confirmed at checkout.</p>}</section>
+                    <form className="fk-detail-pin" onSubmit={checkPin} noValidate><label htmlFor="fk-delivery-pin">Check delivery availability</label><div><input id="fk-delivery-pin" inputMode="numeric" autoComplete="postal-code" maxLength="6" value={pin} onChange={(event) => { setPin(event.target.value.replace(/\D/g, '').slice(0, 6)); setPinFeedback(''); }} placeholder="6-digit PIN" /><button type="submit">Check</button></div>{pinFeedback && <p role="status">{pinFeedback}</p>}</form>
+                  </section>
                 </div>
                 <PurchaseActions />
               </div>

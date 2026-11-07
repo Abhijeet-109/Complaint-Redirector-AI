@@ -1,16 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { productService } from '../../services/productService';
 
-const blankVariant = () => ({ sku: '', name: '', price: '', mrp: '', total_stock: 0, is_available: true });
+const nextClientKey = () => globalThis.crypto?.randomUUID?.() || `variant-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const blankVariant = () => ({ clientKey: nextClientKey(), sku: '', name: '', price: '', mrp: '', total_stock: 0, is_available: true, images: [] });
 const blankProduct = () => ({ name: '', brand: '', description: '', short_description: '', category_id: '', slug: '', slugTouched: false,
   is_active: true, highlights: [], specifications: {}, is_returnable: false, return_window_days: '', is_refundable: false,
-  payment_methods: [], variants: [blankVariant()], images: [], specificationRows: [], pendingDeleteIds: [] });
+  payment_methods: [], variants: [blankVariant()], images: [], specificationRows: [], pendingDeleteImages: [] });
 const flatten = (rows) => rows.flatMap((row) => [row, ...flatten(row.children || [])]);
 const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const numeric = (value) => Number(value || 0);
 
 function EditorSection({ title, description, children }) {
   return <section className="fk-editor-card"><div className="fk-editor-card-heading"><h2>{title}</h2>{description && <p>{description}</p>}</div>{children}</section>;
+}
+
+function ImageGalleryEditor({ title, gallery, remaining, busy, onAdd, onMove, onRemove, onRetry }) {
+  return <div className="fk-variant-gallery">
+    <div className="fk-variant-gallery-heading"><strong>{title}</strong><span>{8 - remaining}/8 total product images</span></div>
+    <label className="fk-gallery-picker">Add images<input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={onAdd} disabled={remaining <= 0 || busy} /></label>
+    <div className="fk-editor-gallery">{gallery.map((image, index) => <article className="fk-editor-image-card" key={image.id || `${image.file?.name}-${index}`}>
+      <div className="fk-editor-image-stage"><img src={image.url} alt={image.alt_text || image.file?.name || ''} />{index === 0 && <span className="fk-editor-cover">Primary / Cover</span>}</div>
+      <div className="fk-editor-image-meta"><span>Image {index + 1}</span><span>{image.status === 'saved' ? 'Uploaded' : image.status === 'uploading' ? `Uploading ${image.progress || 0}%` : image.status === 'failed' ? 'Upload failed' : 'Ready to upload'}</span></div>
+      {image.status === 'failed' && <p className="fk-editor-image-error">{image.error}</p>}
+      <div className="fk-editor-image-actions">{image.status === 'failed' && <button type="button" disabled={busy} onClick={() => onRetry(index)}>Retry on save</button>}<button type="button" disabled={index === 0 || busy} onClick={() => onMove(index, -1)}>Move up</button><button type="button" disabled={index === gallery.length - 1 || busy} onClick={() => onMove(index, 1)}>Move down</button><button type="button" disabled={busy} onClick={() => onRemove(index)}>Remove</button></div>
+    </article>)}{!gallery.length && <p className="fk-editor-empty">No images in this gallery.</p>}</div>
+  </div>;
 }
 
 export function ProductManagement() {
@@ -32,19 +46,23 @@ export function ProductManagement() {
   };
   useEffect(() => { load().catch((error) => setLoadError(error.message || 'Catalogue could not be loaded.')); }, []);
 
-  const toForm = (product) => ({
-    id: product.id, name: product.name || '', brand: product.brand || '', description: product.description || '',
-    short_description: product.short_description || '', category_id: product.category?.id || '', slug: product.slug || '', slugTouched: true,
-    is_active: product.is_active, highlights: product.highlights || [], specifications: product.specifications || {},
-    is_returnable: product.is_returnable ?? null, return_window_days: product.return_window_days ?? '',
-    is_refundable: product.is_refundable ?? null, payment_methods: product.payment_methods || [],
-    specificationRows: Object.entries(product.specifications || {}).map(([key, value]) => ({ key, value })),
-    pendingDeleteIds: [],
-    variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku, name: variant.name, price: variant.price,
-      mrp: variant.mrp ?? variant.price, total_stock: variant.inventory?.total_stock ?? 0, is_available: variant.is_available,
-      reserved_stock: variant.inventory?.reserved_stock ?? 0 })),
-    images: [...(product.images || [])].sort((a, b) => a.display_order - b.display_order).map((image) => ({ ...image, status: 'saved' })),
-  });
+  const toForm = (product) => {
+    const images = [...(product.images || [])].sort((a, b) => a.display_order - b.display_order || a.id - b.id)
+      .map((image) => ({ ...image, status: 'saved' }));
+    return {
+      id: product.id, name: product.name || '', brand: product.brand || '', description: product.description || '',
+      short_description: product.short_description || '', category_id: product.category?.id || '', slug: product.slug || '', slugTouched: true,
+      is_active: product.is_active, highlights: product.highlights || [], specifications: product.specifications || {},
+      is_returnable: product.is_returnable ?? null, return_window_days: product.return_window_days ?? '',
+      is_refundable: product.is_refundable ?? null, payment_methods: product.payment_methods || [],
+      specificationRows: Object.entries(product.specifications || {}).map(([key, value]) => ({ key, value })),
+      pendingDeleteImages: [],
+      variants: product.variants.map((variant) => ({ clientKey: String(variant.id), id: variant.id, sku: variant.sku, name: variant.name, price: variant.price,
+        mrp: variant.mrp ?? variant.price, total_stock: variant.inventory?.total_stock ?? 0, is_available: variant.is_available,
+        reserved_stock: variant.inventory?.reserved_stock ?? 0, images: images.filter((image) => image.variant_id === variant.id) })),
+      images: images.filter((image) => image.variant_id == null),
+    };
+  };
 
   const edit = (product) => { setMessage(''); setForm(product ? toForm(product) : blankProduct()); };
   const change = (key, value) => setForm((current) => ({ ...current, [key]: value }));
@@ -56,39 +74,60 @@ export function ProductManagement() {
   const removeSpecification = (index) => setForm((current) => ({ ...current,
     specificationRows: current.specificationRows.filter((_, rowIndex) => rowIndex !== index) }));
 
-  const addFiles = (event) => {
+  const imageCount = (value = form) => value.images.length + value.variants.reduce((total, variant) => total + variant.images.length, 0);
+  const galleryFor = (groupKey, value = form) => groupKey === 'shared'
+    ? value.images : value.variants.find((variant) => variant.clientKey === groupKey)?.images || [];
+  const updateGallery = (groupKey, images) => setForm((current) => groupKey === 'shared'
+    ? { ...current, images }
+    : { ...current, variants: current.variants.map((variant) => variant.clientKey === groupKey ? { ...variant, images } : variant) });
+
+  const addFiles = (groupKey, event) => {
     const selected = Array.from(event.target.files || []);
     event.target.value = '';
-    const remaining = 8 - (form.images?.length || 0);
+    const remaining = 8 - imageCount();
     if (selected.length > remaining) {
-      setMessage(`Only ${Math.max(remaining, 0)} more image${remaining === 1 ? '' : 's'} can be added. The product gallery limit is 8.`);
+      setMessage(`Only ${Math.max(remaining, 0)} more image${remaining === 1 ? '' : 's'} can be added. The product gallery limit is 8 across shared and variant galleries.`);
       return;
     }
     const additions = selected.map((file) => ({ file, url: URL.createObjectURL(file), status: 'queued', progress: 0, error: '' }));
-    change('images', [...(form.images || []), ...additions]);
+    updateGallery(groupKey, [...galleryFor(groupKey), ...additions]);
     setMessage('');
   };
 
-  const updateGallery = (images) => setForm((current) => ({ ...current, images }));
-  const moveImage = async (index, delta) => {
+  const moveImage = async (groupKey, index, delta) => {
+    const gallery = galleryFor(groupKey);
     const target = index + delta;
-    if (target < 0 || target >= form.images.length) return;
-    const images = [...form.images];
+    if (target < 0 || target >= gallery.length) return;
+    const images = [...gallery];
     [images[index], images[target]] = [images[target], images[index]];
-    updateGallery(images);
+    updateGallery(groupKey, images);
+    const variant = groupKey === 'shared' ? null : form.variants.find((item) => item.clientKey === groupKey);
+    const hasPendingDeletion = form.pendingDeleteImages.some((image) => image.variant_id === (variant?.id ?? null));
     const imageIds = images.filter((image) => image.status === 'saved').map((image) => image.id);
-    if (form.id) {
-      try { await productService.orderImages(form.id, imageIds); }
+    if (form.id && !hasPendingDeletion && (groupKey === 'shared' || variant?.id) && imageIds.length) {
+      try { await productService.orderImages(form.id, imageIds, variant?.id ?? null); }
       catch (error) { setMessage(error.message || 'Image order could not be saved.'); }
     }
   };
-  const removeImage = async (index) => {
-    const image = form.images[index];
+
+  const removeImage = (groupKey, index) => {
+    const gallery = galleryFor(groupKey);
+    const image = gallery[index];
     if (image.url && image.file) URL.revokeObjectURL(image.url);
-    const images = form.images.filter((_, rowIndex) => rowIndex !== index).map((entry, rowIndex) => entry.status === 'saved'
-      ? { ...entry, display_order: rowIndex } : entry);
-    setForm((current) => ({ ...current, images,
-      pendingDeleteIds: image.status === 'saved' ? [...current.pendingDeleteIds, image.id] : current.pendingDeleteIds }));
+    const images = gallery.filter((_, rowIndex) => rowIndex !== index);
+    const variant = groupKey === 'shared' ? null : form.variants.find((item) => item.clientKey === groupKey);
+    updateGallery(groupKey, images);
+    if (image.status === 'saved') setForm((current) => ({ ...current,
+      pendingDeleteImages: [...current.pendingDeleteImages, { id: image.id, variant_id: variant?.id ?? null }] }));
+  };
+
+  const retryImage = (groupKey, index) => updateGallery(groupKey, galleryFor(groupKey).map((image, row) =>
+    row === index ? { ...image, status: 'queued', error: '' } : image));
+
+  const cancelEdit = () => {
+    if (form) [...form.images, ...form.variants.flatMap((variant) => variant.images)]
+      .filter((image) => image.file && image.url).forEach((image) => URL.revokeObjectURL(image.url));
+    setForm(null);
   };
 
   const save = async (event) => {
@@ -121,42 +160,84 @@ export function ProductManagement() {
           price: Number(variant.price), mrp: Number(variant.mrp || variant.price), total_stock: Number(variant.total_stock), is_available: variant.is_available })),
       };
       const saved = form.id ? await productService.updateProduct(form.id, payload) : await productService.createProduct(payload);
-      let images = [...(form.images || [])];
-      let pendingDeleteIds = [...(form.pendingDeleteIds || [])];
-      setForm({ ...toForm(saved), images, pendingDeleteIds });
-      for (const imageId of pendingDeleteIds) {
-        await productService.deleteImage(saved.id, imageId);
-        pendingDeleteIds = pendingDeleteIds.filter((id) => id !== imageId);
-        setForm((current) => ({ ...current, pendingDeleteIds }));
+      let working = toForm(saved);
+      const variantsBySku = new Map(saved.variants.map((variant) => [variant.sku, variant]));
+      const removedImageIds = new Set((form.pendingDeleteImages || []).map((image) => image.id));
+      working.images = form.images.filter((image) => !removedImageIds.has(image.id)).map((image) => ({ ...image, variant_id: null }));
+      working.variants = working.variants.map((savedVariant) => {
+        const original = form.variants.find((variant) => variant.sku.trim() === savedVariant.sku);
+        const groupImages = (original?.images || []).filter((image) => !removedImageIds.has(image.id))
+          .map((image) => ({ ...image, variant_id: savedVariant.id }));
+        return { ...savedVariant, images: groupImages };
+      });
+      for (const variant of form.variants) {
+        const savedVariant = variantsBySku.get(variant.sku.trim());
+        if (!savedVariant) continue;
+        const target = working.variants.find((item) => item.id === savedVariant.id);
+        if (target) target.images = target.images.map((image) => image.file ? { ...image, variantSku: savedVariant.sku } : image);
       }
-      const savedIds = images.filter((image) => image.status === 'saved').map((image) => image.id);
-      if (savedIds.length) await productService.orderImages(saved.id, savedIds);
-      let failed = false;
-      for (let index = 0; index < images.length; index += 1) {
-        const entry = images[index];
-        if (!entry.file || entry.status === 'uploaded') continue;
-        images[index] = { ...entry, status: 'uploading', progress: 0, error: '' };
-        updateGallery([...images]);
-        try {
-          const uploaded = await productService.uploadImage(saved.id, entry.file, (progress) => {
-            images[index] = { ...images[index], progress };
-            updateGallery([...images]);
-          });
-          if (entry.url) URL.revokeObjectURL(entry.url);
-          images[index] = { id: uploaded.image_id, url: uploaded.url, display_order: uploaded.display_order, status: 'saved' };
-        } catch (error) {
-          failed = true;
-          images[index] = { ...entry, status: 'failed', error: error.message || 'Upload failed.' };
+      let pendingDeleteImages = [...(form.pendingDeleteImages || [])];
+      working.pendingDeleteImages = pendingDeleteImages;
+      setForm(working);
+      for (const pendingImage of [...pendingDeleteImages]) {
+        await productService.deleteImage(saved.id, pendingImage.id);
+        pendingDeleteImages = pendingDeleteImages.filter((image) => image.id !== pendingImage.id);
+        working.pendingDeleteImages = pendingDeleteImages;
+        setForm({ ...working });
+      }
+
+      const setWorkingGallery = (clientKey, images) => {
+        if (clientKey === 'shared') working.images = images;
+        else working.variants = working.variants.map((variant) => variant.clientKey === clientKey ? { ...variant, images } : variant);
+        setForm({ ...working, variants: [...working.variants] });
+      };
+      const groups = [{ clientKey: 'shared', variantId: null, images: working.images },
+        ...working.variants.filter((variant) => variant.id).map((variant) => ({ clientKey: variant.clientKey, variantId: variant.id, images: variant.images }))];
+      for (const group of groups) {
+        const orderedIds = group.images.filter((image) => image.status === 'saved').map((image) => image.id);
+        if (orderedIds.length) await productService.orderImages(saved.id, orderedIds, group.variantId);
+      }
+
+      for (const group of groups) {
+        let gallery = [...(group.clientKey === 'shared' ? working.images : working.variants.find((variant) => variant.clientKey === group.clientKey)?.images || [])];
+        for (let index = 0; index < gallery.length; index += 1) {
+          const entry = gallery[index];
+          if (!entry.file || entry.status === 'saved') continue;
+          gallery[index] = { ...entry, status: 'uploading', progress: 0, error: '' };
+          setWorkingGallery(group.clientKey, [...gallery]);
+          try {
+            const uploaded = await productService.uploadImage(saved.id, entry.file, (progress) => {
+              gallery[index] = { ...gallery[index], progress };
+              setWorkingGallery(group.clientKey, [...gallery]);
+            }, group.variantId);
+            if (entry.url) URL.revokeObjectURL(entry.url);
+            gallery[index] = { id: uploaded.image_id, url: uploaded.url, display_order: uploaded.display_order,
+              variant_id: group.variantId, status: 'saved' };
+          } catch (error) {
+            gallery[index] = { ...entry, status: 'failed', error: error.message || 'Upload failed.' };
+          }
+          setWorkingGallery(group.clientKey, [...gallery]);
         }
-        updateGallery([...images]);
       }
-      const finalIds = images.filter((image) => image.status === 'saved').map((image) => image.id);
-      if (finalIds.length) await productService.orderImages(saved.id, finalIds);
+      for (const group of groups) {
+        const gallery = group.clientKey === 'shared' ? working.images : working.variants.find((variant) => variant.clientKey === group.clientKey)?.images || [];
+        const finalIds = gallery.filter((image) => image.status === 'saved').map((image) => image.id);
+        if (finalIds.length) await productService.orderImages(saved.id, finalIds, group.variantId);
+      }
       const refreshed = await productService.adminProduct(saved.id);
       const nextForm = toForm(refreshed);
-      const failedQueue = images.filter((image) => image.status === 'failed' || image.status === 'queued');
-      if (failed || failedQueue.length) {
-        setForm({ ...nextForm, images: [...nextForm.images, ...failedQueue], pendingDeleteIds });
+      const failedShared = working.images.filter((image) => image.file && (image.status === 'failed' || image.status === 'queued'));
+      nextForm.images.push(...failedShared);
+      for (const variant of working.variants) {
+        const failedVariantImages = variant.images.filter((image) => image.file && (image.status === 'failed' || image.status === 'queued'));
+        if (!failedVariantImages.length) continue;
+        const target = nextForm.variants.find((item) => item.sku === variant.sku);
+        if (target) target.images.push(...failedVariantImages.map((image) => ({ ...image, variantSku: variant.sku })));
+      }
+      const hasFailures = [...nextForm.images, ...nextForm.variants.flatMap((variant) => variant.images)]
+        .some((image) => image.file && (image.status === 'failed' || image.status === 'queued'));
+      if (hasFailures) {
+        setForm({ ...nextForm, pendingDeleteImages });
         setMessage('Product details saved; some images failed to upload. Retry the failed images below.');
       } else {
         await load();
@@ -174,6 +255,7 @@ export function ProductManagement() {
   const visibleProducts = products.filter((product) =>
     (!search || `${product.name} ${product.brand || ''}`.toLowerCase().includes(search.toLowerCase()))
     && (!categoryFilter || String(product.category?.id) === categoryFilter));
+  const remainingImages = form ? Math.max(0, 8 - imageCount()) : 8;
 
   return <section className="fk-catalog-admin">
     {!form ? <>
@@ -191,7 +273,7 @@ export function ProductManagement() {
         {!visibleProducts.length && <tr><td colSpan="7">{loadError ? 'Catalogue is unavailable.' : 'No matching products.'}</td></tr>}
       </tbody></table></div>
     </> : <form className="fk-product-editor" onSubmit={save}>
-      <header className="fk-product-editor-header"><div><button type="button" className="fk-editor-back" onClick={() => setForm(null)}>← Products</button><h1>{form.name || 'New product'}</h1><p>{form.id ? `Editing product #${form.id}` : 'Create a catalogue product'}</p></div><div className="fk-editor-header-actions"><span className={`fk-editor-status ${form.is_active ? 'is-active' : ''}`}>{form.is_active ? 'Active' : 'Archived'}</span><button type="button" onClick={() => setForm(null)}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div></header>
+      <header className="fk-product-editor-header"><div><button type="button" className="fk-editor-back" onClick={cancelEdit}>← Products</button><h1>{form.name || 'New product'}</h1><p>{form.id ? `Editing product #${form.id}` : 'Create a catalogue product'}</p></div><div className="fk-editor-header-actions"><span className={`fk-editor-status ${form.is_active ? 'is-active' : ''}`}>{form.is_active ? 'Active' : 'Archived'}</span><button type="button" onClick={cancelEdit}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div></header>
       {message && <p className="fk-catalog-admin-message" role="status">{message}</p>}
       <div className="fk-product-editor-grid"><div className="fk-product-editor-main">
         <EditorSection title="Basic information" description="Core product details shown in the Flatkart catalogue.">
@@ -208,15 +290,10 @@ export function ProductManagement() {
           </div>
         </EditorSection>
 
-        <EditorSection title="Product gallery" description={`${form.images.length} of 8 images. The first image is the cover.`}>
-          <label className="fk-gallery-picker">Add product images<input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={addFiles} disabled={form.images.length >= 8} /></label>
-          <div className="fk-editor-gallery">{form.images.map((image, index) => <article className="fk-editor-image-card" key={image.id || `${image.file?.name}-${index}`}>
-            <div className="fk-editor-image-stage"><img src={image.url} alt={image.alt_text || image.file?.name || ''} />{index === 0 && <span className="fk-editor-cover">Primary / Cover</span>}</div>
-            <div className="fk-editor-image-meta"><span>Image {index + 1}</span><span>{image.status === 'saved' ? 'Uploaded' : image.status === 'uploading' ? `Uploading ${image.progress || 0}%` : image.status === 'failed' ? 'Upload failed' : 'Ready to upload'}</span></div>
-            {image.status === 'failed' && <p className="fk-editor-image-error">{image.error}</p>}
-            <div className="fk-editor-image-actions">{image.status === 'failed' && <button type="button" disabled={busy} onClick={() => updateGallery(form.images.map((entry, row) => row === index ? { ...entry, status: 'queued', error: '' } : entry))}>Retry on save</button>}<button type="button" disabled={index === 0 || busy} onClick={() => moveImage(index, -1)}>Move up</button><button type="button" disabled={index === form.images.length - 1 || busy} onClick={() => moveImage(index, 1)}>Move down</button><button type="button" disabled={busy} onClick={() => removeImage(index)}>Remove</button></div>
-          </article>)}
-          {!form.images.length && <p className="fk-editor-empty">No product images added.</p>}</div>
+        <EditorSection title="Product gallery" description={`${imageCount()} of 8 images across all galleries. The first shared image is the cover when no variant images are configured.`}>
+          <ImageGalleryEditor title="Shared product images" gallery={form.images} remaining={remainingImages} busy={busy}
+            onAdd={(event) => addFiles('shared', event)} onMove={(index, delta) => moveImage('shared', index, delta)}
+            onRemove={(index) => removeImage('shared', index)} onRetry={(index) => retryImage('shared', index)} />
         </EditorSection>
 
         <EditorSection title="Key highlights" description="Add concise product points; blank entries are ignored.">
@@ -231,12 +308,19 @@ export function ProductManagement() {
         </EditorSection>
 
         <EditorSection title="Product variants & inventory" description="Each variant is one purchasable SKU. Reserved stock remains protected.">
-          <div className="fk-editor-variants">{form.variants.map((variant, index) => <div className="fk-editor-variant" key={variant.id || index}>
-            <div className="fk-editor-variant-title"><strong>Variant {index + 1}</strong>{variant.id && <small>{variant.reserved_stock} reserved</small>}</div>
+          <div className="fk-editor-variants">{form.variants.map((variant, index) => <div className="fk-editor-variant" key={variant.clientKey}>
+            <div className="fk-editor-variant-title"><strong>Variant {index + 1} — {variant.name || 'Unnamed variant'}</strong>{variant.id && <small>{variant.reserved_stock} reserved</small>}</div>
             <div className="fk-editor-fields"><label>Variant name<input required value={variant.name} onChange={(event) => changeVariant(index, 'name', event.target.value)} /></label><label>SKU<input required maxLength="80" value={variant.sku} onChange={(event) => changeVariant(index, 'sku', event.target.value)} /></label>
               <label>Selling price<input type="number" min="0" step="0.01" required value={variant.price} onChange={(event) => changeVariant(index, 'price', event.target.value)} /></label><label>MRP<input type="number" min={variant.price || 0} step="0.01" required value={variant.mrp} onChange={(event) => changeVariant(index, 'mrp', event.target.value)} /></label>
               <label>Total stock<input type="number" min={variant.reserved_stock || 0} step="1" required value={variant.total_stock} onChange={(event) => changeVariant(index, 'total_stock', event.target.value)} /></label><label className="fk-editor-toggle"><input type="checkbox" checked={variant.is_available} onChange={(event) => changeVariant(index, 'is_available', event.target.checked)} /> Available</label>
-            </div><button className="fk-editor-remove" type="button" disabled={form.variants.length === 1} onClick={() => change('variants', form.variants.filter((_, row) => row !== index))}>Remove variant</button>
+            </div>
+            <ImageGalleryEditor title={`Images for ${variant.name || `variant ${index + 1}`}`} gallery={variant.images} remaining={remainingImages} busy={busy}
+              onAdd={(event) => addFiles(variant.clientKey, event)} onMove={(imageIndex, delta) => moveImage(variant.clientKey, imageIndex, delta)}
+              onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} />
+            <button className="fk-editor-remove" type="button" disabled={form.variants.length === 1} onClick={() => {
+              variant.images.filter((image) => image.file && image.url).forEach((image) => URL.revokeObjectURL(image.url));
+              change('variants', form.variants.filter((_, row) => row !== index));
+            }}>Remove variant</button>
           </div>)}</div><button className="fk-editor-secondary" type="button" onClick={() => change('variants', [...form.variants, blankVariant()])}>Add variant</button>
         </EditorSection>
       </div>
@@ -250,7 +334,7 @@ export function ProductManagement() {
         <EditorSection title="Store identity"><div className="fk-editor-seller">Sold by Flatkart</div></EditorSection>
         <div className="fk-editor-save-card"><p>Changes are saved to the product catalogue.</p><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button><button type="button" onClick={() => setForm(null)}>Cancel</button></div>
       </aside></div>
-      <div className="fk-editor-bottom-actions"><span>{form.id ? 'Editing product details' : 'New product'}</span><div><button type="button" onClick={() => setForm(null)}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div></div>
+      <div className="fk-editor-bottom-actions"><span>{form.id ? 'Editing product details' : 'New product'}</span><div><button type="button" onClick={cancelEdit}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div></div>
     </form>}
   </section>;
 }

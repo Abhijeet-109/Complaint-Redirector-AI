@@ -1092,6 +1092,10 @@
 .fk-editor-variant { padding: 14px 0; border-top: 1px solid #eceee9; }
 .fk-editor-variant-title { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 13px; }
 .fk-editor-variant-title small { color: var(--editor-muted); }
+.fk-variant-gallery { margin-top: 15px; padding: 13px; border: 1px solid #e6e8e2; border-radius: 6px; background: #faf9f6; }
+.fk-variant-gallery-heading { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 10px; color: #46564f; font-size: 12px; }
+.fk-variant-gallery-heading span { color: var(--editor-muted); font-size: 11px; }
+.fk-variant-gallery .fk-editor-gallery { grid-template-columns: repeat(3,minmax(0,1fr)); }
 .fk-editor-remove { margin-top: 10px; }
 .fk-editor-aside-field { margin: 14px 0; }
 .fk-editor-aside-field input:disabled { color: #98a09a; background: #f3f4f0; }

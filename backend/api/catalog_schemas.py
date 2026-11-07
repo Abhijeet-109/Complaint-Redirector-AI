@@ -35,11 +35,15 @@ class ImageRead(BaseModel):
     id: int
     url: str = Field(validation_alias="storage_key")
     provider: str
-    provider_file_id: str | None = None
     alt_text: str | None = None
     display_order: int
+    variant_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class AdminImageRead(ImageRead):
+    provider_file_id: str | None = None
 
 
 class ProductRead(BaseModel):
@@ -61,6 +65,10 @@ class ProductRead(BaseModel):
     variants: list[VariantRead]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AdminProductRead(ProductRead):
+    images: list[AdminImageRead]
 
 
 class CategoryNode(BaseModel):

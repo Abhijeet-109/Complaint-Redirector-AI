@@ -312,7 +312,7 @@ class Product(Base):
     attributes = Column(JSON, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     category = relationship("ProductCategory")
-    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by="ProductImage.display_order")
+    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by=("ProductImage.display_order", "ProductImage.id"))
     variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
 
 
@@ -321,12 +321,14 @@ class ProductImage(Base):
 
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    variant_id = Column(Integer, ForeignKey("product_variants.id", ondelete="SET NULL"), nullable=True, index=True)
     storage_key = Column(String(500), nullable=False)
     provider = Column(String(40), nullable=False)
     provider_file_id = Column(String(120), nullable=True)
     alt_text = Column(String(240), nullable=True)
     display_order = Column(Integer, nullable=False, default=0)
     product = relationship("Product", back_populates="images")
+    variant = relationship("ProductVariant", back_populates="images")
 
 
 class ProductVariant(Base):
@@ -344,6 +346,7 @@ class ProductVariant(Base):
     mrp = Column(Numeric(12, 2), nullable=False)
     is_available = Column(Boolean, nullable=False, default=True)
     product = relationship("Product", back_populates="variants")
+    images = relationship("ProductImage", back_populates="variant")
     inventory = relationship("Inventory", back_populates="variant", uselist=False, cascade="all, delete-orphan")
 
 

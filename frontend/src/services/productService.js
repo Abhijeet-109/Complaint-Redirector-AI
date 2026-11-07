@@ -17,14 +17,14 @@ export const productService = {
   adminProduct: (id) => apiRequest(`/api/admin/catalog/products/${id}`),
   createProduct: (data) => apiRequest('/api/admin/catalog/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id, data) => apiRequest(`/api/admin/catalog/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  orderImages: (id, imageIds) => apiRequest(`/api/admin/catalog/products/${id}/images/order`, { method: 'PUT', body: JSON.stringify({ image_ids: imageIds }) }),
+  orderImages: (id, imageIds, variantId = null) => apiRequest(`/api/admin/catalog/products/${id}/images/order`, { method: 'PUT', body: JSON.stringify({ image_ids: imageIds, variant_id: variantId }) }),
   deleteImage: (id, imageId) => apiRequest(`/api/admin/catalog/products/${id}/images/${imageId}`, { method: 'DELETE' }),
   archiveProduct: (id, archived) => apiRequest(`/api/admin/catalog/products/${id}/${archived ? 'restore' : 'archive'}`, { method: 'PATCH' }),
   categoriesAdmin: () => apiRequest('/api/admin/catalog/categories'),
   createCategory: (data) => apiRequest('/api/admin/catalog/categories', { method: 'POST', body: JSON.stringify(data) }),
   updateCategory: (id, data) => apiRequest(`/api/admin/catalog/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   archiveCategory: (id, archived) => apiRequest(`/api/admin/catalog/categories/${id}/${archived ? 'restore' : 'archive'}`, { method: 'PATCH' }),
-  uploadImage: (productId, file, onProgress = () => {}) => new Promise((resolve, reject) => {
+  uploadImage: (productId, file, onProgress = () => {}, variantId = null) => new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/admin/catalog/products/${productId}/images`);
     const token = localStorage.getItem('flatkart_token');
@@ -39,6 +39,7 @@ export const productService = {
     xhr.onerror = () => reject(new Error('Image upload failed. Check your connection.'));
     const body = new FormData();
     body.append('file', file);
+    if (variantId != null) body.append('variant_id', String(variantId));
     xhr.send(body);
   }),
 };
