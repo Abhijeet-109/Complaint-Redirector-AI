@@ -305,7 +305,7 @@ class Product(Base):
     attributes = Column(JSON, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     category = relationship("ProductCategory")
-    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan")
+    images = relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by="ProductImage.display_order")
     variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
 
 
@@ -316,6 +316,7 @@ class ProductImage(Base):
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     storage_key = Column(String(500), nullable=False)
     provider = Column(String(40), nullable=False)
+    provider_file_id = Column(String(120), nullable=True)
     alt_text = Column(String(240), nullable=True)
     display_order = Column(Integer, nullable=False, default=0)
     product = relationship("Product", back_populates="images")

@@ -75,6 +75,14 @@ PRODUCTS = (
     (226, "Classmate", "Hardbound Ruled Notebook", "A5 Blue", 180, "Pack of three, 160 pages each", "stationery", "/assets/cat_books_hi.jpg"),
     (227, "Parker", "Jotter Ball Pen Set", "Blue Ink", 650, "Set of three refillable pens", "stationery", "/assets/cat_books_hi.jpg"),
     (228, "Faber-Castell", "Colour Pencil Set", "24 Shades", 420, "Break-resistant pencils", "stationery", "/assets/cat_books_hi.jpg"),
+    (229, "Roadster", "Classic Cotton Polo T-Shirt", "Navy Blue", 999, "Classic cotton polo shirt", "men", "/assets/cat_men_hi.jpg"),
+    (230, "Aurelia", "Printed Straight Kurta", "Printed", 1499, "Printed straight kurta", "women", "/assets/cat_women_hi.jpg"),
+    (231, "Lavie", "Compact Crossbody Sling Bag", "Tan", 1299, "Compact everyday crossbody bag", "accessories", "/assets/cat_women_hi.jpg"),
+    (232, "Campus", "Everyday Running Shoes", "Grey", 2199, "Lightweight everyday running shoes", "footwear", "/assets/cat_sports_hi.jpg"),
+    (233, "Home Centre", "Ceramic Table Lamp", "Ivory", 1699, "Ceramic table lamp", "home-living", "/assets/cat_home_living_hi.jpg"),
+    (234, "Minimalist", "Vitamin C Face Serum", "30 ml", 699, "Vitamin C face serum", "beauty", "/assets/cat_beauty_hi.jpg"),
+    (235, "boAt", "Wireless Bluetooth Headphones", "Black", 2499, "Wireless Bluetooth headphones", "electronics", "/assets/cat_electronics_hi.jpg"),
+    (236, "Classmate", "Dotted Journal Set", "Set of two", 249, "Dotted journal set", "stationery", "/assets/cat_books_hi.jpg"),
 )
 
 TARGET_CUSTOMERS = ("user1@gmail.com", "user3@gmail.com")

@@ -23,7 +23,7 @@ export function resolveAuthorizedPage(page, role, isAuthenticated) {
 
   const dashboardPage = ROLE_DASHBOARD_PAGES[role];
   if (dashboardPage) {
-    return page === 'login' || page === 'register' || page === dashboardPage
+    return page === 'login' || page === 'register' || page === 'product' || page === dashboardPage
       ? page
       : dashboardPage;
   }

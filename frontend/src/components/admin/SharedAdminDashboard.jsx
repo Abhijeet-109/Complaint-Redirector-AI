@@ -19,6 +19,8 @@ import { ComplaintsTable } from './ComplaintsTable';
 import { ComplaintDetailsPanel } from './ComplaintDetailsPanel';
 import { ManagementTable } from './ManagementTable';
 import { PipelineManagementView } from './pipeline/PipelineManagementView';
+import { ProductManagement } from './ProductManagement';
+import { CategoryManagement } from './CategoryManagement';
 
 export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
   // Navigation State
@@ -190,6 +192,8 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
         </div>
       ) : (
         <>
+          {currentView === 'products' && <ProductManagement />}
+          {currentView === 'categories' && <CategoryManagement />}
           {/* ========================================================
               VIEW 1: OVERVIEW
               ======================================================== */}

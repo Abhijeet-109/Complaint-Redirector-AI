@@ -9,12 +9,16 @@ import { MyConversations } from './pages/MyConversations';
 import { HandlerDashboardPage } from './pages/HandlerDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { SuperAdminDashboardPage } from './pages/SuperAdminDashboardPage';
+import { ProductDetails } from './pages/ProductDetails';
 import { resolveAuthorizedPage } from './utils/roleAccess';
 
 function AppContent() {
   const { user, isAuthenticated, loading } = useAuth();
+  const initialProductSlug = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i)?.[1];
+  const [productSlug, setProductSlug] = useState(() => initialProductSlug ? decodeURIComponent(initialProductSlug) : '');
   const [currentPage, setCurrentPage] = useState(() => {
     const path = window.location.pathname.toLowerCase();
+    if (/^\/products\/[^/]+\/?$/.test(path)) return 'product';
     if (path === '/login') return 'login';
     if (path === '/register') return 'register';
     if (path === '/my-complaints') return 'my-complaints';
@@ -29,7 +33,9 @@ function AppContent() {
   useEffect(() => {
     const handlePopState = () => {
       const path = window.location.pathname.toLowerCase();
-      if (path === '/login') setCurrentPage('login');
+      const productMatch = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i);
+      if (productMatch) { setProductSlug(decodeURIComponent(productMatch[1])); setCurrentPage('product'); }
+      else if (path === '/login') setCurrentPage('login');
       else if (path === '/register') setCurrentPage('register');
       else if (path === '/my-complaints') setCurrentPage('my-complaints');
       else if (path === '/my-conversations') setCurrentPage('my-conversations');
@@ -44,8 +50,12 @@ function AppContent() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigateTo = (page) => {
+  const navigateTo = (page, value) => {
     let targetPath = '/';
+    if (page === 'product' && value) {
+      targetPath = `/products/${encodeURIComponent(value)}`;
+      setProductSlug(value);
+    }
     if (page === 'login') targetPath = '/login';
     if (page === 'register') targetPath = '/register';
     if (page === 'my-complaints') targetPath = '/my-complaints';
@@ -103,6 +113,10 @@ function AppContent() {
 
   if (authorizedPage === 'super-admin-dashboard') {
     return <SuperAdminDashboardPage onNavigate={navigateTo} />;
+  }
+
+  if (authorizedPage === 'product') {
+    return <ProductDetails slug={productSlug} onNavigate={navigateTo} />;
   }
 
   return <Home onNavigate={navigateTo} />;

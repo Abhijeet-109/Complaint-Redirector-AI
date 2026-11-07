@@ -37,6 +37,8 @@ from backend.api.routes.redirection_analytics import (
 from backend.Database.connection import engine, DATABASE_URL
 from backend.Database.models import LoginThrottle
 from backend.api.routes.drive import router as drive_router
+from backend.api.routes.products import router as products_router
+from backend.api.routes.admin_catalog import router as admin_catalog_router
 from backend.security_config import app_environment, cors_origins
 from sqlalchemy.engine import make_url
 
@@ -111,6 +113,8 @@ app.include_router(chatbot_router)
 app.include_router(documents_router)
 app.include_router(redirection_analytics_router)
 app.include_router(drive_router)
+app.include_router(products_router)
+app.include_router(admin_catalog_router)
 
 def custom_openapi():
     if app.openapi_schema:

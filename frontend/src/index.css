@@ -75,6 +75,37 @@ input, textarea, select {
   position: relative;
 }
 
+.fk-live-product-card { border: 0; text-align: left; font: inherit; width: 100%; }
+.fk-live-product-card:hover { transform: translateY(-2px); }
+.fk-catalog-state { padding: 28px; text-align: center; color: var(--fk-text-muted); }
+.fk-product-detail-page { max-width: 1200px; min-height: 55vh; margin: 0 auto; padding: 28px 24px 64px; }
+.fk-product-breadcrumb { margin: 0 0 22px; color: var(--fk-text-muted); font-size: 13px; }
+.fk-product-breadcrumb button { border: 0; background: none; color: var(--fk-olive); cursor: pointer; }
+.fk-product-detail-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr); gap: 48px; align-items: start; }
+.fk-product-detail-image { background: #f5f2ec; min-height: 440px; display: grid; place-items: center; }
+.fk-product-detail-image img { width: 100%; height: 500px; object-fit: contain; }
+.fk-product-detail-info { padding: 16px 0; }
+.fk-product-detail-info h1 { margin: 6px 0 18px; font-size: clamp(26px, 3vw, 38px); color: var(--fk-text-primary); }
+.fk-product-detail-price { font-size: 26px; font-weight: 700; color: var(--fk-price-coral); }
+.fk-product-detail-stock { color: #3a6943; font-weight: 600; }
+.fk-product-detail-description { margin-top: 26px; line-height: 1.65; color: var(--fk-text-primary); white-space: pre-wrap; }
+.fk-product-detail-sku { margin-top: 24px; color: var(--fk-text-muted); font-size: 13px; }
+.fk-product-variant-select { display: grid; gap: 7px; margin-top: 20px; font-weight: 600; }
+.fk-product-variant-select select { padding: 11px; border: 1px solid #d8d4ca; border-radius: 5px; }
+.fk-product-not-found { text-align: center; padding: 90px 20px; }
+.fk-product-not-found button { padding: 10px 18px; border: 0; background: var(--fk-olive); color: white; border-radius: 5px; cursor: pointer; }
+.fk-product-filters { display: flex; gap: 12px; margin: 20px 0; }
+.fk-product-filters input, .fk-product-filters select { padding: 10px; border: 1px solid #d8d4ca; border-radius: 5px; }
+.fk-search-result-message { padding: 13px 16px; font-size: 13px; color: var(--fk-text-muted); }
+
+@media (max-width: 760px) {
+  .fk-product-detail-page { padding: 18px 16px 40px; }
+  .fk-product-detail-layout { grid-template-columns: 1fr; gap: 16px; }
+  .fk-product-detail-image { min-height: 300px; }
+  .fk-product-detail-image img { height: 340px; }
+  .fk-product-filters { flex-direction: column; }
+}
+
 /* ============================================================
    1. MAIN HEADER
    ============================================================ */

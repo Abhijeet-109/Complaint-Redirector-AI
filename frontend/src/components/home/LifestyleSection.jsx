@@ -1,8 +1,16 @@
 import React from 'react';
-import { LIFESTYLE_CATEGORIES } from '../../data/demoProducts';
 import { ArrowUpRight } from 'lucide-react';
 
-export function LifestyleSection({ onSelectCategory }) {
+const fallbacks = ['/assets/cat_men_hi.jpg', '/assets/cat_women_hi.jpg', '/assets/cat_home_living_hi.jpg', '/assets/cat_electronics_hi.jpg'];
+
+export function LifestyleSection({ onSelectCategory, categories = [], products = [] }) {
+  const items = categories.slice(0, 4).map((category, index) => ({
+    id: category.id,
+    title: category.name,
+    categoryName: category.name,
+    subtitle: `${products.filter((product) => product.category?.id === category.id).length} products to explore`,
+    image: products.find((product) => product.category?.id === category.id)?.images?.[0]?.url || fallbacks[index % fallbacks.length],
+  }));
   return (
     <section className="fk-featured-section">
       <div style={{ marginBottom: '14px' }}>
@@ -21,7 +29,7 @@ export function LifestyleSection({ onSelectCategory }) {
           gap: '18px',
         }}
       >
-        {LIFESTYLE_CATEGORIES.map((item) => (
+        {items.map((item) => (
           <div
             key={item.id}
             onClick={() => onSelectCategory && onSelectCategory(item.categoryName)}

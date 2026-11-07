@@ -1,12 +1,16 @@
 """Isolated SQLite migration checks; PostgreSQL-specific behavior is covered separately."""
 
 import unittest
+import importlib.util
+from pathlib import Path
 
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, event, inspect
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 
 from backend.Database.connection import Base
 from backend.Database import models  # noqa: F401 - registers all mapped tables
@@ -57,6 +61,20 @@ class MigrationTests(unittest.TestCase):
             self.assertIn("users", names_after_downgrade)
             self.assertIn("complaints", names_after_downgrade)
             self.assertFalse(names_after_downgrade & COMMERCE_TABLES)
+
+    def test_imagekit_file_reference_migration_adds_and_drops_column(self):
+        migration_path = Path(__file__).parent / "migrations" / "versions" / "f6a4c1d8b209_add_imagekit_file_reference.py"
+        spec = importlib.util.spec_from_file_location("imagekit_reference_migration", migration_path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("CREATE TABLE product_images (id INTEGER PRIMARY KEY)")
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+            self.assertIn("provider_file_id", {column["name"] for column in inspect(connection).get_columns("product_images")})
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.downgrade()
+            self.assertNotIn("provider_file_id", {column["name"] for column in inspect(connection).get_columns("product_images")})
 
 
 if __name__ == "__main__":

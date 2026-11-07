@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/layout/Header';
 import { CategoryNav } from '../components/layout/CategoryNav';
 import { HeroBanner } from '../components/home/HeroBanner';
@@ -17,25 +17,54 @@ import { OrdersModal } from '../components/common/OrdersModal';
 import { useAuth } from '../context/AuthContext';
 import { isCustomerRole } from '../utils/roleAccess';
 import { Footer } from '../components/layout/Footer';
-import { CATEGORIES } from '../data/categories';
+import { productService } from '../services/productService';
+import { ProductGrid } from '../components/products/ProductGrid';
+
+const flattenCategories = (rows) => rows.flatMap((row) => [row, ...flattenCategories(row.children || [])]);
+const categoryTreeIds = (category) => [category.id, ...(category.children || []).flatMap(categoryTreeIds)];
 
 export function Home({ onNavigate }) {
   const { user } = useAuth();
   const [activeCategory, setActiveCategory] = useState('Home');
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  const [catalogue, setCatalogue] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
+  const [catalogueError, setCatalogueError] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([productService.list({ limit: 100 }), productService.categories()])
+      .then(([products, activeCategories]) => {
+        if (!alive) return;
+        setCatalogue(products);
+        setCategories(activeCategories);
+      })
+      .catch((error) => { if (alive) setCatalogueError(error.message || 'Could not load the catalogue.'); })
+      .finally(() => { if (alive) setCatalogueLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  const categoryRows = useMemo(() => flattenCategories(categories), [categories]);
+  const featured = catalogue.slice(0, 4);
+  const trending = catalogue.slice(4, 8);
+  const fresh = catalogue.slice(-4).reverse();
 
   const handleSelectCategory = (catName) => {
     setActiveCategory(catName);
     if (catName === 'Home') {
+      setSelectedCategory(null);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
-    const category = CATEGORIES.find((item) => item.name === catName);
+    const category = categoryRows.find((item) => item.name === catName);
     if (category) {
+      setSelectedCategory(category);
       window.requestAnimationFrame(() => {
-        document.getElementById(`fk-category-${category.id}`)?.scrollIntoView({
+        document.getElementById('fk-category-products')?.scrollIntoView({
           behavior: 'smooth',
           block: 'center',
         });
@@ -43,9 +72,7 @@ export function Home({ onNavigate }) {
     }
   };
 
-  const handleSelectProduct = (product) => {
-    // Can trigger assistant or drawer
-  };
+  const handleSelectProduct = (product) => onNavigate('product', product.slug);
 
   return (
     <div className="fk-page-container">
@@ -60,31 +87,47 @@ export function Home({ onNavigate }) {
       <CategoryNav
         activeCategory={activeCategory}
         onSelectCategory={handleSelectCategory}
+        items={['Home', ...categoryRows.map((category) => category.name)]}
       />
 
       {/* 3. Hero Carousel Banner */}
       <HeroBanner onExplore={handleSelectCategory} />
 
       {/* 4. Shop by Category (8 cards) */}
-      <CategorySection onSelectCategory={handleSelectCategory} />
+      <CategorySection onSelectCategory={handleSelectCategory} categories={categories} products={catalogue} />
+      {selectedCategory && (
+        <section id="fk-category-products" className="fk-featured-section">
+          <h2 className="fk-section-heading">{selectedCategory.name}</h2>
+          <ProductGrid
+            products={catalogue.filter((product) => categoryTreeIds(selectedCategory).includes(product.category?.id))}
+            loading={catalogueLoading}
+            error={catalogueError}
+            onSelectProduct={handleSelectProduct}
+            emptyMessage="No active products in this category yet."
+          />
+        </section>
+      )}
 
       {/* 5. Best of Flatkart (4 featured cards) */}
-      <FeaturedProducts onSelectProduct={handleSelectProduct} />
+      <FeaturedProducts onSelectProduct={handleSelectProduct} products={featured} loading={catalogueLoading} error={catalogueError} />
 
       {/* 6. Section A: Trending Now */}
-      <TrendingNow onSelectProduct={handleSelectProduct} />
+      <TrendingNow onSelectProduct={handleSelectProduct} products={trending} loading={catalogueLoading} error={catalogueError} />
 
       {/* 7. Section B: Shop by Lifestyle (Find Your Style) */}
-      <LifestyleSection onSelectCategory={handleSelectCategory} />
+      <LifestyleSection onSelectCategory={handleSelectCategory} categories={categoryRows} products={catalogue} />
 
       {/* 8. Section C: Fresh Arrivals */}
-      <FreshArrivals onSelectProduct={handleSelectProduct} />
+      <FreshArrivals onSelectProduct={handleSelectProduct} products={fresh} loading={catalogueLoading} error={catalogueError} />
 
       {/* 9. Section D: Featured Collection Editorial Banner */}
       <FeaturedCollectionBanner onExplore={handleSelectCategory} />
 
       {/* 10. Section E: Popular Brands (Brands to Know) */}
-      <PopularBrands onSelectBrand={(brand) => console.log('Brand selected:', brand)} />
+      <PopularBrands products={catalogue} onSelectBrand={(brand) => {
+        const product = catalogue.find((item) => item.brand === brand);
+        if (product) handleSelectProduct(product);
+      }} />
 
       {/* 11. Section F: Why Flatkart (Trust and Support) */}
       <WhyFlatkart />

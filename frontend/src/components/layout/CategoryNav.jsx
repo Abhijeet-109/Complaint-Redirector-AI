@@ -2,19 +2,7 @@ import React, { useState } from 'react';
 import { MapPin } from 'lucide-react';
 import { CATEGORIES } from '../../data/categories';
 
-const DEFAULT_NAV_ITEMS = [
-  'Home',
-  'Men',
-  'Women',
-  'Kids',
-  'Home & Living',
-  'Beauty',
-  'Electronics',
-  'Spara',
-  'Boaliss',
-  'Jr',
-  'Dvala',
-];
+const DEFAULT_NAV_ITEMS = ['Home'];
 
 export function CategoryNav({ activeCategory, onSelectCategory, items }) {
   const [currentPostal, setCurrentPostal] = useState('560001 Bengaluru');

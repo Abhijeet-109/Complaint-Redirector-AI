@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, ShoppingCart, Package, Heart, LogOut, LogIn, ChevronDown, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
-import { FEATURED_PRODUCTS } from '../../data/demoProducts';
+import { productService } from '../../services/productService';
 
 export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }) {
   const { user, logout, isAuthenticated } = useAuth();
@@ -12,6 +12,9 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const requestSequence = useRef(0);
 
   const searchRef = useRef(null);
   const userMenuRef = useRef(null);
@@ -33,19 +36,29 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
     const query = e.target.value;
     setSearchQuery(query);
     if (query.trim().length > 0) {
-      const filtered = FEATURED_PRODUCTS.filter(
-        (p) =>
-          p.brand.toLowerCase().includes(query.toLowerCase()) ||
-          p.name.toLowerCase().includes(query.toLowerCase()) ||
-          p.variant.toLowerCase().includes(query.toLowerCase())
-      );
-      setSearchResults(filtered);
+      setSearchResults([]);
+      setSearchError('');
+      setSearchLoading(true);
       setIsSearchOpen(true);
     } else {
       setSearchResults([]);
       setIsSearchOpen(false);
+      setSearchLoading(false);
     }
   };
+
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (!term) return undefined;
+    const sequence = ++requestSequence.current;
+    const timer = setTimeout(() => {
+      productService.search(term, 8)
+        .then((results) => { if (sequence === requestSequence.current) setSearchResults(results); })
+        .catch((error) => { if (sequence === requestSequence.current) setSearchError(error.message || 'Search is unavailable.'); })
+        .finally(() => { if (sequence === requestSequence.current) setSearchLoading(false); });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const handleNavigate = (page) => {
     if (onNavigate) {
@@ -103,8 +116,11 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
         </div>
 
         {/* Live Search Suggestions Dropdown */}
-        {isSearchOpen && searchResults.length > 0 && (
+        {isSearchOpen && searchQuery.trim() && (
           <div className="fk-search-results-dropdown">
+            {searchLoading && <div className="fk-search-result-message">Searching products…</div>}
+            {searchError && <div className="fk-search-result-message" role="alert">{searchError}</div>}
+            {!searchLoading && !searchError && searchResults.length === 0 && <div className="fk-search-result-message">No matching products found.</div>}
             {searchResults.map((product) => (
               <div
                 key={product.id}
@@ -114,13 +130,13 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
                   if (onSelectProduct) onSelectProduct(product);
                 }}
               >
-                <img src={product.image} alt={product.name} className="fk-search-result-thumb" />
+                <img src={product.images?.[0]?.url || '/assets/cat_men_hi.jpg'} alt={product.name} className="fk-search-result-thumb" />
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--fk-text-primary)' }}>
                     {product.brand} - {product.name}
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--fk-text-muted)' }}>
-                    {product.variant} &bull; <span style={{ fontWeight: '600', color: 'var(--fk-price-coral)' }}>{product.price}</span>
+                    {product.variants?.[0]?.name || product.category?.name} &bull; <span style={{ fontWeight: '600', color: 'var(--fk-price-coral)' }}>{product.variants?.[0] ? `₹${Number(product.variants[0].price).toLocaleString('en-IN')}` : ''}</span>
                   </div>
                 </div>
               </div>

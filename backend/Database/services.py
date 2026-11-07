@@ -31,6 +31,7 @@ def get_category_tree(session: Session, *, active_only: bool = True) -> list[dic
     nodes = {
         category.id: {
             "id": category.id,
+            "parent_id": category.parent_id,
             "name": category.name,
             "slug": category.slug,
             "is_active": category.is_active,
