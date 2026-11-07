@@ -3,7 +3,7 @@ const categoryFallbacks = { fashion: '/assets/cat_men_hi.jpg', men: '/assets/cat
 const flattenCategories = (rows) => rows.flatMap((row) => [row, ...flattenCategories(row.children || [])]);
 
 export function CategorySection({ onSelectCategory, categories = [], products = [] }) {
-  const allCategories = flattenCategories(categories);
+  const allCategories = flattenCategories(categories).filter((cat) => cat.slug !== 'fashion');
   return (
     <section className="fk-categories-section">
       <h2 className="fk-section-heading">Shop by category</h2>
