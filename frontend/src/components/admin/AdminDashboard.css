@@ -1044,6 +1044,23 @@
   .fk-catalog-variant-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* Bulk selection toolbar */
+.fk-bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; padding: 9px 12px; background: #f4f1e8; border: 1px solid #dedad0; border-radius: 6px; font-size: 13px; }
+.fk-bulk-toolbar-count { font-weight: 700; color: #183b35; }
+.fk-bulk-toolbar-clear { border: 0; background: none; color: #68736d; font-size: 12px; cursor: pointer; padding: 2px 4px; text-decoration: underline; }
+.fk-bulk-toolbar-clear:hover { color: #183b35; }
+.fk-bulk-toolbar-sep { width: 1px; height: 18px; background: #ccc9be; flex-shrink: 0; }
+.fk-bulk-btn { padding: 6px 11px; border-radius: 4px; border: 1px solid #c9d0cb; background: #fff; color: #23483d; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.fk-bulk-btn:hover { background: #f0ede4; }
+.fk-bulk-btn--danger { border-color: #f3d3d0; color: #c03e33; }
+.fk-bulk-btn--danger:hover { background: #fdf2f0; }
+.fk-bulk-result { margin-top: 8px; padding: 10px 13px; border-radius: 5px; font-size: 12.5px; line-height: 1.55; }
+.fk-bulk-result--ok { background: #eaf3eb; color: #2a5c35; border: 1px solid #c3dec6; }
+.fk-bulk-result--warn { background: #fff8e6; color: #6b4c00; border: 1px solid #e8d88a; }
+.fk-catalog-table th.fk-col-check, .fk-catalog-table td.fk-col-check { width: 38px; padding: 12px 8px 12px 12px; }
+.fk-catalog-table input[type="checkbox"] { width: 15px; height: 15px; accent-color: #183b35; cursor: pointer; }
+.fk-catalog-table tr.is-selected td { background: #f5f2ea; }
+
 /* Flatkart product editor workspace */
 .fk-product-editor { --editor-border: #e3e5df; --editor-muted: #70797b; padding-bottom: 68px; color: var(--fk-text-primary); }
 .fk-product-editor-header { position: sticky; top: 58px; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 16px 20px; margin: -8px -4px 20px; background: rgba(247,246,241,.97); border-bottom: 1px solid var(--editor-border); }

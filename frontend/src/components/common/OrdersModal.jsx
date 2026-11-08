@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Package, Clock, CheckCircle2, AlertTriangle, MessageSquarePlus } from 'lucide-react';
+import { X, Package, MessageSquarePlus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { complaintService } from '../../services/complaintService';
 
@@ -7,7 +7,7 @@ export function OrdersModal({ isOpen, onClose, onOpenChatbot }) {
   const { user, isAuthenticated } = useAuth();
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders' or 'complaints'
+  const [activeTab, setActiveTab] = useState('orders');
 
   useEffect(() => {
     if (isOpen && isAuthenticated) {
@@ -20,25 +20,6 @@ export function OrdersModal({ isOpen, onClose, onOpenChatbot }) {
   }, [isOpen, isAuthenticated]);
 
   if (!isOpen) return null;
-
-  const mockOrders = [
-    {
-      id: 'OD192837465',
-      date: '10 Oct 2026',
-      product: 'Roadster - Men Sold Casual Shirt (Forest Green)',
-      status: 'Delivered',
-      total: '₹1,299',
-      image: '/assets/prod_roadster.png',
-    },
-    {
-      id: 'OD182736452',
-      date: '06 Oct 2026',
-      product: 'Puma - Unisex Smashic Sneakers',
-      status: 'Out for Delivery',
-      total: '₹2,799',
-      image: '/assets/prod_puma.png',
-    },
-  ];
 
   return (
     <div className="fk-modal-overlay" onClick={onClose}>
@@ -79,59 +60,14 @@ export function OrdersModal({ isOpen, onClose, onOpenChatbot }) {
 
         <div style={{ padding: '20px', maxHeight: '480px', overflowY: 'auto' }}>
           {activeTab === 'orders' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {mockOrders.map((ord) => (
-                <div
-                  key={ord.id}
-                  style={{
-                    display: 'flex',
-                    gap: '14px',
-                    padding: '14px',
-                    background: 'var(--fk-surface)',
-                    borderRadius: '8px',
-                    border: '1px solid #ECE8DE',
-                  }}
-                >
-                  <img src={ord.image} alt={ord.product} style={{ width: '60px', height: '60px', objectFit: 'contain', background: '#FFFFFF', borderRadius: '4px' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--fk-text-muted)' }}>
-                        Order ID: {ord.id}
-                      </span>
-                      <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--fk-olive)' }}>
-                        {ord.status}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--fk-text-primary)', margin: '4px 0' }}>
-                      {ord.product}
-                    </div>
-                    <div style={{ fontSize: '13px', color: 'var(--fk-text-muted)' }}>
-                      Total: <strong style={{ color: 'var(--fk-price-coral)' }}>{ord.total}</strong> &bull; Ordered on {ord.date}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <button
-                      style={{
-                        padding: '6px 10px',
-                        background: '#FFFFFF',
-                        border: '1px solid var(--fk-olive)',
-                        color: 'var(--fk-text-primary)',
-                        borderRadius: '4px',
-                        fontSize: '11.5px',
-                        fontWeight: '600',
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                      onClick={() => {
-                        onClose();
-                        onOpenChatbot();
-                      }}
-                    >
-                      Need Help?
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 20px', gap: '12px', color: 'var(--fk-text-muted)', textAlign: 'center' }}>
+              <Package size={40} strokeWidth={1.25} style={{ opacity: 0.45 }} />
+              <p style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--fk-text-primary)' }}>
+                You haven't placed any orders yet.
+              </p>
+              <p style={{ margin: 0, fontSize: '13.5px', lineHeight: '1.55' }}>
+                Your orders will appear here after you complete a purchase.
+              </p>
             </div>
           ) : (
             <div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Heart } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Footer } from '../components/layout/Footer';
@@ -39,15 +40,19 @@ function ProductImageLightbox({ images, initialIndex, onClose, onSyncActive }) {
     });
   };
 
-  return <div className="fk-lightbox-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Product image viewer">
-    <div className="fk-lightbox-content" onClick={(e) => e.stopPropagation()}>
-      {images.length > 1 && <button type="button" className="fk-lightbox-nav fk-lightbox-prev" aria-label="Previous image" disabled={index === 0} onClick={() => go(-1)}>&#8249;</button>}
-      {activeImage && <img className="fk-lightbox-image" src={activeImage.url} alt={activeImage.alt_text || `Image ${index + 1}`} />}
-      {images.length > 1 && <button type="button" className="fk-lightbox-nav fk-lightbox-next" aria-label="Next image" disabled={index === images.length - 1} onClick={() => go(1)}>&#8250;</button>}
+  const lightboxContent = (
+    <div className="fk-lightbox-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Product image viewer">
+      <div className="fk-lightbox-content" onClick={(e) => e.stopPropagation()}>
+        {images.length > 1 && <button type="button" className="fk-lightbox-nav fk-lightbox-prev" aria-label="Previous image" disabled={index === 0} onClick={() => go(-1)}>&#8249;</button>}
+        {activeImage && <img className="fk-lightbox-image" src={activeImage.url} alt={activeImage.alt_text || `Image ${index + 1}`} />}
+        {images.length > 1 && <button type="button" className="fk-lightbox-nav fk-lightbox-next" aria-label="Next image" disabled={index === images.length - 1} onClick={() => go(1)}>&#8250;</button>}
+      </div>
+      <button ref={closeRef} type="button" className="fk-lightbox-close" aria-label="Close image viewer" onClick={onClose}>&#10005;</button>
+      {images.length > 1 && <p className="fk-lightbox-counter" aria-live="polite">{index + 1} / {images.length}</p>}
     </div>
-    <button ref={closeRef} type="button" className="fk-lightbox-close" aria-label="Close image viewer" onClick={onClose}>&#10005;</button>
-    {images.length > 1 && <p className="fk-lightbox-counter" aria-live="polite">{index + 1} / {images.length}</p>}
-  </div>;
+  );
+
+  return createPortal(lightboxContent, document.body);
 }
 
 function ProductGallery({ product, selectedVariant, firstVariantId }) {

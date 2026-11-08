@@ -30,18 +30,79 @@ function ImageGalleryEditor({ title, gallery, busy, uploadEnabled = true, onAdd,
   </div>;
 }
 
+/* ── Bulk confirmation dialog ─────────────────────────────────────────────── */
+function BulkConfirmDialog({ op, count, onConfirm, onCancel, busy }) {
+  const isDelete = op === 'delete';
+  const label = op === 'archive' ? 'Archive' : op === 'restore' ? 'Restore' : 'Permanently Delete';
+  return (
+    <div className="fk-catalog-form-backdrop" onClick={() => { if (!busy) onCancel(); }}>
+      <div className="ad-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="fk-bulk-confirm-title">
+        <div className="ad-modal-header">
+          <span className="ad-modal-title" id="fk-bulk-confirm-title">{label} {count} product{count !== 1 ? 's' : ''}?</span>
+          <button className="ad-modal-close" aria-label="Close" disabled={busy} onClick={onCancel}>&#10005;</button>
+        </div>
+        <div className="ad-modal-body">
+          <p style={{ fontSize: '13.5px', lineHeight: '1.55', color: 'var(--fk-text-primary)' }}>
+            {op === 'archive' && `This will archive ${count} product${count !== 1 ? 's' : ''}. They will be hidden from the storefront but can be restored.`}
+            {op === 'restore' && `This will restore ${count} product${count !== 1 ? 's' : ''} and make them active on the storefront.`}
+            {op === 'delete' && `This will permanently delete ${count} product${count !== 1 ? 's' : ''}. This action cannot be undone.`}
+          </p>
+          {isDelete && (
+            <p style={{ fontSize: '13px', color: '#8a3228', background: '#fdf2f0', border: '1px solid #f3d3d0', borderRadius: '6px', padding: '10px 12px', margin: '8px 0 0' }}>
+              Products referenced by cart or order history cannot be deleted and will be skipped. Archive them instead.
+            </p>
+          )}
+        </div>
+        <div className="ad-modal-footer">
+          <button type="button" className="ad-btn-secondary" disabled={busy} onClick={onCancel}>Cancel</button>
+          <button type="button" className={isDelete ? 'ad-btn-danger' : 'ad-btn-primary'} disabled={busy}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} onClick={onConfirm}>
+            {busy ? 'Processing…' : `${label} ${count} product${count !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Bulk result bar ──────────────────────────────────────────────────────── */
+function BulkResultBar({ result, onDismiss }) {
+  if (!result) return null;
+  const hasFailures = result.failures.length > 0;
+  return (
+    <div className={`fk-bulk-result ${hasFailures && result.successes === 0 ? 'fk-bulk-result--warn' : result.successes > 0 && hasFailures ? 'fk-bulk-result--warn' : 'fk-bulk-result--ok'}`}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+        <div>
+          {result.successes > 0 && <div>{result.successes} product{result.successes !== 1 ? 's' : ''} {result.opLabel} successfully.</div>}
+          {result.failures.map((f, i) => <div key={i} style={{ marginTop: '4px' }}><strong>{f.name}</strong>: {f.reason}</div>)}
+        </div>
+        <button type="button" onClick={onDismiss} style={{ border: 0, background: 'none', cursor: 'pointer', color: 'inherit', fontSize: '14px', lineHeight: 1 }}>&#10005;</button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
 export function ProductManagement() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [form, setForm] = useState(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' });
+
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkOp, setBulkOp] = useState(null); // 'archive' | 'restore' | 'delete'
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+
   const flatCategories = useMemo(() => flatten(categories), [categories]);
 
   const load = async () => {
@@ -52,6 +113,76 @@ export function ProductManagement() {
   };
   useEffect(() => { load().catch((error) => setLoadError(error.message || 'Catalogue could not be loaded.')); }, []);
 
+  // Clear selection whenever filters change
+  useEffect(() => { setSelectedIds(new Set()); setBulkResult(null); }, [search, categoryFilter, statusFilter]);
+
+  const visibleProducts = useMemo(() => products.filter((p) => {
+    if (search && !`${p.name} ${p.brand || ''}`.toLowerCase().includes(search.toLowerCase())) return false;
+    if (categoryFilter && String(p.category?.id) !== categoryFilter) return false;
+    if (statusFilter === 'active' && !p.is_active) return false;
+    if (statusFilter === 'archived' && p.is_active) return false;
+    return true;
+  }), [products, search, categoryFilter, statusFilter]);
+
+  const visibleIds = useMemo(() => new Set(visibleProducts.map((p) => p.id)), [visibleProducts]);
+  const allSelected = visibleProducts.length > 0 && visibleProducts.every((p) => selectedIds.has(p.id));
+  const someSelected = selectedIds.size > 0;
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(visibleProducts.map((p) => p.id)));
+    }
+  };
+
+  const toggleRow = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => { setSelectedIds(new Set()); setBulkResult(null); };
+
+  const selectedProducts = useMemo(() => products.filter((p) => selectedIds.has(p.id) && visibleIds.has(p.id)), [products, selectedIds, visibleIds]);
+  const hasActive = selectedProducts.some((p) => p.is_active);
+  const hasArchived = selectedProducts.some((p) => !p.is_active);
+
+  const executeBulk = async () => {
+    if (!bulkOp || selectedProducts.length === 0) return;
+    setBulkBusy(true);
+    const successes = [];
+    const failures = [];
+    const opLabel = bulkOp === 'archive' ? 'archived' : bulkOp === 'restore' ? 'restored' : 'deleted';
+
+    for (const product of selectedProducts) {
+      try {
+        if (bulkOp === 'archive') await productService.archiveProduct(product.id, false);
+        else if (bulkOp === 'restore') await productService.archiveProduct(product.id, true);
+        else if (bulkOp === 'delete') await productService.deleteProduct(product.id);
+        successes.push(product.id);
+      } catch (err) {
+        failures.push({ name: product.name, reason: err.message || 'Operation failed.' });
+      }
+    }
+
+    await load();
+    setBulkBusy(false);
+    setBulkOp(null);
+
+    // Retain failed IDs in selection, clear succeeded ones
+    const failedNames = new Set(failures.map((f) => f.name));
+    const failedIds = new Set(selectedProducts.filter((p) => failedNames.has(p.name)).map((p) => p.id));
+    setSelectedIds(failedIds);
+
+    if (successes.length > 0 || failures.length > 0) {
+      setBulkResult({ successes: successes.length, failures, opLabel });
+    }
+  };
+
+  /* ── editor helpers (unchanged) ─────────────────────────────────────────── */
   const toForm = (product) => {
     const images = [...(product.images || [])].sort((a, b) => a.display_order - b.display_order || a.id - b.id)
       .map((image) => ({ ...image, status: 'saved' }));
@@ -79,26 +210,20 @@ export function ProductManagement() {
   const addSpecification = () => setForm((current) => ({ ...current, specificationRows: [...current.specificationRows, { key: '', value: '' }] }));
   const removeSpecification = (index) => setForm((current) => ({ ...current,
     specificationRows: current.specificationRows.filter((_, rowIndex) => rowIndex !== index) }));
-
   const galleryFor = (groupKey, value = form) => groupKey === 'shared'
     ? value.images : value.variants.find((variant) => variant.clientKey === groupKey)?.images || [];
   const updateGallery = (groupKey, images) => setForm((current) => groupKey === 'shared'
     ? { ...current, images }
     : { ...current, variants: current.variants.map((variant) => variant.clientKey === groupKey ? { ...variant, images } : variant) });
-
   const addFiles = (groupKey, event) => {
     const selected = Array.from(event.target.files || []);
     event.target.value = '';
     const remaining = 8 - galleryFor(groupKey).length;
-    if (selected.length > remaining) {
-      setMessage(`Only ${Math.max(remaining, 0)} more image${remaining === 1 ? '' : 's'} can be added to this gallery.`);
-      return;
-    }
+    if (selected.length > remaining) { setMessage(`Only ${Math.max(remaining, 0)} more image${remaining === 1 ? '' : 's'} can be added to this gallery.`); return; }
     const additions = selected.map((file) => ({ file, url: URL.createObjectURL(file), status: 'queued', progress: 0, error: '' }));
     updateGallery(groupKey, [...galleryFor(groupKey), ...additions]);
     setMessage('');
   };
-
   const moveImage = async (groupKey, index, delta) => {
     const gallery = galleryFor(groupKey);
     const target = index + delta;
@@ -114,7 +239,6 @@ export function ProductManagement() {
       catch (error) { setMessage(error.message || 'Image order could not be saved.'); }
     }
   };
-
   const removeImage = (groupKey, index) => {
     const gallery = galleryFor(groupKey);
     const image = gallery[index];
@@ -125,10 +249,8 @@ export function ProductManagement() {
     if (image.status === 'saved') setForm((current) => ({ ...current,
       pendingDeleteImages: [...current.pendingDeleteImages, { id: image.id, variant_id: variant?.id ?? null }] }));
   };
-
   const retryImage = (groupKey, index) => updateGallery(groupKey, galleryFor(groupKey).map((image, row) =>
     row === index ? { ...image, status: 'queued', error: '' } : image));
-
   const cancelEdit = () => {
     if (form) [...form.images, ...form.variants.flatMap((variant) => variant.images)]
       .filter((image) => image.file && image.url).forEach((image) => URL.revokeObjectURL(image.url));
@@ -140,22 +262,14 @@ export function ProductManagement() {
     const rows = form.specificationRows;
     const keys = rows.map(({ key }) => key.trim().toLocaleLowerCase());
     if (rows.some(({ key, value }) => !key.trim() || !String(value).trim()) || new Set(keys).size !== keys.length) {
-      setMessage('Enter a unique name and value for every specification.');
-      return;
+      setMessage('Enter a unique name and value for every specification.'); return;
     }
     if (form.variants.some((variant) => numeric(variant.mrp || variant.price) < numeric(variant.price))) {
-      setMessage('Each MRP must be greater than or equal to its selling price.');
-      return;
+      setMessage('Each MRP must be greater than or equal to its selling price.'); return;
     }
     const submittedSkus = form.variants.map((variant) => variant.sku.trim().toLocaleLowerCase());
-    if (new Set(submittedSkus).size !== submittedSkus.length) {
-      setMessage('Each variant must have a unique SKU.');
-      return;
-    }
-    if (form.is_returnable && numeric(form.return_window_days) < 1) {
-      setMessage('Enter a positive return window for a returnable product.');
-      return;
-    }
+    if (new Set(submittedSkus).size !== submittedSkus.length) { setMessage('Each variant must have a unique SKU.'); return; }
+    if (form.is_returnable && numeric(form.return_window_days) < 1) { setMessage('Enter a positive return window for a returnable product.'); return; }
     setBusy(true); setMessage('');
     try {
       const payload = {
@@ -176,8 +290,7 @@ export function ProductManagement() {
       working.images = form.images.filter((image) => !removedImageIds.has(image.id)).map((image) => ({ ...image, variant_id: null }));
       working.variants = working.variants.map((savedVariant) => {
         const original = form.variants.find((variant) => variant.sku.trim() === savedVariant.sku);
-        const groupImages = (original?.images || []).filter((image) => !removedImageIds.has(image.id))
-          .map((image) => ({ ...image, variant_id: savedVariant.id }));
+        const groupImages = (original?.images || []).filter((image) => !removedImageIds.has(image.id)).map((image) => ({ ...image, variant_id: savedVariant.id }));
         return { ...savedVariant, images: groupImages };
       });
       for (const variant of form.variants) {
@@ -195,7 +308,6 @@ export function ProductManagement() {
         working.pendingDeleteImages = pendingDeleteImages;
         setForm({ ...working });
       }
-
       const setWorkingGallery = (clientKey, images) => {
         if (clientKey === 'shared') working.images = images;
         else working.variants = working.variants.map((variant) => variant.clientKey === clientKey ? { ...variant, images } : variant);
@@ -207,7 +319,6 @@ export function ProductManagement() {
         const orderedIds = group.images.filter((image) => image.status === 'saved').map((image) => image.id);
         if (orderedIds.length) await productService.orderImages(saved.id, orderedIds, group.variantId);
       }
-
       for (const group of groups) {
         let gallery = [...(group.clientKey === 'shared' ? working.images : working.variants.find((variant) => variant.clientKey === group.clientKey)?.images || [])];
         for (let index = 0; index < gallery.length; index += 1) {
@@ -221,8 +332,7 @@ export function ProductManagement() {
               setWorkingGallery(group.clientKey, [...gallery]);
             }, group.variantId);
             if (entry.url) URL.revokeObjectURL(entry.url);
-            gallery[index] = { id: uploaded.image_id, url: uploaded.url, display_order: uploaded.display_order,
-              variant_id: group.variantId, status: 'saved' };
+            gallery[index] = { id: uploaded.image_id, url: uploaded.url, display_order: uploaded.display_order, variant_id: group.variantId, status: 'saved' };
           } catch (error) {
             gallery[index] = { ...entry, status: 'failed', error: error.message || 'Upload failed.' };
           }
@@ -293,25 +403,93 @@ export function ProductManagement() {
       setDeleteBusy(false);
     }
   };
-  const visibleProducts = products.filter((product) =>
-    (!search || `${product.name} ${product.brand || ''}`.toLowerCase().includes(search.toLowerCase()))
-    && (!categoryFilter || String(product.category?.id) === categoryFilter));
 
+  /* ── Render ──────────────────────────────────────────────────────────────── */
   return <section className="fk-catalog-admin">
     {!form ? <>
-      <header className="fk-catalog-admin-heading"><div><h1>Manage Products</h1><p>Catalogue details, variants, availability and on-hand stock.</p></div><button onClick={() => edit(null)}>Add Product</button></header>
+      <header className="fk-catalog-admin-heading">
+        <div><h1>Manage Products</h1><p>Catalogue details, variants, availability and on-hand stock.</p></div>
+        <button onClick={() => edit(null)}>Add Product</button>
+      </header>
       {message && <p className="fk-catalog-admin-message" role="status">{message}</p>}
       {loadError && <p className="fk-catalog-admin-message" role="alert">{loadError}</p>}
-      <div className="fk-catalog-admin-filters"><input aria-label="Search products or brands" placeholder="Search products or brands" value={search} onChange={(event) => setSearch(event.target.value)} />
-        <select aria-label="Filter by category" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="">All categories</option>{flatCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></div>
-      <div className="fk-catalog-table-wrap"><table className="fk-catalog-table"><thead><tr><th>Product</th><th>Brand / Category</th><th>Variants</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead><tbody>
-        {visibleProducts.map((product) => { const stock = product.variants.reduce((sum, variant) => sum + (variant.inventory?.available_stock || 0), 0); return <tr key={product.id}>
-          <td className="fk-admin-product-name">{product.images?.[0]?.url && <img src={product.images[0].url} alt="" />}<strong>{product.name}</strong></td><td>{product.brand || '—'}<small>{product.category?.name || 'Uncategorised'}</small></td><td>{product.variants.length}<small>{product.variants[0]?.sku || ''}</small></td>
-          <td>{product.variants[0] ? `₹${Number(product.variants[0].price).toLocaleString('en-IN')}` : '—'}</td><td>{stock}</td><td>{product.is_active ? 'Active' : 'Archived'}</td>
-          <td><button onClick={() => edit(product)}>Edit</button> <button onClick={() => toggleArchive(product)}>{product.is_active ? 'Archive' : 'Restore'}</button> <button title="Permanently delete product" aria-label={`Permanently delete ${product.name}`} onClick={() => { setMessage(''); setDeleteTarget({ product }); }} style={{ color: '#C03E33', borderColor: '#f3d3d0' }}><Trash2 size={14} /></button></td>
-        </tr>; })}
-        {!visibleProducts.length && <tr><td colSpan="7">{loadError ? 'Catalogue is unavailable.' : 'No matching products.'}</td></tr>}
-      </tbody></table></div>
+      <BulkResultBar result={bulkResult} onDismiss={() => setBulkResult(null)} />
+
+      {/* Filters toolbar */}
+      <div className="fk-catalog-admin-filters">
+        <input aria-label="Search products or brands" placeholder="Search products or brands" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select aria-label="Filter by category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {flatCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="archived">Archived</option>
+        </select>
+      </div>
+
+      {/* Bulk selection bar */}
+      {someSelected && (
+        <div className="fk-bulk-toolbar">
+          <span className="fk-bulk-toolbar-count">{selectedIds.size} selected</span>
+          <button type="button" className="fk-bulk-toolbar-clear" onClick={clearSelection}>Clear selection</button>
+          <div className="fk-bulk-toolbar-sep" />
+          {hasActive && (
+            <button type="button" className="fk-bulk-btn" onClick={() => setBulkOp('archive')}>Archive selected</button>
+          )}
+          {hasArchived && (
+            <button type="button" className="fk-bulk-btn" onClick={() => setBulkOp('restore')}>Restore selected</button>
+          )}
+          <button type="button" className="fk-bulk-btn fk-bulk-btn--danger" onClick={() => setBulkOp('delete')}>
+            <Trash2 size={13} /> Delete selected
+          </button>
+        </div>
+      )}
+
+      <div className="fk-catalog-table-wrap">
+        <table className="fk-catalog-table">
+          <thead>
+            <tr>
+              <th className="fk-col-check">
+                <input
+                  type="checkbox"
+                  aria-label="Select all visible products"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                  onChange={toggleSelectAll}
+                />
+              </th>
+              <th>Product</th><th>Brand / Category</th><th>Variants</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleProducts.map((product) => {
+              const stock = product.variants.reduce((sum, v) => sum + (v.inventory?.available_stock || 0), 0);
+              const checked = selectedIds.has(product.id);
+              return <tr key={product.id} className={checked ? 'is-selected' : ''}>
+                <td className="fk-col-check">
+                  <input type="checkbox" aria-label={`Select ${product.name}`} checked={checked} onChange={() => toggleRow(product.id)} />
+                </td>
+                <td className="fk-admin-product-name">{product.images?.[0]?.url && <img src={product.images[0].url} alt="" />}<strong>{product.name}</strong></td>
+                <td>{product.brand || '—'}<small>{product.category?.name || 'Uncategorised'}</small></td>
+                <td>{product.variants.length}<small>{product.variants[0]?.sku || ''}</small></td>
+                <td>{product.variants[0] ? `₹${Number(product.variants[0].price).toLocaleString('en-IN')}` : '—'}</td>
+                <td>{stock}</td>
+                <td>{product.is_active ? 'Active' : 'Archived'}</td>
+                <td>
+                  <button onClick={() => edit(product)}>Edit</button>{' '}
+                  <button onClick={() => toggleArchive(product)}>{product.is_active ? 'Archive' : 'Restore'}</button>{' '}
+                  <button title="Permanently delete product" aria-label={`Permanently delete ${product.name}`}
+                    onClick={() => { setMessage(''); setDeleteTarget({ product }); }}
+                    style={{ color: '#C03E33', borderColor: '#f3d3d0' }}><Trash2 size={14} /></button>
+                </td>
+              </tr>;
+            })}
+            {!visibleProducts.length && <tr><td colSpan="8">{loadError ? 'Catalogue is unavailable.' : 'No matching products.'}</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </> : <form className="fk-product-editor" onSubmit={save}>
       <header className="fk-product-editor-header"><div><button type="button" className="fk-editor-back" onClick={cancelEdit}>← Products</button><h1>{form.name || 'New product'}</h1><p>{form.id ? `Editing product #${form.id}` : 'Create a catalogue product'}</p></div><div className="fk-editor-header-actions"><span className={`fk-editor-status ${form.is_active ? 'is-active' : ''}`}>{form.is_active ? 'Active' : 'Archived'}</span><button type="button" onClick={cancelEdit}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div></header>
       {message && <p className="fk-catalog-admin-message" role="status">{message}</p>}
@@ -329,24 +507,20 @@ export function ProductManagement() {
             <label className="fk-editor-toggle"><input type="checkbox" checked={form.is_active} onChange={(event) => change('is_active', event.target.checked)} /> Active on storefront</label>
           </div>
         </EditorSection>
-
         <EditorSection title="Product gallery" description={`${form.images.length} / 8 images for the default variant gallery.`}>
           <ImageGalleryEditor title="Default variant images" gallery={form.images} busy={busy}
             onAdd={(event) => addFiles('shared', event)} onMove={(index, delta) => moveImage('shared', index, delta)}
             onRemove={(index) => removeImage('shared', index)} onRetry={(index) => retryImage('shared', index)} />
         </EditorSection>
-
         <EditorSection title="Key highlights" description="Add concise product points; blank entries are ignored.">
           <div className="fk-editor-repeat-list">{form.highlights.map((highlight, index) => <div className="fk-editor-repeat-row" key={index}><input aria-label={`Highlight ${index + 1}`} value={highlight} onChange={(event) => change('highlights', form.highlights.map((line, row) => row === index ? event.target.value : line))} /><button type="button" onClick={() => change('highlights', form.highlights.filter((_, row) => row !== index))}>Remove</button></div>)}</div>
           <button className="fk-editor-secondary" type="button" onClick={() => change('highlights', [...form.highlights, ''])}>Add highlight</button>
         </EditorSection>
-
         <EditorSection title="Technical specifications" description="Define any category-neutral name and value for this product.">
           <div className="fk-editor-specs">{form.specificationRows.map(({ key, value }, index) => <div className="fk-editor-spec-row" key={index}>
             <label>Specification name<input value={key} onChange={(event) => setSpecification(index, 'key', event.target.value)} /></label><label>Value<input value={value} onChange={(event) => setSpecification(index, 'value', event.target.value)} /></label><button type="button" onClick={() => removeSpecification(index)}>Remove</button>
           </div>)}</div><button className="fk-editor-secondary" type="button" onClick={addSpecification}>Add specification</button>
         </EditorSection>
-
         <EditorSection title="Product variants & inventory" description="Each variant is one purchasable SKU. Reserved stock remains protected.">
           <div className="fk-editor-variants">{form.variants.map((variant, index) => <div className="fk-editor-variant" key={variant.clientKey}>
             <div className="fk-editor-variant-title"><strong>Variant {index + 1} — {variant.name || 'Unnamed variant'}</strong>{variant.id && <small>{variant.reserved_stock} reserved</small>}</div>
@@ -355,12 +529,10 @@ export function ProductManagement() {
               <label>Total stock<input type="number" min={variant.reserved_stock || 0} step="1" required value={variant.total_stock} onChange={(event) => changeVariant(index, 'total_stock', event.target.value)} /></label><label className="fk-editor-toggle"><input type="checkbox" checked={variant.is_available} onChange={(event) => changeVariant(index, 'is_available', event.target.checked)} /> Available</label>
             </div>
             {index === 0 && !variant.images.length ? <p className="fk-editor-note">Uses the default product gallery.</p>
-              : <>
-                {index === 0 && <p className="fk-editor-note">Existing first variant images are preserved here for safe ordering and removal.</p>}
+              : <>{index === 0 && <p className="fk-editor-note">Existing first variant images are preserved here for safe ordering and removal.</p>}
                 <ImageGalleryEditor title={`Images for ${variant.name || `variant ${index + 1}`}`} gallery={variant.images} busy={busy} uploadEnabled={index !== 0}
                   onAdd={(event) => addFiles(variant.clientKey, event)} onMove={(imageIndex, delta) => moveImage(variant.clientKey, imageIndex, delta)}
-                  onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} />
-              </>}
+                  onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} /></>}
             <button className="fk-editor-remove" type="button" disabled={form.variants.length === 1} onClick={() => {
               variant.images.filter((image) => image.file && image.url).forEach((image) => URL.revokeObjectURL(image.url));
               change('variants', form.variants.filter((_, row) => row !== index));
@@ -380,6 +552,8 @@ export function ProductManagement() {
       </aside></div>
       <div className="fk-editor-bottom-actions"><span>{form.id ? 'Editing product details' : 'New product'}</span><div><button type="button" onClick={cancelEdit}>Cancel</button><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save product'}</button></div></div>
     </form>}
+
+    {/* Single-product delete dialog */}
     {deleteTarget && <div className="fk-catalog-form-backdrop" onClick={() => { if (!deleteBusy) setDeleteTarget(null); }}>
       <div className="ad-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="fk-prod-delete-title">
         <div className="ad-modal-header"><span className="ad-modal-title" id="fk-prod-delete-title">Permanently delete product?</span><button className="ad-modal-close" aria-label="Close" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>&#10005;</button></div>
@@ -391,6 +565,10 @@ export function ProductManagement() {
         <div className="ad-modal-footer"><button type="button" className="ad-btn-secondary" disabled={deleteBusy} onClick={() => { setMessage(''); setDeleteTarget(null); }}>Cancel</button><button type="button" className="ad-btn-danger" disabled={deleteBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} onClick={handleDeleteProduct}><Trash2 size={14} />{deleteBusy ? 'Deleting…' : 'Delete permanently'}</button></div>
       </div>
     </div>}
+
+    {/* Bulk confirm dialog */}
+    {bulkOp && <BulkConfirmDialog op={bulkOp} count={selectedProducts.length} busy={bulkBusy} onCancel={() => setBulkOp(null)} onConfirm={executeBulk} />}
+
     <CenterToast visible={toast.visible} message={toast.message} type={toast.type} onDismiss={() => setToast((t) => ({ ...t, visible: false }))} />
   </section>;
 }

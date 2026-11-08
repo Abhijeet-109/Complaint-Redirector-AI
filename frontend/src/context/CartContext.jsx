@@ -1,46 +1,32 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { FEATURED_PRODUCTS } from '../data/demoProducts';
 
 const CartContext = createContext(null);
 
+const LEGACY_CART_KEY = 'flatkart_cart';
+const LEGACY_WISHLIST_KEY = 'flatkart_wishlist';
+const CART_CLEAN_FLAG = 'flatkart_cart_cleaned_v1';
+
+function loadCleanCart() {
+  if (!localStorage.getItem(CART_CLEAN_FLAG)) {
+    localStorage.removeItem(LEGACY_CART_KEY);
+    localStorage.removeItem(LEGACY_WISHLIST_KEY);
+    localStorage.setItem(CART_CLEAN_FLAG, '1');
+  }
+  return [];
+}
+
 export function CartProvider({ children }) {
-  // Initialize with the 2 items matching the screenshot badge '2'
-  const [cartItems, setCartItems] = useState(() => {
-    const saved = localStorage.getItem('flatkart_cart');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        // ignore
-      }
-    }
-    return [
-      { ...FEATURED_PRODUCTS[0], quantity: 1 },
-      { ...FEATURED_PRODUCTS[2], quantity: 1 },
-    ];
-  });
-
-  const [wishlistItems, setWishlistItems] = useState(() => {
-    const saved = localStorage.getItem('flatkart_wishlist');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        // ignore
-      }
-    }
-    return [];
-  });
-
+  const [cartItems, setCartItems] = useState(loadCleanCart);
+  const [wishlistItems, setWishlistItems] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('flatkart_cart', JSON.stringify(cartItems));
+    localStorage.setItem(LEGACY_CART_KEY, JSON.stringify(cartItems));
   }, [cartItems]);
 
   useEffect(() => {
-    localStorage.setItem('flatkart_wishlist', JSON.stringify(wishlistItems));
+    localStorage.setItem(LEGACY_WISHLIST_KEY, JSON.stringify(wishlistItems));
   }, [wishlistItems]);
 
   const addToCart = (product) => {
