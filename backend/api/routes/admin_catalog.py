@@ -337,6 +337,9 @@ async def upload_product_image(
     )) or 0
     if image_count >= MAX_GALLERY_IMAGES:
         raise HTTPException(409, "A gallery can contain no more than 8 images")
+    existing_images = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
+                                      .where(ProductImage.variant_id == variant_id)
+                                      .order_by(ProductImage.display_order, ProductImage.id)))
     content = await file.read(MAX_IMAGE_BYTES + 1)
     if len(content) > MAX_IMAGE_BYTES:
         raise HTTPException(413, "Image must be 5 MB or smaller")
@@ -355,17 +358,28 @@ async def upload_product_image(
     except Exception as exc:
         raise HTTPException(503, "ImageKit upload service is unavailable") from exc
     ext = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}[actual_format]
+    folder_variant = variant if variant_id is not None else db.scalar(
+        select(ProductVariant).where(ProductVariant.product_id == product_id).order_by(ProductVariant.id).limit(1)
+    )
+    if folder_variant is None:
+        raise HTTPException(409, "A product must have a variant before images can be uploaded")
+    category = product.category
+    if category is None:
+        raise HTTPException(409, "A product must have a category before images can be uploaded")
+    safe_category = re.sub(r"[\\/\x00-\x1f<>:\"|?*]", "-", category.name).strip(" .-")
+    safe_sku = re.sub(r"[^A-Za-z0-9_-]", "-", folder_variant.sku).strip("-_ .")
+    if not safe_category or not safe_sku:
+        raise HTTPException(409, "Product category or variant SKU cannot form a safe upload folder")
+    upload_folder = f"/Flatkart/Products/Categories/{safe_category}/{safe_sku}/"
+    filename = f"image-{len(existing_images) + 1:02d}-{uuid4().hex}.{ext}"
     try:
-        result = client.files.upload(file=content, file_name=f"{uuid4().hex}.{ext}", folder="/flatkart/products")
+        result = client.files.upload(file=content, file_name=filename, folder=upload_folder)
         file_id = result.file_id
         url = result.url
         if not file_id or not url:
             raise ValueError("ImageKit response omitted file ID or URL")
     except Exception as exc:
         raise HTTPException(502, "ImageKit could not store the image") from exc
-    existing_images = list(db.scalars(select(ProductImage).where(ProductImage.product_id == product_id)
-                                      .where(ProductImage.variant_id == variant_id)
-                                      .order_by(ProductImage.display_order, ProductImage.id)))
     for order, existing in enumerate(existing_images):
         existing.display_order = order
     reference = ProductImage(product_id=product_id, variant_id=variant_id, storage_key=url, provider="imagekit",
