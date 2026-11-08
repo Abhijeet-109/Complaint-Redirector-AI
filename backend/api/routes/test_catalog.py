@@ -60,6 +60,61 @@ class CatalogApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/products/men-sold-casual-shirt").status_code, 404)
         self.assertNotIn(product.id, {item["id"] for item in self.client.get("/api/products").json()})
 
+    def test_public_image_serialization_modes_and_inactive_products(self):
+        product = self.session.scalar(select(Product).where(Product.slug == "men-sold-casual-shirt"))
+        product.attributes = {"variant_image_mode": "shared", "internal_note": "must not be public"}
+        shared = ProductImage(
+            product_id=product.id,
+            storage_key="https://ik.imagekit.io/test/shared.webp",
+            provider="imagekit",
+            provider_file_id="private-file-reference",
+            variant_id=None,
+            display_order=0,
+        )
+        self.session.add(shared)
+        variant = min(product.variants, key=lambda item: item.id)
+        variant_image = ProductImage(
+            product_id=product.id,
+            storage_key="https://ik.imagekit.io/test/variant.webp",
+            provider="imagekit",
+            provider_file_id="variant-file-reference",
+            variant_id=variant.id,
+            display_order=0,
+        )
+        self.session.add(variant_image)
+        self.session.commit()
+
+        detail = self.client.get(f"/api/products/{product.slug}")
+        self.assertEqual(detail.status_code, 200)
+        payload = detail.json()
+        self.assertEqual(payload["variant_image_mode"], "shared")
+        public_image = next(image for image in payload["images"] if image["url"] == shared.storage_key)
+        self.assertIsNone(public_image["variant_id"])
+        public_variant_image = next(image for image in payload["images"] if image["url"] == variant_image.storage_key)
+        self.assertEqual(public_variant_image["variant_id"], variant.id)
+        self.assertNotIn("attributes", payload)
+        self.assertNotIn("provider_file_id", public_image)
+
+        product.attributes = {"variant_image_mode": "per_variant"}
+        self.session.commit()
+        self.assertEqual(self.client.get(f"/api/products/{product.slug}").json()["variant_image_mode"], "per_variant")
+
+        product.attributes = {}
+        self.session.commit()
+        legacy = self.client.get(f"/api/products/{product.slug}").json()
+        self.assertEqual(legacy["variant_image_mode"], "per_variant")
+
+        admin = self.client.get(f"/api/admin/catalog/products/{product.id}")
+        self.assertEqual(admin.status_code, 200)
+        self.assertEqual(admin.json()["variant_image_mode"], "per_variant")
+        admin_image = next(image for image in admin.json()["images"] if image["url"] == shared.storage_key)
+        self.assertEqual(admin_image["provider_file_id"], "private-file-reference")
+
+        product.is_active = False
+        self.session.commit()
+        self.assertEqual(self.client.get(f"/api/products/{product.slug}").status_code, 404)
+        self.assertNotIn(product.id, {item["id"] for item in self.client.get("/api/products").json()})
+
     def test_inactive_category_ancestor_hides_products_and_category_tree(self):
         fashion = self.session.scalar(select(ProductCategory).where(ProductCategory.slug == "fashion"))
         fashion.is_active = False
@@ -129,7 +184,9 @@ class CatalogApiTests(unittest.TestCase):
             url = "https://ik.imagekit.io/test/product.png"
 
         class FileApi:
+            upload_kwargs = None
             def upload(self, **_kwargs):
+                self.upload_kwargs = _kwargs
                 return UploadResult()
             def delete(self, _file_id):
                 return None
@@ -143,6 +200,13 @@ class CatalogApiTests(unittest.TestCase):
         reference = self.session.scalar(select(ProductImage).where(ProductImage.provider_file_id == "imagekit-test-file"))
         self.assertEqual(reference.storage_key, UploadResult.url)
         self.assertEqual(reference.provider, "imagekit")
+        first_variant_sku = min(product.variants, key=lambda variant: variant.id).sku
+        self.assertEqual(Client.files.upload_kwargs["folder"], f"/Flatkart/Products/Categories/Men/{first_variant_sku}/")
+        self.assertRegex(Client.files.upload_kwargs["file_name"], r"^image-\d{2}-")
+        admin_product = self.client.get(f"/api/admin/catalog/products/{product.id}")
+        self.assertEqual(admin_product.status_code, 200)
+        self.assertTrue(any(image["url"] == UploadResult.url for image in admin_product.json()["images"]))
+        self.assertTrue(any(image["provider_file_id"] == UploadResult.file_id for image in admin_product.json()["images"]))
 
 
 if __name__ == "__main__":

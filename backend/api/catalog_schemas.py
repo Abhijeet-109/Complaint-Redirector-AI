@@ -1,5 +1,5 @@
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasPath, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CategoryBrief(BaseModel):
@@ -60,9 +60,18 @@ class ProductRead(BaseModel):
     payment_methods: list[str]
     brand: str | None
     is_active: bool
+    variant_image_mode: str = Field(
+        default="per_variant",
+        validation_alias=AliasPath("attributes", "variant_image_mode"),
+    )
     category: CategoryBrief | None
     images: list[ImageRead]
     variants: list[VariantRead]
+
+    @field_validator("variant_image_mode", mode="before")
+    @classmethod
+    def normalize_variant_image_mode(cls, value):
+        return value if value in {"shared", "per_variant"} else "per_variant"
 
     model_config = ConfigDict(from_attributes=True)
 

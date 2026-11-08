@@ -4,6 +4,7 @@ import { Heart } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Footer } from '../components/layout/Footer';
 import { productService } from '../services/productService';
+import { getProductGalleryImages } from '../utils/productImages';
 import { useCart } from '../context/CartContext';
 
 const currency = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
@@ -56,17 +57,10 @@ function ProductImageLightbox({ images, initialIndex, onClose, onSyncActive }) {
 }
 
 function ProductGallery({ product, selectedVariant, firstVariantId }) {
-  const images = useMemo(() => {
-    const allImages = product.images || [];
-    const variantImages = allImages.filter((image) => image.variant_id === selectedVariant?.id);
-    const selectedImages = variantImages.length
-      ? variantImages
-      : selectedVariant?.id == null || selectedVariant.id === firstVariantId
-        ? allImages.filter((image) => image.variant_id == null)
-        : [];
-    return [...selectedImages]
-      .sort((a, b) => a.display_order - b.display_order || a.id - b.id);
-  }, [product.images, selectedVariant?.id, firstVariantId]);
+  const images = useMemo(
+    () => getProductGalleryImages(product, selectedVariant, firstVariantId),
+    [product, selectedVariant?.id, firstVariantId],
+  );
   const [activeId, setActiveId] = useState(images[0]?.id ?? null);
   const [failedIds, setFailedIds] = useState([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
