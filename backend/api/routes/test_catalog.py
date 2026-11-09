@@ -115,6 +115,36 @@ class CatalogApiTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/products/{product.slug}").status_code, 404)
         self.assertNotIn(product.id, {item["id"] for item in self.client.get("/api/products").json()})
 
+    def test_admin_gallery_mode_update_preserves_attributes_and_validates_values(self):
+        product = self.session.scalar(select(Product).where(Product.slug == "men-sold-casual-shirt"))
+        product.attributes = {"custom_admin_note": "keep me", "variant_image_mode": "shared"}
+        self.session.commit()
+        base = {
+            "variants": [{"id": product.variants[0].id, "sku": product.variants[0].sku,
+                          "name": product.variants[0].name, "price": float(product.variants[0].price),
+                          "mrp": float(product.variants[0].mrp), "total_stock": product.variants[0].inventory.total_stock,
+                          "is_available": product.variants[0].is_available}],
+        }
+        unchanged = self.client.put(f"/api/admin/catalog/products/{product.id}", json=base)
+        self.assertEqual(unchanged.status_code, 200, unchanged.text)
+        self.session.refresh(product)
+        self.assertEqual(product.attributes, {"custom_admin_note": "keep me", "variant_image_mode": "shared"})
+
+        updated = self.client.put(f"/api/admin/catalog/products/{product.id}", json={**base, "variant_image_mode": "per_variant"})
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["variant_image_mode"], "per_variant")
+        self.session.refresh(product)
+        self.assertEqual(product.attributes, {"custom_admin_note": "keep me", "variant_image_mode": "per_variant"})
+        self.assertEqual(self.client.put(f"/api/admin/catalog/products/{product.id}", json={**base, "variant_image_mode": "invalid"}).status_code, 422)
+        self.assertEqual(self.client.put(f"/api/admin/catalog/products/{product.id}", json={**base, "variant_image_mode": None}).status_code, 422)
+
+        created = self.client.post("/api/admin/catalog/products", json={
+            "name": "Default gallery mode product",
+            "variants": [{"sku": "DEFAULT-GALLERY-MODE", "name": "One", "price": 10, "total_stock": 1}],
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(created.json()["variant_image_mode"], "per_variant")
+
     def test_inactive_category_ancestor_hides_products_and_category_tree(self):
         fashion = self.session.scalar(select(ProductCategory).where(ProductCategory.slug == "fashion"))
         fashion.is_active = False

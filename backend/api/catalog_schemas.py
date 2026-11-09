@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Literal
 from pydantic import AliasPath, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -162,6 +163,7 @@ class ProductInput(BaseModel):
     category_id: int | None = None
     slug: str | None = Field(default=None, max_length=220)
     is_active: bool = True
+    variant_image_mode: Literal["shared", "per_variant"] = "per_variant"
     variants: list[VariantInput] = Field(min_length=1)
 
     @field_validator("highlights", mode="before")
@@ -197,6 +199,7 @@ class ProductUpdate(BaseModel):
     category_id: int | None = None
     slug: str | None = Field(default=None, max_length=220)
     is_active: bool | None = None
+    variant_image_mode: Literal["shared", "per_variant"] = "per_variant"
     variants: list[VariantInput] | None = Field(default=None, min_length=1)
 
     @field_validator("highlights", mode="before")

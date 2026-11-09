@@ -179,7 +179,8 @@ def create_product(payload: ProductInput, db: Session = Depends(get_db), _actor=
                       is_refundable=payload.is_refundable, payment_methods=payload.payment_methods,
                       category_id=payload.category_id,
                       slug=_unique_slug(db, Product, payload.slug or payload.name),
-                      is_active=payload.is_active, attributes={})
+                      is_active=payload.is_active,
+                      attributes={"variant_image_mode": payload.variant_image_mode})
     db.add(product)
     try:
         db.flush()
@@ -195,6 +196,7 @@ def create_product(payload: ProductInput, db: Session = Depends(get_db), _actor=
 def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db), _actor=Depends(admin_access)):
     product = _read_product(db, product_id)
     changes = payload.model_dump(exclude_unset=True)
+    variant_image_mode = changes.pop("variant_image_mode", None)
     variants = changes.pop("variants", None)
     if changes.get("is_returnable") is False:
         changes["return_window_days"] = None
@@ -205,6 +207,11 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     _validate_variant_update(db, product, payload.variants if variants is not None else None)
     for key, value in changes.items():
         setattr(product, key, value)
+    if variant_image_mode is not None:
+        product.attributes = {
+            **(product.attributes if isinstance(product.attributes, dict) else {}),
+            "variant_image_mode": variant_image_mode,
+        }
     try:
         if variants is not None:
             _set_variants(db, product, payload.variants)

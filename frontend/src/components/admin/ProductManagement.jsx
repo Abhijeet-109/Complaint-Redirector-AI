@@ -7,7 +7,8 @@ const nextClientKey = () => globalThis.crypto?.randomUUID?.() || `variant-${Date
 const blankVariant = () => ({ clientKey: nextClientKey(), sku: '', name: '', price: '', mrp: '', total_stock: 0, is_available: true, images: [] });
 const blankProduct = () => ({ name: '', brand: '', description: '', short_description: '', category_id: '', slug: '', slugTouched: false,
   is_active: true, highlights: [], specifications: {}, is_returnable: false, return_window_days: '', is_refundable: false,
-  payment_methods: [], variants: [blankVariant()], images: [], specificationRows: [], pendingDeleteImages: [] });
+  payment_methods: [], variant_image_mode: 'per_variant', initial_variant_image_mode: 'per_variant',
+  variants: [blankVariant()], images: [], specificationRows: [], pendingDeleteImages: [] });
 const flatten = (rows) => rows.flatMap((row) => [row, ...flatten(row.children || [])]);
 const slugify = (value) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const numeric = (value) => Number(value || 0);
@@ -192,6 +193,8 @@ export function ProductManagement() {
       is_active: product.is_active, highlights: product.highlights || [], specifications: product.specifications || {},
       is_returnable: product.is_returnable ?? null, return_window_days: product.return_window_days ?? '',
       is_refundable: product.is_refundable ?? null, payment_methods: product.payment_methods || [],
+      variant_image_mode: product.variant_image_mode || 'per_variant',
+      initial_variant_image_mode: product.variant_image_mode || 'per_variant',
       specificationRows: Object.entries(product.specifications || {}).map(([key, value]) => ({ key, value })),
       pendingDeleteImages: [],
       variants: [...product.variants].sort((a, b) => a.id - b.id).map((variant) => ({ clientKey: String(variant.id), id: variant.id, sku: variant.sku, name: variant.name, price: variant.price,
@@ -280,6 +283,7 @@ export function ProductManagement() {
         specifications: Object.fromEntries(rows.map(({ key, value }) => [key.trim(), String(value).trim()])),
         is_returnable: form.is_returnable, return_window_days: form.is_returnable ? Number(form.return_window_days) : null,
         is_refundable: form.is_refundable, payment_methods: form.payment_methods,
+        variant_image_mode: form.variant_image_mode,
         variants: form.variants.map((variant) => ({ id: variant.id ?? null, name: variant.name.trim(), sku: variant.sku.trim(),
           price: Number(variant.price), mrp: Number(variant.mrp || variant.price), total_stock: Number(variant.total_stock), is_available: variant.is_available })),
       };
@@ -507,8 +511,24 @@ export function ProductManagement() {
             <label className="fk-editor-toggle"><input type="checkbox" checked={form.is_active} onChange={(event) => change('is_active', event.target.checked)} /> Active on storefront</label>
           </div>
         </EditorSection>
-        <EditorSection title="Product gallery" description={`${form.images.length} / 8 images for the default variant gallery.`}>
-          <ImageGalleryEditor title="Default variant images" gallery={form.images} busy={busy}
+        <EditorSection title="Product gallery" description="Choose how product images are selected when customers switch variants.">
+          <fieldset className="fk-editor-gallery-mode" disabled={busy}>
+            <legend>Product Image Behaviour</legend>
+            <label className="fk-editor-gallery-mode-option">
+              <input type="radio" name="variant_image_mode" value="shared" checked={form.variant_image_mode === 'shared'}
+                onChange={() => change('variant_image_mode', 'shared')} />
+              <span><strong>Shared Gallery</strong><small>The same images appear for every variant. Use this for sizes, capacities, pack quantities or volumes when the product looks the same. Upload images in the shared/default gallery below.</small></span>
+            </label>
+            <label className="fk-editor-gallery-mode-option">
+              <input type="radio" name="variant_image_mode" value="per_variant" checked={form.variant_image_mode === 'per_variant'}
+                onChange={() => change('variant_image_mode', 'per_variant')} />
+              <span><strong>Separate Gallery Per Variant</strong><small>Each variant can have its own images for different colours, designs, finishes or models. A variant without its own images uses the shared/default gallery only for the first variant.</small></span>
+            </label>
+          </fieldset>
+          {form.variant_image_mode !== form.initial_variant_image_mode && form.variants.some((variant) => variant.images.length > 0) &&
+            <p className="fk-editor-note" role="alert">This product already has variant-specific images. Changing to Shared Gallery keeps those image records attached to their variants, but the storefront will not display them while Shared Gallery is selected. Changing to Separate Gallery Per Variant makes each variant gallery visible again. No images or associations will be changed automatically.</p>}
+          <p className="fk-editor-note">The shared/default gallery has {form.images.length}/8 images and is shown for every variant in Shared Gallery mode.</p>
+          <ImageGalleryEditor title="Shared / default gallery" gallery={form.images} busy={busy}
             onAdd={(event) => addFiles('shared', event)} onMove={(index, delta) => moveImage('shared', index, delta)}
             onRemove={(index) => removeImage('shared', index)} onRetry={(index) => retryImage('shared', index)} />
         </EditorSection>
@@ -528,11 +548,17 @@ export function ProductManagement() {
               <label>Selling price<input type="number" min="0" step="0.01" required value={variant.price} onChange={(event) => changeVariant(index, 'price', event.target.value)} /></label><label>MRP<input type="number" min={variant.price || 0} step="0.01" required value={variant.mrp} onChange={(event) => changeVariant(index, 'mrp', event.target.value)} /></label>
               <label>Total stock<input type="number" min={variant.reserved_stock || 0} step="1" required value={variant.total_stock} onChange={(event) => changeVariant(index, 'total_stock', event.target.value)} /></label><label className="fk-editor-toggle"><input type="checkbox" checked={variant.is_available} onChange={(event) => changeVariant(index, 'is_available', event.target.checked)} /> Available</label>
             </div>
-            {index === 0 && !variant.images.length ? <p className="fk-editor-note">Uses the default product gallery.</p>
-              : <>{index === 0 && <p className="fk-editor-note">Existing first variant images are preserved here for safe ordering and removal.</p>}
-                <ImageGalleryEditor title={`Images for ${variant.name || `variant ${index + 1}`}`} gallery={variant.images} busy={busy} uploadEnabled={index !== 0}
-                  onAdd={(event) => addFiles(variant.clientKey, event)} onMove={(imageIndex, delta) => moveImage(variant.clientKey, imageIndex, delta)}
-                  onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} /></>}
+            {form.variant_image_mode === 'shared'
+              ? variant.images.length
+                ? <><p className="fk-editor-note">{variant.images.length} existing variant-specific image{variant.images.length === 1 ? '' : 's'} remain attached to this variant. They are hidden from the storefront in Shared Gallery mode; switch to Separate Gallery Per Variant to display them.</p>
+                    <ImageGalleryEditor title={`Existing images for ${variant.name || `variant ${index + 1}`}`} gallery={variant.images} busy={busy} uploadEnabled={false}
+                      onAdd={(event) => addFiles(variant.clientKey, event)} onMove={(imageIndex, delta) => moveImage(variant.clientKey, imageIndex, delta)}
+                      onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} /></>
+                : <p className="fk-editor-note">Individual image uploads are disabled in Shared Gallery mode to avoid duplicate uploads.</p>
+              : <><p className="fk-editor-note">{variant.images.length ? 'This variant displays its own gallery.' : index === 0 ? 'No variant images yet; the first variant uses the shared/default gallery until its own images are added.' : 'No images are assigned to this variant yet.'}</p>
+                  <ImageGalleryEditor title={`Images for ${variant.name || `variant ${index + 1}`}`} gallery={variant.images} busy={busy}
+                    onAdd={(event) => addFiles(variant.clientKey, event)} onMove={(imageIndex, delta) => moveImage(variant.clientKey, imageIndex, delta)}
+                    onRemove={(imageIndex) => removeImage(variant.clientKey, imageIndex)} onRetry={(imageIndex) => retryImage(variant.clientKey, imageIndex)} /></>}
             <button className="fk-editor-remove" type="button" disabled={form.variants.length === 1} onClick={() => {
               variant.images.filter((image) => image.file && image.url).forEach((image) => URL.revokeObjectURL(image.url));
               change('variants', form.variants.filter((_, row) => row !== index));
