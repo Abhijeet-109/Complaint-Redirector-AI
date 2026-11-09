@@ -1089,6 +1089,12 @@
 .fk-editor-span { grid-column: 1 / -1; }
 .fk-editor-toggle { display: flex !important; grid-template-columns: auto 1fr; align-items: center; justify-content: start; gap: 9px !important; color: #46564f; font-size: 13px; }
 .fk-editor-toggle input, .fk-editor-checks input { accent-color: var(--fk-header); width: 16px; height: 16px; }
+.fk-editor-gallery-mode { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 0 0 14px; padding: 4px; border: 1px solid #dfe3dc; border-radius: 7px; background: #f4f5f1; }
+.fk-editor-gallery-mode button { min-height: 36px; padding: 8px 13px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #52635b; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; transition: background-color .15s ease, color .15s ease, box-shadow .15s ease; }
+.fk-editor-gallery-mode button:hover:not(:disabled):not(.is-active) { background: #e9ece6; color: var(--fk-text-primary); }
+.fk-editor-gallery-mode button.is-active { border-color: var(--fk-header); background: var(--fk-header); color: #fff; box-shadow: 0 1px 3px rgba(26,43,36,.15); }
+.fk-editor-gallery-mode button:focus-visible { outline: 2px solid var(--fk-olive); outline-offset: 2px; }
+.fk-editor-gallery-mode button:disabled { opacity: .6; cursor: wait; }
 .fk-gallery-picker { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 16px; padding: 9px 12px; border: 1px dashed #b8c0b9; border-radius: 5px; color: var(--fk-text-primary); font-size: 13px; font-weight: 700; cursor: pointer; }
 .fk-gallery-picker input { max-width: 255px; font-size: 12px; font-weight: 400; }
 .fk-editor-gallery { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }

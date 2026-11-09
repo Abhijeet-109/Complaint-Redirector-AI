@@ -512,25 +512,22 @@ export function ProductManagement() {
           </div>
         </EditorSection>
         <EditorSection title="Product gallery" description="Choose how product images are selected when customers switch variants.">
-          <fieldset className="fk-editor-gallery-mode" disabled={busy}>
-            <legend>Product Image Behaviour</legend>
-            <label className="fk-editor-gallery-mode-option">
-              <input type="radio" name="variant_image_mode" value="shared" checked={form.variant_image_mode === 'shared'}
-                onChange={() => change('variant_image_mode', 'shared')} />
-              <span><strong>Shared Gallery</strong><small>The same images appear for every variant. Use this for sizes, capacities, pack quantities or volumes when the product looks the same. Upload images in the shared/default gallery below.</small></span>
-            </label>
-            <label className="fk-editor-gallery-mode-option">
-              <input type="radio" name="variant_image_mode" value="per_variant" checked={form.variant_image_mode === 'per_variant'}
-                onChange={() => change('variant_image_mode', 'per_variant')} />
-              <span><strong>Separate Gallery Per Variant</strong><small>Each variant can have its own images for different colours, designs, finishes or models. A variant without its own images uses the shared/default gallery only for the first variant.</small></span>
-            </label>
-          </fieldset>
+          <div className="fk-editor-gallery-mode" role="group" aria-label="Product Image Behaviour">
+            <button type="button" className={form.variant_image_mode === 'shared' ? 'is-active' : ''}
+              aria-pressed={form.variant_image_mode === 'shared'} disabled={busy}
+              onClick={() => change('variant_image_mode', 'shared')}>Shared Gallery</button>
+            <button type="button" className={form.variant_image_mode === 'per_variant' ? 'is-active' : ''}
+              aria-pressed={form.variant_image_mode === 'per_variant'} disabled={busy}
+              onClick={() => change('variant_image_mode', 'per_variant')}>Separate per Variant</button>
+          </div>
           {form.variant_image_mode !== form.initial_variant_image_mode && form.variants.some((variant) => variant.images.length > 0) &&
             <p className="fk-editor-note" role="alert">This product already has variant-specific images. Changing to Shared Gallery keeps those image records attached to their variants, but the storefront will not display them while Shared Gallery is selected. Changing to Separate Gallery Per Variant makes each variant gallery visible again. No images or associations will be changed automatically.</p>}
-          <p className="fk-editor-note">The shared/default gallery has {form.images.length}/8 images and is shown for every variant in Shared Gallery mode.</p>
-          <ImageGalleryEditor title="Shared / default gallery" gallery={form.images} busy={busy}
-            onAdd={(event) => addFiles('shared', event)} onMove={(index, delta) => moveImage('shared', index, delta)}
-            onRemove={(index) => removeImage('shared', index)} onRetry={(index) => retryImage('shared', index)} />
+          {form.variant_image_mode === 'shared' && <>
+            <p className="fk-editor-note">The shared/default gallery has {form.images.length}/8 images and is shown for every variant.</p>
+            <ImageGalleryEditor title="Shared / default gallery" gallery={form.images} busy={busy}
+              onAdd={(event) => addFiles('shared', event)} onMove={(index, delta) => moveImage('shared', index, delta)}
+              onRemove={(index) => removeImage('shared', index)} onRetry={(index) => retryImage('shared', index)} />
+          </>}
         </EditorSection>
         <EditorSection title="Key highlights" description="Add concise product points; blank entries are ignored.">
           <div className="fk-editor-repeat-list">{form.highlights.map((highlight, index) => <div className="fk-editor-repeat-row" key={index}><input aria-label={`Highlight ${index + 1}`} value={highlight} onChange={(event) => change('highlights', form.highlights.map((line, row) => row === index ? event.target.value : line))} /><button type="button" onClick={() => change('highlights', form.highlights.filter((_, row) => row !== index))}>Remove</button></div>)}</div>

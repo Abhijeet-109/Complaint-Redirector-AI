@@ -386,6 +386,26 @@ async def upload_product_image(
         if not file_id or not url:
             raise ValueError("ImageKit response omitted file ID or URL")
     except Exception as exc:
+        response = getattr(exc, "response", None)
+        response_headers = getattr(response, "headers", None)
+        request_id = response_headers.get("x-ik-requestId") if response_headers else None
+        provider_message = None
+        if response is not None:
+            try:
+                error_body = response.json()
+            except (TypeError, ValueError):
+                error_body = None
+            if isinstance(error_body, dict):
+                message = error_body.get("message")
+                if isinstance(message, str):
+                    provider_message = message
+        logger.error(
+            "ImageKit product image upload failed exception_type=%s status_code=%s request_id=%s provider_message=%s",
+            type(exc).__name__,
+            getattr(exc, "status_code", None),
+            request_id,
+            provider_message or "No ImageKit response message available",
+        )
         raise HTTPException(502, "ImageKit could not store the image") from exc
     for order, existing in enumerate(existing_images):
         existing.display_order = order
