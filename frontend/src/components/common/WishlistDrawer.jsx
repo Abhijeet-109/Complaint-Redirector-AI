@@ -2,7 +2,7 @@ import React from 'react';
 import { X, ShoppingBag, Trash2 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 
-export function WishlistDrawer() {
+export function WishlistDrawer({ onNavigate }) {
   const { wishlistItems, toggleWishlist, isWishlistOpen, setIsWishlistOpen } = useCart();
 
   if (!isWishlistOpen) return null;
@@ -47,10 +47,14 @@ export function WishlistDrawer() {
                     className="fk-add-cart-btn"
                     style={{ fontSize: '11px', padding: '4px 8px' }}
                     type="button"
-                    disabled
-                    title="Cart and checkout will be enabled in the next purchasing phase"
+                    onClick={() => {
+                      setIsWishlistOpen(false);
+                      if (item.slug) onNavigate?.('product', item.slug);
+                    }}
+                    disabled={!item.slug}
+                    title="Choose a product option before adding it to your cart"
                   >
-                    Cart unavailable
+                    Choose option
                   </button>
                   <button
                     style={{ color: '#9E9E9E', cursor: 'pointer', background: 'none', border: 'none' }}

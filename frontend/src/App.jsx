@@ -10,6 +10,7 @@ import { HandlerDashboardPage } from './pages/HandlerDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { SuperAdminDashboardPage } from './pages/SuperAdminDashboardPage';
 import { ProductDetails } from './pages/ProductDetails';
+import { Checkout } from './pages/Checkout';
 import { resolveAuthorizedPage } from './utils/roleAccess';
 
 function AppContent() {
@@ -19,6 +20,7 @@ function AppContent() {
   const [currentPage, setCurrentPage] = useState(() => {
     const path = window.location.pathname.toLowerCase();
     if (/^\/products\/[^/]+\/?$/.test(path)) return 'product';
+    if (path === '/checkout') return 'checkout';
     if (path === '/login') return 'login';
     if (path === '/register') return 'register';
     if (path === '/my-complaints') return 'my-complaints';
@@ -35,6 +37,7 @@ function AppContent() {
       const path = window.location.pathname.toLowerCase();
       const productMatch = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i);
       if (productMatch) { setProductSlug(decodeURIComponent(productMatch[1])); setCurrentPage('product'); }
+      else if (path === '/checkout') setCurrentPage('checkout');
       else if (path === '/login') setCurrentPage('login');
       else if (path === '/register') setCurrentPage('register');
       else if (path === '/my-complaints') setCurrentPage('my-complaints');
@@ -56,6 +59,7 @@ function AppContent() {
       targetPath = `/products/${encodeURIComponent(value)}`;
       setProductSlug(value);
     }
+    if (page === 'checkout') targetPath = '/checkout';
     if (page === 'login') targetPath = '/login';
     if (page === 'register') targetPath = '/register';
     if (page === 'my-complaints') targetPath = '/my-complaints';
@@ -117,6 +121,10 @@ function AppContent() {
 
   if (authorizedPage === 'product') {
     return <ProductDetails slug={productSlug} onNavigate={navigateTo} />;
+  }
+
+  if (authorizedPage === 'checkout') {
+    return <Checkout onNavigate={navigateTo} />;
   }
 
   return <Home onNavigate={navigateTo} />;

@@ -38,6 +38,16 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
 
 
+def _is_valid_imagekit_folder(folder: str) -> bool:
+    if not folder.startswith("/") or not folder.endswith("/"):
+        return False
+    segments = folder[1:-1].split("/")
+    return bool(segments) and all(
+        segment and re.fullmatch(r"[A-Za-z0-9_-]+", segment) is not None
+        for segment in segments
+    )
+
+
 def _unique_slug(db: Session, model, value: str, current_id: int | None = None) -> str:
     base = _slug(value)
     if not base:
@@ -358,12 +368,6 @@ async def upload_product_image(
         raise HTTPException(415, "The uploaded file is not a valid supported image") from exc
     if actual_format not in ALLOWED_IMAGE_FORMATS:
         raise HTTPException(415, "Only JPEG, PNG, and WebP images are supported")
-    try:
-        client = _imagekit_client()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(503, "ImageKit upload service is unavailable") from exc
     ext = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}[actual_format]
     folder_variant = variant if variant_id is not None else db.scalar(
         select(ProductVariant).where(ProductVariant.product_id == product_id).order_by(ProductVariant.id).limit(1)
@@ -373,12 +377,18 @@ async def upload_product_image(
     category = product.category
     if category is None:
         raise HTTPException(409, "A product must have a category before images can be uploaded")
-    safe_category = re.sub(r"[\\/\x00-\x1f<>:\"|?*]", "-", category.name).strip(" .-")
+    safe_category = category.slug
     safe_sku = re.sub(r"[^A-Za-z0-9_-]", "-", folder_variant.sku).strip("-_ .")
-    if not safe_category or not safe_sku:
-        raise HTTPException(409, "Product category or variant SKU cannot form a safe upload folder")
     upload_folder = f"/Flatkart/Products/Categories/{safe_category}/{safe_sku}/"
+    if not _is_valid_imagekit_folder(upload_folder):
+        raise HTTPException(409, "Product category or variant SKU cannot form a safe upload folder")
     filename = f"image-{len(existing_images) + 1:02d}-{uuid4().hex}.{ext}"
+    try:
+        client = _imagekit_client()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, "ImageKit upload service is unavailable") from exc
     try:
         result = client.files.upload(file=content, file_name=filename, folder=upload_folder)
         file_id = result.file_id

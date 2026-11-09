@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Heart } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Footer } from '../components/layout/Footer';
+import { CartDrawer } from '../components/common/CartDrawer';
+import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { productService } from '../services/productService';
 import { getProductGalleryImages } from '../utils/productImages';
 import { useCart } from '../context/CartContext';
@@ -95,10 +97,25 @@ function ProductGallery({ product, selectedVariant, firstVariantId }) {
   </section>;
 }
 
-function PurchaseActions() {
+function PurchaseActions({ product, variant, available, onNavigate }) {
+  const { addToCart, setIsCartOpen } = useCart();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const add = async (goToCheckout) => {
+    setBusy(true);
+    setError('');
+    try {
+      await addToCart(product, variant);
+      if (goToCheckout) { setIsCartOpen(false); onNavigate('checkout'); }
+    } catch (cause) { setError(cause.message || 'Could not add this option to your cart.'); }
+    finally { setBusy(false); }
+  };
   return <div className="fk-detail-purchase" aria-label="Purchase actions">
-    <div className="fk-detail-purchase-buttons"><button type="button" disabled>Add to Cart</button><button type="button" disabled>Order Now</button></div>
-    <p>Cart and checkout will be enabled in the next purchasing phase.</p>
+    <div className="fk-detail-purchase-buttons">
+      <button type="button" disabled={!available || busy} onClick={() => add(false)}>{busy ? 'Adding…' : 'Add to Cart'}</button>
+      <button type="button" disabled={!available || busy} onClick={() => add(true)}>Buy Now</button>
+    </div>
+    {error ? <p role="alert" className="fk-cart-error">{error}</p> : <p>{available ? 'Your selected option will be added to your secure, account-linked cart.' : 'Choose an available option to continue.'}</p>}
   </div>;
 }
 
@@ -196,12 +213,14 @@ export function ProductDetails({ slug, onNavigate }) {
                     <form className="fk-detail-pin" onSubmit={checkPin} noValidate><label htmlFor="fk-delivery-pin">Check delivery availability</label><div><input id="fk-delivery-pin" inputMode="numeric" autoComplete="postal-code" maxLength="6" value={pin} onChange={(event) => { setPin(event.target.value.replace(/\D/g, '').slice(0, 6)); setPinFeedback(''); }} placeholder="6-digit PIN" /><button type="submit">Check</button></div>{pinFeedback && <p role="status">{pinFeedback}</p>}</form>
                   </section>
                 </div>
-                <PurchaseActions />
+                <PurchaseActions product={product} variant={currentVariant} available={isAvailable} onNavigate={onNavigate} />
               </div>
             </section>
           </>}
     </main>
     <Footer onNavigate={onNavigate} />
+    <CartDrawer onNavigate={onNavigate} />
+    <WishlistDrawer onNavigate={onNavigate} />
   </div>;
 }
 

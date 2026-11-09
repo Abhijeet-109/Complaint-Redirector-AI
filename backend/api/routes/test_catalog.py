@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 from backend.Database.connection import Base
 from backend.Database.models import Inventory, Product, ProductCategory, ProductImage, ProductVariant, User
 from backend.Database.seed_commerce import PRODUCTS, seed_catalog
-from backend.api.routes.admin_catalog import router as admin_router
+from backend.api.routes.admin_catalog import _is_valid_imagekit_folder, router as admin_router
 from backend.api.routes.products import router as products_router
 from backend.auth.dependencies import get_current_user, get_db
 
@@ -231,12 +231,71 @@ class CatalogApiTests(unittest.TestCase):
         self.assertEqual(reference.storage_key, UploadResult.url)
         self.assertEqual(reference.provider, "imagekit")
         first_variant_sku = min(product.variants, key=lambda variant: variant.id).sku
-        self.assertEqual(Client.files.upload_kwargs["folder"], f"/Flatkart/Products/Categories/Men/{first_variant_sku}/")
+        self.assertEqual(Client.files.upload_kwargs["folder"], f"/Flatkart/Products/Categories/men/{first_variant_sku}/")
         self.assertRegex(Client.files.upload_kwargs["file_name"], r"^image-\d{2}-")
         admin_product = self.client.get(f"/api/admin/catalog/products/{product.id}")
         self.assertEqual(admin_product.status_code, 200)
         self.assertTrue(any(image["url"] == UploadResult.url for image in admin_product.json()["images"]))
         self.assertTrue(any(image["provider_file_id"] == UploadResult.file_id for image in admin_product.json()["images"]))
+
+    def test_image_upload_uses_validated_category_slug_folder_and_preserves_sku(self):
+        product = self.session.scalar(select(Product).where(Product.slug == "men-sold-casual-shirt"))
+        variant = min(product.variants, key=lambda item: item.id)
+        variant.sku = "FK-WOM-COORD-S"
+        self.session.commit()
+        image_data = io.BytesIO()
+        Image.new("RGB", (2, 2), "white").save(image_data, format="PNG")
+
+        class UploadResult:
+            file_id = "imagekit-folder-test"
+            url = "https://ik.imagekit.io/test/folder-test.png"
+
+        class FileApi:
+            def __init__(self):
+                self.upload_kwargs = []
+
+            def upload(self, **kwargs):
+                self.upload_kwargs.append(kwargs)
+                return UploadResult()
+
+        class Client:
+            def __init__(self):
+                self.files = FileApi()
+
+        client = Client()
+        expected_folders = {
+            "women": "/Flatkart/Products/Categories/women/FK-WOM-COORD-S/",
+            "home-living": "/Flatkart/Products/Categories/home-living/FK-WOM-COORD-S/",
+            "footwear": "/Flatkart/Products/Categories/footwear/FK-WOM-COORD-S/",
+        }
+        with patch("backend.api.routes.admin_catalog._imagekit_client", return_value=client):
+            for category_slug, expected_folder in expected_folders.items():
+                category = self.session.scalar(select(ProductCategory).where(ProductCategory.slug == category_slug))
+                self.assertIsNotNone(category)
+                product.category_id = category.id
+                self.session.commit()
+                response = self.client.post(
+                    f"/api/admin/catalog/products/{product.id}/images",
+                    files={"file": ("actual.png", image_data.getvalue(), "image/png")},
+                )
+                self.assertEqual(response.status_code, 201, response.text)
+                self.assertEqual(client.files.upload_kwargs[-1]["folder"], expected_folder)
+
+            category = self.session.scalar(select(ProductCategory).where(ProductCategory.slug == "home-living"))
+            category.slug = "home&living"
+            self.session.commit()
+            product.category_id = category.id
+            self.session.commit()
+            rejected = self.client.post(
+                f"/api/admin/catalog/products/{product.id}/images",
+                files={"file": ("actual.png", image_data.getvalue(), "image/png")},
+            )
+
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertEqual(len(client.files.upload_kwargs), len(expected_folders))
+        self.assertTrue(_is_valid_imagekit_folder("/Flatkart/Products/Categories/home-living/FK-WOM-COORD-S/"))
+        self.assertFalse(_is_valid_imagekit_folder("/Flatkart/Products/Categories/home&living/FK-WOM-COORD-S/"))
+        self.assertFalse(_is_valid_imagekit_folder("/Flatkart/Products//FK-WOM-COORD-S/"))
 
 
 if __name__ == "__main__":

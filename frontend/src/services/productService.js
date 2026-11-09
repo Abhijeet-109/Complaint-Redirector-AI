@@ -1,4 +1,4 @@
-import { apiRequest } from './api';
+import { apiRequest } from './api.js';
 
 const query = (values = {}) => {
   const params = new URLSearchParams();
@@ -13,6 +13,27 @@ export const productService = {
   search: (search, limit = 8) => apiRequest(`/api/products?${query({ search, limit })}`),
   get: (slug) => apiRequest(`/api/products/${encodeURIComponent(slug)}`),
   categories: () => apiRequest('/api/categories'),
+  getCart: () => apiRequest('/api/cart'),
+  addCartItem: (productId, variantId, quantity = 1) => apiRequest('/api/cart/items', {
+    method: 'POST', body: JSON.stringify({ product_id: productId, variant_id: variantId, quantity }),
+  }),
+  updateCartItem: (variantId, quantity) => apiRequest(`/api/cart/items/${variantId}`, {
+    method: 'PUT', body: JSON.stringify({ quantity }),
+  }),
+  removeCartItem: (variantId) => apiRequest(`/api/cart/items/${variantId}`, { method: 'DELETE' }),
+  getCheckoutSummary: () => apiRequest('/api/checkout/summary'),
+  placeCodOrder: (address, idempotencyKey) => apiRequest('/api/checkout/cod', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ address }),
+  }),
+  createRazorpayCheckout: (address, idempotencyKey) => apiRequest('/api/checkout/razorpay', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ address }),
+  }),
+  verifyRazorpayPayment: (payment) => apiRequest('/api/payments/verify', {
+    method: 'POST', body: JSON.stringify(payment),
+  }),
+  cancelRazorpayAttempt: (attemptId) => apiRequest('/api/payments/cancel', {
+    method: 'POST', body: JSON.stringify({ attempt_id: attemptId }),
+  }),
   adminProducts: (filters = {}) => apiRequest(`/api/admin/catalog/products?${query(filters)}`),
   adminProduct: (id) => apiRequest(`/api/admin/catalog/products/${id}`),
   createProduct: (data) => apiRequest('/api/admin/catalog/products', { method: 'POST', body: JSON.stringify(data) }),

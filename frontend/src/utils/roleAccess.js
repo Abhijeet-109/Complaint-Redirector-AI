@@ -12,6 +12,7 @@ export function resolveAuthorizedPage(page, role, isAuthenticated) {
   const protectedPages = new Set([
     'my-complaints',
     'my-conversations',
+    'checkout',
     'handler-dashboard',
     'admin-dashboard',
     'super-admin-dashboard',

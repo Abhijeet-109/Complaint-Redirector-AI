@@ -144,8 +144,8 @@ export function Home({ onNavigate }) {
       )}
 
       {/* Drawers & Modals */}
-      <CartDrawer />
-      <WishlistDrawer />
+      <CartDrawer onNavigate={onNavigate} />
+      <WishlistDrawer onNavigate={onNavigate} />
       <OrdersModal
         isOpen={isOrdersOpen}
         onClose={() => setIsOrdersOpen(false)}

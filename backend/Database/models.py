@@ -422,15 +422,31 @@ class CartItem(Base):
 
 class CommerceOrder(Base):
     __tablename__ = "commerce_orders"
+    __table_args__ = (
+        CheckConstraint("subtotal IS NULL OR subtotal >= 0", name="ck_commerce_orders_subtotal_nonnegative"),
+        CheckConstraint("total_amount IS NULL OR total_amount >= 0", name="ck_commerce_orders_total_nonnegative"),
+        CheckConstraint("currency = 'INR'", name="ck_commerce_orders_currency_inr"),
+        UniqueConstraint("user_id", "idempotency_key", name="uq_commerce_orders_user_idempotency_key"),
+    )
 
     id = Column(Integer, primary_key=True)
     order_number = Column(String(40), nullable=False, unique=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     status = Column(String(24), nullable=False, default="placed", index=True)
+    subtotal = Column(Numeric(12, 2), nullable=True)
+    total_amount = Column(Numeric(12, 2), nullable=True)
+    currency = Column(String(3), nullable=False, default="INR", server_default="INR")
+    payment_method = Column(String(24), nullable=True)
+    payment_status = Column(String(24), nullable=False, default="pending", server_default="pending")
+    delivery_address = Column(JSON, nullable=True)
+    idempotency_key = Column(String(120), nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    placed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
     items = relationship("CommerceOrderItem", back_populates="order", cascade="all, delete-orphan")
     shipment = relationship("Shipment", back_populates="order", uselist=False, cascade="all, delete-orphan")
+    payment_attempts = relationship("PaymentAttempt", back_populates="order", cascade="all, delete-orphan")
 
 
 class CommerceOrderItem(Base):
@@ -451,6 +467,47 @@ class CommerceOrderItem(Base):
     unit_price = Column(Numeric(12, 2), nullable=False)
     order = relationship("CommerceOrder", back_populates="items")
     variant = relationship("ProductVariant")
+
+
+class PaymentAttempt(Base):
+    __tablename__ = "payment_attempts"
+    __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_payment_attempts_amount_nonnegative"),
+        CheckConstraint("currency = 'INR'", name="ck_payment_attempts_currency_inr"),
+        CheckConstraint(
+            "status IN ('created', 'pending', 'captured', 'failed', 'cancelled', 'expired')",
+            name="ck_payment_attempts_status_valid",
+        ),
+        UniqueConstraint("provider_order_id", name="uq_payment_attempts_provider_order_id"),
+        UniqueConstraint("provider_payment_id", name="uq_payment_attempts_provider_payment_id"),
+        UniqueConstraint("idempotency_key", name="uq_payment_attempts_idempotency_key"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("commerce_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider = Column(String(24), nullable=False, default="razorpay", server_default="razorpay")
+    status = Column(String(24), nullable=False, default="created", server_default="created", index=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(3), nullable=False, default="INR", server_default="INR")
+    idempotency_key = Column(String(120), nullable=False)
+    provider_order_id = Column(String(80), nullable=True)
+    provider_payment_id = Column(String(80), nullable=True)
+    failure_reason = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    expires_at = Column(DateTime, nullable=False)
+    paid_at = Column(DateTime, nullable=True)
+    order = relationship("CommerceOrder", back_populates="payment_attempts")
+
+
+class PaymentWebhookEvent(Base):
+    __tablename__ = "payment_webhook_events"
+    __table_args__ = (UniqueConstraint("event_id", name="uq_payment_webhook_events_event_id"),)
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(String(120), nullable=False)
+    event_type = Column(String(80), nullable=False)
+    received_at = Column(DateTime, nullable=False, server_default=func.now())
 
 
 class Shipment(Base):
