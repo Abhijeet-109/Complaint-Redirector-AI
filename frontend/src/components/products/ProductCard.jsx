@@ -13,7 +13,7 @@ export function ProductCard({ product, onSelectProduct }) {
       <div className="fk-product-img-box">
         <img src={imageSrc} onError={() => {
           if (imageSrc !== fallback) setImageSrc(fallback);
-        }} alt={product.name} className="fk-product-img" loading="lazy" />
+        }} alt={product.name} className="fk-product-img" loading="lazy" decoding="async" />
       </div>
       <div className="fk-product-details">
         <div className="fk-product-brand">{product.brand || 'Flatkart'}</div>

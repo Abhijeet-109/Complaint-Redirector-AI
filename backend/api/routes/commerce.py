@@ -22,6 +22,7 @@ from backend.Database.checkout_services import (
     expire_pending_attempts,
     fail_attempt,
     money,
+    _order_matches_checkout,
     serialize_cart,
     serialize_order,
     checkout_source,
@@ -357,6 +358,12 @@ def place_cod_order(
         )
         if order is None:
             raise HTTPException(409, "Checkout is already being processed")
+        if not _order_matches_checkout(
+            db, order, user_id=user.id, address=_checkout_address(payload, db, user.id),
+            payment_method="cod", checkout_mode=payload.checkout_mode,
+            variant_id=payload.variant_id, quantity=payload.quantity,
+        ):
+            raise HTTPException(409, "This order request key belongs to a different checkout. Start a new checkout")
         duplicate = True
     return {"order": serialize_order(order), "duplicate": duplicate}
 
@@ -397,6 +404,12 @@ def create_razorpay_checkout(
         )
         if existing is None:
             raise HTTPException(409, "Checkout is already being processed") from exc
+        if not _order_matches_checkout(
+            db, existing, user_id=user.id, address=_checkout_address(payload, db, user.id),
+            payment_method=payload.online_method or "upi", checkout_mode=payload.checkout_mode,
+            variant_id=payload.variant_id, quantity=payload.quantity,
+        ):
+            raise HTTPException(409, "This payment request key belongs to a different checkout. Start a new checkout") from exc
         order = existing
         attempt = max(existing.payment_attempts, key=lambda item: item.id, default=None)
         duplicate = True

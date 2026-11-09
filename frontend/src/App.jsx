@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { AddressProvider } from './context/AddressContext';
@@ -34,9 +34,11 @@ function AppContent() {
     if (path === '/super-admin-dashboard') return 'super-admin-dashboard';
     return 'home';
   });
+  const [routePath, setRoutePath] = useState(() => window.location.pathname);
 
   useEffect(() => {
     const handlePopState = () => {
+      setRoutePath(window.location.pathname);
       const path = window.location.pathname.toLowerCase();
       const productMatch = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i);
       if (productMatch) { setProductSlug(decodeURIComponent(productMatch[1])); setCurrentPage('product'); }
@@ -57,7 +59,7 @@ function AppContent() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigateTo = (page, value) => {
+  const navigateTo = useCallback((page, value) => {
     let targetPath = '/';
     if (page === 'product' && value) {
       targetPath = `/products/${encodeURIComponent(value)}`;
@@ -76,9 +78,10 @@ function AppContent() {
     if (window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
     }
+    setRoutePath(targetPath);
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
   const authorizedPage = resolveAuthorizedPage(currentPage, user?.role, isAuthenticated);
 
@@ -133,7 +136,7 @@ function AppContent() {
   }
 
   if (authorizedPage === 'account') {
-    const section = window.location.pathname.split('/')[2] || 'profile';
+    const section = routePath.split('/')[2] || 'profile';
     return <MyAccount section={section} onNavigate={navigateTo} />;
   }
 

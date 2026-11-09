@@ -217,6 +217,23 @@ def _order_items_match_cart(order, cart):
     return expected == stored
 
 
+def _order_matches_checkout(session: Session, order: CommerceOrder, *, user_id: int, address: dict,
+                            payment_method: str, checkout_mode: str, variant_id: int | None,
+                            quantity: int | None) -> bool:
+    if (order.payment_method != payment_method or order.checkout_mode != checkout_mode
+            or order.delivery_address != address):
+        return False
+    stored = {(item.variant_id, item.quantity) for item in order.items}
+    if checkout_mode == "buy_now":
+        return variant_id is not None and quantity is not None and stored == {(variant_id, quantity)}
+    cart = active_cart_for_update(session, user_id)
+    if cart and cart.items:
+        return _order_items_match_cart(order, cart)
+    # A completed cart order clears the cart; allow a retry of the same
+    # idempotency key after the original response was lost.
+    return order.status == "placed" and (order.payment_status == "captured" or payment_method == "cod")
+
+
 def create_online_order(session: Session, *, user_id: int, idempotency_key: str, address: dict,
                         online_method: str = "upi", checkout_mode: str = "cart",
                         variant_id: int | None = None, quantity: int | None = None):
@@ -226,6 +243,11 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
         .where(CommerceOrder.user_id == user_id, CommerceOrder.idempotency_key == idempotency_key)
     )
     if existing:
+        if not _order_matches_checkout(
+            session, existing, user_id=user_id, address=address, payment_method=online_method,
+            checkout_mode=checkout_mode, variant_id=variant_id, quantity=quantity,
+        ):
+            raise ValueError("This payment request key belongs to a different checkout. Start a new checkout attempt")
         attempt = max(existing.payment_attempts, key=lambda row: row.id, default=None)
         if attempt and attempt.status in {"created", "pending"}:
             return existing, attempt, True
@@ -339,6 +361,11 @@ def create_cod_order(session: Session, *, user_id: int, idempotency_key: str, ad
         .where(CommerceOrder.user_id == user_id, CommerceOrder.idempotency_key == idempotency_key)
     )
     if existing:
+        if not _order_matches_checkout(
+            session, existing, user_id=user_id, address=address, payment_method="cod",
+            checkout_mode=checkout_mode, variant_id=variant_id, quantity=quantity,
+        ):
+            raise ValueError("This order request key belongs to a different checkout. Start a new checkout")
         return existing, True
     cart = checkout_source(session, user_id, checkout_mode, variant_id, quantity)
     lines, subtotal, methods = _cart_lines_and_total(cart)

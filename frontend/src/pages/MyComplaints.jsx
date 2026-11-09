@@ -7,7 +7,6 @@ import { ComplaintDetailsModal } from '../components/complaints/ComplaintDetails
 import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
-import { OrdersModal } from '../components/common/OrdersModal';
 import { complaintService } from '../services/complaintService';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -30,7 +29,6 @@ export function MyComplaints({ onNavigate }) {
   // Modal states
   const [isNewComplaintOpen, setIsNewComplaintOpen] = useState(false);
   const [selectedComplaint, setSelectedComplaint] = useState(null);
-  const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
 
   // Category navigation state
@@ -152,7 +150,6 @@ export function MyComplaints({ onNavigate }) {
     <AccountLayout
       activeItem="complaints"
       onNavigate={onNavigate}
-      onOpenOrders={() => setIsOrdersOpen(true)}
       onOpenWishlist={() => setIsWishlistOpen(true)}
       onToggleChatbot={() => setIsChatbotOpen(!isChatbotOpen)}
       activeCategory={activeCategory}
@@ -340,11 +337,6 @@ export function MyComplaints({ onNavigate }) {
         {/* Drawers & Modals */}
         <CartDrawer />
         <WishlistDrawer />
-        <OrdersModal
-          isOpen={isOrdersOpen}
-          onClose={() => setIsOrdersOpen(false)}
-          onOpenChatbot={() => setIsChatbotOpen(true)}
-        />
 
         {/* New Complaint Form Modal */}
         <ComplaintForm

@@ -12,9 +12,19 @@ import { accountService } from '../services/accountService';
 
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const emptyAddress = { recipient_name: '', mobile_number: '', address_line1: '', address_line2: '', locality: '', city: '', state: '', pin_code: '' };
-const readBuyNowIntent = () => { try { const item = JSON.parse(sessionStorage.getItem('flatkart_buy_now_intent') || 'null'); return item?.variantId ? item : null; } catch { return null; } };
-const keyFor = (method, mode) => {
-  const key = `flatkart_checkout_${mode}_${method}_idempotency`;
+const newCheckoutId = () => globalThis.crypto?.randomUUID?.() || `fk-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const readBuyNowIntent = () => {
+  try {
+    const item = JSON.parse(sessionStorage.getItem('flatkart_buy_now_intent') || 'null');
+    if (!item?.variantId) return null;
+    const normalized = { ...item, checkoutId: item.checkoutId || newCheckoutId() };
+    sessionStorage.setItem('flatkart_buy_now_intent', JSON.stringify(normalized));
+    return normalized;
+  } catch { return null; }
+};
+const idempotencyStorageKey = (method, mode, identity) => `flatkart_checkout_${mode}_${method}_${identity}_idempotency`;
+const keyFor = (method, mode, identity) => {
+  const key = idempotencyStorageKey(method, mode, identity);
   let value = sessionStorage.getItem(key);
   if (!value) { value = globalThis.crypto?.randomUUID?.() || `fk-${Date.now()}-${Math.random().toString(36).slice(2)}`; sessionStorage.setItem(key, value); }
   return value;
@@ -52,6 +62,7 @@ export function Checkout({ onNavigate }) {
   const [saveAddress, setSaveAddress] = useState(false);
   const [setDefault, setSetDefault] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [activeMethod, setActiveMethod] = useState('');
   const [selectedMethod, setSelectedMethod] = useState('');
   const [preferredMethod, setPreferredMethod] = useState('');
@@ -59,6 +70,9 @@ export function Checkout({ onNavigate }) {
   const [success, setSuccess] = useState({ message: '', orderNumber: '' });
   const formRef = useRef(null);
   const checkoutMode = buyNow ? 'buy_now' : 'cart';
+  const checkoutIdentity = buyNow
+    ? buyNow.checkoutId || `${buyNow.variantId}-${buyNow.quantity}`
+    : cartItems.map((item) => `${item.variant_id}-${item.quantity}`).sort().join('_') || 'empty';
   const intentPayload = useMemo(() => buyNow ? { checkout_mode: 'buy_now', variant_id: buyNow.variantId, quantity: buyNow.quantity } : { checkout_mode: 'cart' }, [buyNow]);
 
   const refreshBuyNow = async (intent = buyNow) => {
@@ -89,12 +103,12 @@ export function Checkout({ onNavigate }) {
     if (!availability.deliverable) throw new Error('Delivery is unavailable at the selected PIN code.');
     if (editingSavedAddressId) {
       const saved = await accountService.updateAddress(editingSavedAddressId, { ...snapshot, label: address.label || 'Home', is_default: Boolean(address.is_default) });
-      await refreshAddresses();
+      await refreshAddresses({ refresh: true });
       return { address_id: saved.id };
     }
     if (saveAddress) {
       const saved = await accountService.createAddress({ ...snapshot, label: 'Home', is_default: setDefault });
-      await refreshAddresses();
+      await refreshAddresses({ refresh: true });
       return { address_id: saved.id };
     }
     return { address: snapshot };
@@ -106,7 +120,7 @@ export function Checkout({ onNavigate }) {
       const quantity = item.quantity + delta;
       if (quantity < 1) { setBuyNow(null); sessionStorage.removeItem('flatkart_buy_now_intent'); setBuyNowSummary(null); return; }
       if (quantity > item.available_stock) return;
-      const next = { ...buyNow, quantity };
+      const next = { ...buyNow, quantity, checkoutId: newCheckoutId() };
       sessionStorage.setItem('flatkart_buy_now_intent', JSON.stringify(next)); setBuyNow(next); await refreshBuyNow(next);
       return;
     }
@@ -119,25 +133,27 @@ export function Checkout({ onNavigate }) {
   };
 
   const placeCod = async () => {
-    if (!formRef.current?.reportValidity()) return;
+    if (submittingRef.current || !formRef.current?.reportValidity()) return;
+    submittingRef.current = true;
     setSubmitting(true); setActiveMethod('cod'); setError('');
     try {
       const addressPayload = await checkoutAddress();
-      const result = await productService.placeCodOrder(addressPayload.address || null, keyFor('cod', checkoutMode), { ...addressPayload, ...intentPayload });
-      sessionStorage.removeItem(`flatkart_checkout_${checkoutMode}_cod_idempotency`);
+      const result = await productService.placeCodOrder(addressPayload.address || null, keyFor('cod', checkoutMode, checkoutIdentity), { ...addressPayload, ...intentPayload });
+      sessionStorage.removeItem(idempotencyStorageKey('cod', checkoutMode, checkoutIdentity));
       if (buyNow) sessionStorage.removeItem('flatkart_buy_now_intent'); else await refreshCart();
       setSuccess({ message: 'Order Placed Successfully', orderNumber: result.order.order_number });
     } catch (cause) { setError(cause.message || 'Your order could not be placed. Please try again.'); }
-    finally { setSubmitting(false); setActiveMethod(''); }
+    finally { submittingRef.current = false; setSubmitting(false); setActiveMethod(''); }
   };
 
   const placeOnline = async () => {
-    if (!formRef.current?.reportValidity()) return;
+    if (submittingRef.current || !formRef.current?.reportValidity()) return;
+    submittingRef.current = true;
     setSubmitting(true); setActiveMethod(selectedMethod); setError('');
     let paymentAttemptId = null;
     try {
       const addressPayload = await checkoutAddress();
-      const paymentOrder = await productService.createRazorpayCheckout(addressPayload.address || null, keyFor(selectedMethod, checkoutMode), { ...addressPayload, ...intentPayload, online_method: selectedMethod });
+      const paymentOrder = await productService.createRazorpayCheckout(addressPayload.address || null, keyFor(selectedMethod, checkoutMode, checkoutIdentity), { ...addressPayload, ...intentPayload, online_method: selectedMethod });
       paymentAttemptId = paymentOrder.attempt_id;
       if (paymentOrder.completed && paymentOrder.order?.payment_status === 'captured') {
         if (buyNow) sessionStorage.removeItem('flatkart_buy_now_intent'); else await refreshCart();
@@ -158,7 +174,7 @@ export function Checkout({ onNavigate }) {
       });
       const verified = await productService.verifyRazorpayPayment({ razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature });
       if (!verified.success || verified.order?.payment_status !== 'captured' || verified.order?.status !== 'placed') throw new Error('Payment verification is still pending. Your cart is unchanged; check the payment status before retrying.');
-      sessionStorage.removeItem(`flatkart_checkout_${checkoutMode}_${selectedMethod}_idempotency`);
+      sessionStorage.removeItem(idempotencyStorageKey(selectedMethod, checkoutMode, checkoutIdentity));
       if (buyNow) sessionStorage.removeItem('flatkart_buy_now_intent'); else await refreshCart();
       setSuccess({ message: 'Payment success', orderNumber: verified.order.order_number });
       window.setTimeout(() => setSuccess({ message: 'Order Successfully placed', orderNumber: verified.order.order_number }), 1300);
@@ -166,10 +182,10 @@ export function Checkout({ onNavigate }) {
       if (cause.message?.toLowerCase().includes('cancel') || cause.message?.toLowerCase().includes('failed')) {
         let confirmed = !paymentAttemptId;
         if (paymentAttemptId) { try { const result = await productService.cancelRazorpayAttempt(paymentAttemptId); confirmed = ['cancelled','failed','expired'].includes(result.status); } catch { confirmed = false; } }
-        if (confirmed) sessionStorage.removeItem(`flatkart_checkout_${checkoutMode}_${selectedMethod}_idempotency`);
+        if (confirmed) sessionStorage.removeItem(idempotencyStorageKey(selectedMethod, checkoutMode, checkoutIdentity));
       }
       setError(cause.message || 'Payment could not be verified. Your order is not marked as paid.');
-    } finally { setSubmitting(false); setActiveMethod(''); }
+    } finally { submittingRef.current = false; setSubmitting(false); setActiveMethod(''); }
   };
 
   const empty = cartItems.length === 0;
@@ -194,8 +210,8 @@ export function Checkout({ onNavigate }) {
                 <label className="fk-field-wide">Address line 2 <span>(optional)</span><input name="address_line2" autoComplete="address-line2" maxLength={240} value={address.address_line2} onChange={setField} placeholder="Apartment, suite, floor" /></label>
                 <label>Locality / landmark<input required name="locality" maxLength={120} value={address.locality} onChange={setField} /></label><label>City<input required name="city" autoComplete="address-level2" maxLength={100} value={address.city} onChange={setField} /></label>
                 <label>State<input required name="state" autoComplete="address-level1" maxLength={100} value={address.state} onChange={setField} /></label><label>PIN code<input required name="pin_code" autoComplete="postal-code" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} value={address.pin_code} onChange={(event) => { setSelectedAddressId(null); setAddress((current) => ({ ...current, pin_code: event.target.value.replace(/\D/g, '').slice(0, 6) })); }} /></label>
-                {!editingSavedAddressId && <label className="fk-field-wide"><input type="checkbox" checked={saveAddress} onChange={(event) => setSaveAddress(event.target.checked)} /> Save this address to my Address Book</label>}
-                {saveAddress && <label className="fk-field-wide"><input type="checkbox" checked={setDefault} onChange={(event) => setSetDefault(event.target.checked)} /> Set as default address</label>}
+                {!editingSavedAddressId && <label className="fk-field-wide fk-checkbox-row"><input className="fk-compact-checkbox" type="checkbox" checked={saveAddress} onChange={(event) => setSaveAddress(event.target.checked)} /> Save this address to my Address Book</label>}
+                {saveAddress && <label className="fk-field-wide fk-checkbox-row"><input className="fk-compact-checkbox" type="checkbox" checked={setDefault} onChange={(event) => setSetDefault(event.target.checked)} /> Set as default address</label>}
                 {addresses.length > 0 && manualAddress && <button type="button" className="fk-checkout-back" onClick={() => { setManualAddress(false); setEditingSavedAddressId(null); setAddress({ ...emptyAddress, ...selectedAddress }); setSelectedAddressId(selectedAddress?.id || null); }}>Cancel address edit</button>}
               </div>}
               {selectedAddressId && !manualAddress && <button type="button" className="fk-checkout-back" onClick={() => { setEditingSavedAddressId(selectedAddressId); setManualAddress(true); setAddress({ ...emptyAddress, ...selectedAddress }); }}>Edit selected address</button>}

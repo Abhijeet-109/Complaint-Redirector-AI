@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   User,
   MapPin,
@@ -11,16 +11,25 @@ import {
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { getSupportTickets } from '../../services/supportTicketCache';
 
 export function AccountSidebar({
   activeItem = 'conversations',
   onNavigate,
-  onOpenOrders,
   onOpenWishlist,
   onToggleChatbot,
   showDecor = false,
 }) {
-  const { logout } = useAuth();
+  const { logout, user, isAuthenticated } = useAuth();
+  const [ticketCount, setTicketCount] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    if (!isAuthenticated || !user?.id) { setTicketCount(null); return () => { alive = false; }; }
+    setTicketCount(null);
+    getSupportTickets(user.id).then((tickets) => { if (alive) setTicketCount(tickets.length); }).catch(() => { if (alive) setTicketCount(null); });
+    return () => { alive = false; };
+  }, [isAuthenticated, user?.id]);
 
   const handleLogout = () => {
     logout();
@@ -46,10 +55,13 @@ export function AccountSidebar({
       id: 'orders',
       label: 'My Orders',
       icon: Package,
-      action: () => {
-        if (onOpenOrders) onOpenOrders();
-        else onNavigate?.('account', 'orders');
-      },
+      action: () => onNavigate?.('account', 'orders'),
+    },
+    {
+      id: 'support-tickets',
+      label: `My Support Tickets${ticketCount == null ? '' : ` (${ticketCount})`}`,
+      icon: Headphones,
+      action: () => onNavigate?.('account', 'support-tickets'),
     },
     {
       id: 'wishlist',

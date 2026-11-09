@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { productService } from '../../services/productService';
 
-export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }) {
+export function Header({ onOpenAuth, onSelectProduct, onNavigate }) {
   const { user, logout, isAuthenticated } = useAuth();
   const { cartCount, setIsCartOpen, setIsWishlistOpen } = useCart();
 
@@ -70,8 +70,7 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
 
   const handleOrdersClick = () => {
     if (isAuthenticated) {
-      if (onOpenOrders) onOpenOrders();
-      else handleNavigate('account', 'orders');
+      handleNavigate('account', 'orders');
     } else {
       handleNavigate('login');
     }

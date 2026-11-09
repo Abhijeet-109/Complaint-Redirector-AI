@@ -9,9 +9,9 @@ import { productService } from '../services/productService';
 import { accountService } from '../services/accountService';
 import { getProductGalleryImages } from '../utils/productImages';
 import { useCart } from '../context/CartContext';
+import { PaymentMethodShowcase } from '../components/products/PaymentMethodShowcase';
 
 const currency = (value) => `₹${Number(value).toLocaleString('en-IN')}`;
-const methodLabels = { cod: 'Cash on Delivery', upi: 'UPI', netbanking: 'Net Banking' };
 const displaySku = (value) => String(value || '').replace(/^(?:SKU:\s*)+/i, '');
 
 function ProductImageLightbox({ images, initialIndex, onClose, onSyncActive }) {
@@ -217,9 +217,7 @@ export function ProductDetails({ slug, onNavigate }) {
                   <section className="fk-detail-store-delivery" aria-label="Store and delivery information">
                     <h2>Store & delivery information</h2>
                     <p className="fk-detail-seller">Sold by <strong>Flatkart</strong></p>
-                    <section className="fk-detail-payment"><h3>Accepted payment methods</h3>{product.payment_methods?.length
-                      ? <p>{product.payment_methods.map((method) => methodLabels[method]).filter(Boolean).join(' · ')}</p>
-                      : <p>Payment options will be confirmed at checkout.</p>}</section>
+                    <section className="fk-detail-payment"><h3>Accepted payment methods</h3><PaymentMethodShowcase methods={product.payment_methods || []} /></section>
                     <form className="fk-detail-pin" onSubmit={checkPin} noValidate><label htmlFor="fk-delivery-pin">Check delivery availability</label><div><input id="fk-delivery-pin" inputMode="numeric" autoComplete="postal-code" maxLength="6" value={pin} onChange={(event) => { setPin(event.target.value.replace(/\D/g, '').slice(0, 6)); setPinFeedback(''); }} placeholder="6-digit PIN" /><button type="submit" disabled={pinLoading}>{pinLoading ? 'Checking…' : 'Check'}</button></div>{pinFeedback && <p role="status">{pinFeedback}</p>}</form>
                   </section>
                 </div>

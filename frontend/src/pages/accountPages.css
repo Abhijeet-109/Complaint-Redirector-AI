@@ -1,0 +1,61 @@
+.fk-account-page { width: min(100%, 980px); padding: 30px clamp(18px, 3vw, 34px) 42px; color: var(--fk-text-primary); }
+.fk-page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin: 0 0 22px; }
+.fk-page-heading h1 { margin: 0 0 6px; font-size: clamp(24px, 3vw, 30px); line-height: 1.2; }
+.fk-page-heading p { margin: 0; color: var(--fk-text-muted); font-size: 14px; }
+.fk-orders-toolbar { display: flex; gap: 12px; margin: 0 0 18px; }
+.fk-orders-search { display: flex; align-items: center; gap: 9px; min-width: 220px; flex: 1; padding: 0 12px; border: 1px solid #deded5; border-radius: 8px; background: #fff; color: var(--fk-text-muted); }
+.fk-orders-search:focus-within { border-color: var(--fk-olive); box-shadow: 0 0 0 3px rgba(138,135,93,.13); }
+.fk-orders-search input { width: 100%; min-height: 44px; border: 0; outline: 0; background: transparent; font: inherit; color: var(--fk-text-primary); }
+.fk-orders-toolbar select { min-height: 44px; padding: 0 34px 0 12px; border: 1px solid #deded5; border-radius: 8px; background: white; color: var(--fk-text-primary); font: inherit; }
+.fk-order-list, .fk-ticket-list { display: grid; gap: 14px; }
+.fk-order-card, .fk-order-detail-card, .fk-ticket-card { overflow: hidden; border: 1px solid #e4e2d9; border-radius: 10px; background: var(--fk-surface, #fff); }
+.fk-order-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 17px 18px; background: #f8f8f3; border-bottom: 1px solid #e9e7df; }
+.fk-order-card-header > div:first-child, .fk-order-header-total, .fk-ticket-top > div:first-child { display: grid; gap: 5px; }
+.fk-order-number, .fk-ticket-id { font-size: 14px; font-weight: 750; color: #263d34; }
+.fk-order-date, .fk-ticket-date { color: var(--fk-text-muted); font-size: 12px; }
+.fk-order-header-total { text-align: right; }
+.fk-order-header-total span { color: var(--fk-text-muted); font-size: 11px; }
+.fk-order-header-total strong { font-size: 17px; }
+.fk-order-card-status { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 17px; padding: 12px 18px; color: var(--fk-text-muted); font-size: 12px; }
+.fk-order-status { display: inline-flex; align-items: center; width: fit-content; padding: 5px 9px; border: 1px solid #ded8bf; border-radius: 999px; background: #f7f3e5; color: #625a30; font-size: 11px; font-weight: 700; text-transform: capitalize; }
+.fk-order-card-items { padding: 0 18px; }
+.fk-order-card-item, .fk-order-item { display: flex; align-items: center; gap: 13px; padding: 12px 0; border-top: 1px solid #eeece5; }
+.fk-order-card-item:first-child { border-top: 0; }
+.fk-order-card-item img, .fk-order-item img, .fk-order-image-placeholder { width: 58px; height: 62px; flex: 0 0 auto; object-fit: contain; border: 1px solid #eeece5; border-radius: 7px; background: #fff; }
+.fk-order-image-placeholder { display: grid; place-items: center; color: #96927d; }
+.fk-order-card-item > div, .fk-order-item-info { display: grid; min-width: 0; flex: 1; gap: 5px; }
+.fk-order-card-item strong, .fk-order-item-info strong { overflow: hidden; color: #2f4039; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.fk-order-card-item span, .fk-order-item-info span { color: var(--fk-text-muted); font-size: 11px; }
+.fk-order-card-item > b, .fk-order-item > b { font-size: 13px; white-space: nowrap; }
+.fk-order-card footer { display: flex; justify-content: flex-end; padding: 12px 18px; border-top: 1px solid #eeece5; }
+.fk-order-card footer button, .fk-ticket-meta button, .fk-page-refresh { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid #d8d6ca; border-radius: 7px; background: #fff; color: #425143; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.fk-order-card footer button:hover, .fk-ticket-meta button:hover, .fk-page-refresh:hover { border-color: var(--fk-olive); color: #5e603e; }
+.fk-account-state, .fk-account-empty { padding: 42px 18px; color: var(--fk-text-muted); text-align: center; }
+.fk-account-empty { display: grid; justify-items: center; gap: 9px; border: 1px dashed #dcdacf; border-radius: 10px; }
+.fk-account-empty svg { color: var(--fk-olive); }
+.fk-account-empty strong { color: var(--fk-text-primary); }
+.fk-account-empty p { max-width: 430px; margin: 0; font-size: 13px; }
+.fk-order-detail-card { margin: 0 0 14px; padding: 18px; }
+.fk-order-detail-card h2 { margin: 0 0 12px; font-size: 16px; }
+.fk-order-detail-card p { margin: 6px 0; color: #59645e; font-size: 13px; line-height: 1.55; }
+.fk-order-detail-heading { display: flex; justify-content: space-between; gap: 12px; font-size: 16px; }
+.fk-order-detail-heading span { font-weight: 750; }
+.fk-order-detail-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; color: var(--fk-text-muted); font-size: 12px; }
+.fk-order-items .fk-order-item:first-child { border-top: 0; }
+.fk-order-total { display: flex; justify-content: space-between; padding: 15px 3px; font-size: 14px; }
+.fk-order-total strong { font-size: 18px; }
+.fk-page-back { display: inline-flex; align-items: center; gap: 7px; margin: 0 0 18px; padding: 0; border: 0; background: transparent; color: #57604a; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.fk-ticket-card { padding: 17px 18px; }
+.fk-ticket-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.fk-ticket-card > p { margin: 13px 0; color: #3f4b45; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.fk-ticket-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--fk-text-muted); font-size: 12px; }
+.fk-ticket-count { display: inline-grid; min-width: 25px; height: 25px; place-items: center; vertical-align: middle; border-radius: 999px; background: #eeeddf; color: #5b5b3a; font-size: 12px; }
+.fk-account-notice.is-error { padding: 11px 13px; border-radius: 7px; background: #fff0ec; color: #8a3228; }
+@media (max-width: 620px) {
+  .fk-account-page { padding: 22px 14px 30px; }
+  .fk-orders-toolbar { flex-direction: column; }
+  .fk-orders-toolbar select { width: 100%; }
+  .fk-order-card-header, .fk-order-detail-heading { align-items: flex-start; }
+  .fk-order-card-item img, .fk-order-item img, .fk-order-image-placeholder { width: 48px; height: 54px; }
+  .fk-ticket-meta { align-items: flex-start; flex-direction: column; }
+}

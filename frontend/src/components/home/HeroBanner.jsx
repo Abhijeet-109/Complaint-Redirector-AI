@@ -141,6 +141,9 @@ export function HeroBanner({ onExplore }) {
                   src={slide.image}
                   alt={slide.alt}
                   className="fk-hero-image"
+                  loading={slide.id === SLIDES[0].id ? 'eager' : 'lazy'}
+                  fetchPriority={slide.id === SLIDES[0].id ? 'high' : 'auto'}
+                  decoding="async"
                   style={{
                     width: '100%',
                     height: '100%',

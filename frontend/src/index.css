@@ -1127,8 +1127,14 @@ input, textarea, select {
 .fk-checkout-fields label { display: grid; gap: 6px; color: #34463f; font-size: 12px; font-weight: 700; }
 .fk-checkout-fields label > span { display: inline; color: var(--fk-text-muted); font-weight: 400; }
 .fk-checkout-fields .fk-field-wide { grid-column: 1 / -1; }
-.fk-checkout-fields input { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #d6d7ce; border-radius: 5px; outline: 0; color: var(--fk-text-primary); background: #fff; font: inherit; font-size: 13px; }
-.fk-checkout-fields input:focus { border-color: var(--fk-olive); box-shadow: 0 0 0 3px rgba(138,135,93,.13); }
+.fk-checkout-fields input:not([type="checkbox"]):not([type="radio"]) { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #d6d7ce; border-radius: 5px; outline: 0; color: var(--fk-text-primary); background: #fff; font: inherit; font-size: 13px; }
+.fk-checkout-fields input:not([type="checkbox"]):not([type="radio"]):focus { border-color: var(--fk-olive); box-shadow: 0 0 0 3px rgba(138,135,93,.13); }
+.fk-compact-checkbox { appearance: none; display: inline-grid; width: 17px !important; min-width: 17px; height: 17px; min-height: 17px !important; place-content: center; margin: 0; padding: 0 !important; border: 1px solid #9b9b72 !important; border-radius: 4px !important; background: #fff; cursor: pointer; }
+.fk-compact-checkbox::before { width: 9px; height: 5px; content: ""; border: solid #fff; border-width: 0 0 2px 2px; transform: rotate(-45deg) scale(0); }
+.fk-compact-checkbox:checked { border-color: var(--fk-olive) !important; background: var(--fk-olive) !important; }
+.fk-compact-checkbox:checked::before { transform: rotate(-45deg) scale(1); }
+.fk-compact-checkbox:focus-visible { outline: 3px solid rgba(138,135,93,.2); outline-offset: 2px; }
+.fk-checkbox-row { display: flex !important; align-items: center; gap: 9px !important; align-self: center; min-height: 42px; color: #34463f; font-size: 13px !important; font-weight: 600 !important; }
 .fk-payment-options { display: grid; gap: 10px; margin: 9px 0 17px; }
 .fk-payment-option { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border: 1px solid #deded5; border-radius: 6px; background: #fff; cursor: pointer; }
 .fk-payment-option.is-active { border-color: var(--fk-olive); box-shadow: 0 0 0 2px rgba(138,135,93,.12); }
@@ -1146,6 +1152,29 @@ input, textarea, select {
 .fk-payment-option span { display: grid; gap: 3px; }
 .fk-payment-option strong { color: var(--fk-text-primary); font-size: 13px; }
 .fk-payment-option small { color: var(--fk-text-muted); font-size: 11px; }
+.fk-product-payment-methods { display: flex; flex-wrap: wrap; gap: 9px; }
+.fk-product-payment-method { display: inline-flex; align-items: center; gap: 8px; min-height: 39px; padding: 0 11px; border: 1px solid #e3e1d7; border-radius: 8px; background: #fff; color: #425149; font-size: 12px; font-weight: 650; }
+.fk-product-payment-method svg { color: var(--fk-olive); }
+.fk-address-list-card h2 { margin: 0 0 14px; color: var(--fk-text-primary); font-size: 18px; }
+.fk-address-form h2 { margin: 0; color: var(--fk-text-primary); font-size: 18px; }
+.fk-address-field { color: #34463f; }
+.fk-address-input { min-height: 43px; padding: 10px 12px; border: 1px solid #d6d7ce; border-radius: 6px; outline: 0; color: var(--fk-text-primary); background: #fff; font: inherit; font-size: 13px; }
+.fk-address-input:focus { border-color: var(--fk-olive); box-shadow: 0 0 0 3px rgba(138,135,93,.13); }
+.fk-address-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.fk-saved-address-card { min-width: 0; padding: 15px; border: 1px solid #e7e5dc; border-radius: 8px; background: #fff; }
+.fk-address-title { display: flex; align-items: center; gap: 9px; color: #2e4339; text-transform: capitalize; }
+.fk-address-title span { padding: 3px 8px; border-radius: 999px; background: #efefdf; color: #636344; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.fk-saved-address-card p { margin: 10px 0; color: #59645e; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.fk-saved-address-card p strong { color: #34463f; }
+.fk-address-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; padding-top: 11px; border-top: 1px solid #eeece5; }
+.fk-address-action { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 9px; border: 1px solid #e1dfd5; border-radius: 6px; background: white; color: #47554c; font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.fk-address-action:hover { border-color: var(--fk-olive); color: #68673f; }
+.fk-address-action.is-danger { color: #8a4c43; }
+.fk-address-empty { padding: 10px; color: var(--fk-text-muted); }
+.fk-password-control { position: relative; display: flex !important; align-items: center; }
+.fk-password-control input { padding-right: 44px !important; }
+.fk-password-control button { position: absolute; right: 3px; display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #65716b; cursor: pointer; }
+.fk-password-control button:hover { background: #f2f1eb; color: #31473c; }
 .fk-checkout-submit { width: 100%; min-height: 47px; padding: 11px 16px; border: 0; border-radius: 5px; color: #fff; background: var(--fk-header); font: inherit; font-size: 14px; font-weight: 750; cursor: pointer; }
 .fk-checkout-submit:hover { background: #1a4039; }
 .fk-checkout-submit:disabled { opacity: .6; cursor: wait; }
@@ -1757,7 +1786,8 @@ input, textarea, select {
   gap: 2px;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .fk-account-nav-btn {
@@ -1779,7 +1809,7 @@ input, textarea, select {
 }
 
 .fk-account-nav-btn span {
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .fk-account-nav-btn:hover {

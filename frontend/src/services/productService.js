@@ -1,5 +1,28 @@
 import { apiRequest } from './api.js';
 
+const HOME_CATALOGUE_TTL = 2 * 60 * 1000;
+let homeCatalogueCache = null;
+let homeCatalogueRequest = null;
+
+export function getHomeCatalogueSnapshot() {
+  return homeCatalogueCache?.value || null;
+}
+
+export function getHomeCatalogue({ refresh = false } = {}) {
+  if (!refresh && homeCatalogueCache && Date.now() - homeCatalogueCache.savedAt < HOME_CATALOGUE_TTL) {
+    return Promise.resolve(homeCatalogueCache.value);
+  }
+  if (!refresh && homeCatalogueRequest) return homeCatalogueRequest;
+  homeCatalogueRequest = Promise.all([productService.list({ limit: 100 }), productService.categories()])
+    .then(([products, categories]) => {
+      const value = { products: Array.isArray(products) ? products : [], categories: Array.isArray(categories) ? categories : [] };
+      homeCatalogueCache = { savedAt: Date.now(), value };
+      return value;
+    })
+    .finally(() => { homeCatalogueRequest = null; });
+  return homeCatalogueRequest;
+}
+
 const query = (values = {}) => {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) => {

@@ -27,7 +27,6 @@ import {
 import { AccountLayout } from '../components/account/AccountLayout';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
-import { OrdersModal } from '../components/common/OrdersModal';
 import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
 import { isValidStructuredResponse } from '../components/chatbot/agentResponsePresentation';
 
@@ -105,7 +104,6 @@ export function MyConversations({ onNavigate }) {
 
   // Dropdown & modal states
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
-  const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
 
   // Custom delete confirmation modal & in-app toast states
@@ -499,7 +497,6 @@ export function MyConversations({ onNavigate }) {
     <AccountLayout
       activeItem="conversations"
       onNavigate={onNavigate}
-      onOpenOrders={() => setIsOrdersOpen(true)}
       onOpenWishlist={() => setIsWishlistOpen(true)}
       onToggleChatbot={() => setIsChatbotOpen((open) => !open)}
     >
@@ -880,7 +877,6 @@ export function MyConversations({ onNavigate }) {
       {/* Global Modals & Drawers */}
       <CartDrawer onNavigate={onNavigate} />
       <WishlistDrawer onNavigate={onNavigate} />
-      <OrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} />
       <ChatbotWidget isOpen={isChatbotOpen} onToggle={() => setIsChatbotOpen((open) => !open)} onNavigate={onNavigate} />
 
       {/* Custom Delete Confirmation Modal */}

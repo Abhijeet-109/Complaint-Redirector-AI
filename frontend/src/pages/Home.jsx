@@ -13,11 +13,10 @@ import { WhyFlatkart } from '../components/home/WhyFlatkart';
 import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
-import { OrdersModal } from '../components/common/OrdersModal';
 import { useAuth } from '../context/AuthContext';
 import { isCustomerRole } from '../utils/roleAccess';
 import { Footer } from '../components/layout/Footer';
-import { productService } from '../services/productService';
+import { getHomeCatalogue, getHomeCatalogueSnapshot } from '../services/productService';
 import { ProductGrid } from '../components/products/ProductGrid';
 
 const flattenCategories = (rows) => rows.flatMap((row) => [row, ...flattenCategories(row.children || [])]);
@@ -26,21 +25,22 @@ const categoryTreeIds = (category) => [category.id, ...(category.children || [])
 export function Home({ onNavigate }) {
   const { user } = useAuth();
   const [activeCategory, setActiveCategory] = useState('Home');
-  const [isOrdersOpen, setIsOrdersOpen] = useState(false);
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
-  const [catalogue, setCatalogue] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [catalogueLoading, setCatalogueLoading] = useState(true);
+  const [catalogueSnapshot, setCatalogueSnapshot] = useState(getHomeCatalogueSnapshot);
+  const [catalogue, setCatalogue] = useState(() => catalogueSnapshot?.products || []);
+  const [categories, setCategories] = useState(() => catalogueSnapshot?.categories || []);
+  const [catalogueLoading, setCatalogueLoading] = useState(() => !catalogueSnapshot);
   const [catalogueError, setCatalogueError] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(null);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([productService.list({ limit: 100 }), productService.categories()])
-      .then(([products, activeCategories]) => {
+    getHomeCatalogue()
+      .then((snapshot) => {
         if (!alive) return;
-        setCatalogue(products);
-        setCategories(activeCategories);
+        setCatalogueSnapshot(snapshot);
+        setCatalogue(snapshot.products);
+        setCategories(snapshot.categories);
       })
       .catch((error) => { if (alive) setCatalogueError(error.message || 'Could not load the catalogue.'); })
       .finally(() => { if (alive) setCatalogueLoading(false); });
@@ -79,7 +79,6 @@ export function Home({ onNavigate }) {
       {/* 1. Main Header */}
       <Header
         onNavigate={onNavigate}
-        onOpenOrders={() => setIsOrdersOpen(true)}
         onSelectProduct={handleSelectProduct}
       />
 
@@ -147,11 +146,6 @@ export function Home({ onNavigate }) {
       {/* Drawers & Modals */}
       <CartDrawer onNavigate={onNavigate} />
       <WishlistDrawer onNavigate={onNavigate} />
-      <OrdersModal
-        isOpen={isOrdersOpen}
-        onClose={() => setIsOrdersOpen(false)}
-        onOpenChatbot={() => setIsChatbotOpen(true)}
-      />
     </div>
   );
 }

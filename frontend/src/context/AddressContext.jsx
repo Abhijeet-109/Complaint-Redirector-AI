@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { accountService } from '../services/accountService';
+import { getAddressesForUser } from '../services/addressCache';
 
 const AddressContext = createContext(null);
 
@@ -8,10 +9,10 @@ export function AddressProvider({ children }) {
   const { user, isAuthenticated, loading } = useAuth();
   const ownerId = isAuthenticated ? user?.id : null;
   const [state, setState] = useState({ ownerId: null, addresses: [], selectedId: null, error: '' });
-  const refreshAddresses = useCallback(async () => {
+  const refreshAddresses = useCallback(async ({ refresh = false } = {}) => {
     if (!ownerId || loading) { setState({ ownerId: null, addresses: [], selectedId: null, error: '' }); return []; }
     try {
-      const addresses = await accountService.addresses();
+      const addresses = await getAddressesForUser(ownerId, { refresh });
       const stored = localStorage.getItem(`flatkart_delivery_address:${ownerId}`);
       const savedId = stored ? Number(stored) : null;
       const selectedId = addresses.some((item) => item.id === savedId) ? savedId : (addresses.find((item) => item.is_default)?.id || null);
@@ -37,7 +38,7 @@ export function AddressProvider({ children }) {
   const setDefaultAddress = useCallback(async (id) => {
     await accountService.setDefaultAddress(id);
     localStorage.setItem(`flatkart_delivery_address:${ownerId}`, String(id));
-    await refreshAddresses();
+    await refreshAddresses({ refresh: true });
   }, [ownerId, refreshAddresses]);
 
   const value = useMemo(() => ({

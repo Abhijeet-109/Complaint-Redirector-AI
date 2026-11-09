@@ -21,6 +21,7 @@ export function CategorySection({ onSelectCategory, categories = [], products = 
                 alt={cat.name}
                 className="fk-category-image"
                 loading="lazy"
+                decoding="async"
               />
             </div>
             <div className="fk-category-label-strip">
