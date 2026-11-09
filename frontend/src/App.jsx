@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
+import { AddressProvider } from './context/AddressContext';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -9,12 +10,20 @@ import { MyConversations } from './pages/MyConversations';
 import { HandlerDashboardPage } from './pages/HandlerDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { SuperAdminDashboardPage } from './pages/SuperAdminDashboardPage';
+import { ProductDetails } from './pages/ProductDetails';
+import { Checkout } from './pages/Checkout';
+import { MyAccount } from './pages/MyAccount';
 import { resolveAuthorizedPage } from './utils/roleAccess';
 
 function AppContent() {
   const { user, isAuthenticated, loading } = useAuth();
+  const initialProductSlug = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i)?.[1];
+  const [productSlug, setProductSlug] = useState(() => initialProductSlug ? decodeURIComponent(initialProductSlug) : '');
   const [currentPage, setCurrentPage] = useState(() => {
     const path = window.location.pathname.toLowerCase();
+    if (/^\/products\/[^/]+\/?$/.test(path)) return 'product';
+    if (path === '/checkout') return 'checkout';
+    if (path.startsWith('/account')) return 'account';
     if (path === '/login') return 'login';
     if (path === '/register') return 'register';
     if (path === '/my-complaints') return 'my-complaints';
@@ -25,11 +34,17 @@ function AppContent() {
     if (path === '/super-admin-dashboard') return 'super-admin-dashboard';
     return 'home';
   });
+  const [routePath, setRoutePath] = useState(() => window.location.pathname);
 
   useEffect(() => {
     const handlePopState = () => {
+      setRoutePath(window.location.pathname);
       const path = window.location.pathname.toLowerCase();
-      if (path === '/login') setCurrentPage('login');
+      const productMatch = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i);
+      if (productMatch) { setProductSlug(decodeURIComponent(productMatch[1])); setCurrentPage('product'); }
+      else if (path === '/checkout') setCurrentPage('checkout');
+      else if (path.startsWith('/account')) setCurrentPage('account');
+      else if (path === '/login') setCurrentPage('login');
       else if (path === '/register') setCurrentPage('register');
       else if (path === '/my-complaints') setCurrentPage('my-complaints');
       else if (path === '/my-conversations') setCurrentPage('my-conversations');
@@ -44,8 +59,14 @@ function AppContent() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const navigateTo = (page) => {
+  const navigateTo = useCallback((page, value) => {
     let targetPath = '/';
+    if (page === 'product' && value) {
+      targetPath = `/products/${encodeURIComponent(value)}`;
+      setProductSlug(value);
+    }
+    if (page === 'checkout') targetPath = '/checkout';
+    if (page === 'account') targetPath = `/account/${value || 'profile'}`;
     if (page === 'login') targetPath = '/login';
     if (page === 'register') targetPath = '/register';
     if (page === 'my-complaints') targetPath = '/my-complaints';
@@ -57,9 +78,10 @@ function AppContent() {
     if (window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
     }
+    setRoutePath(targetPath);
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
   const authorizedPage = resolveAuthorizedPage(currentPage, user?.role, isAuthenticated);
 
@@ -105,6 +127,19 @@ function AppContent() {
     return <SuperAdminDashboardPage onNavigate={navigateTo} />;
   }
 
+  if (authorizedPage === 'product') {
+    return <ProductDetails slug={productSlug} onNavigate={navigateTo} />;
+  }
+
+  if (authorizedPage === 'checkout') {
+    return <Checkout onNavigate={navigateTo} />;
+  }
+
+  if (authorizedPage === 'account') {
+    const section = routePath.split('/')[2] || 'profile';
+    return <MyAccount section={section} onNavigate={navigateTo} />;
+  }
+
   return <Home onNavigate={navigateTo} />;
 }
 
@@ -112,7 +147,9 @@ export function App() {
   return (
     <AuthProvider>
       <CartProvider>
-        <AppContent />
+        <AddressProvider>
+          <AppContent />
+        </AddressProvider>
       </CartProvider>
     </AuthProvider>
   );

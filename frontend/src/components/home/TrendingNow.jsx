@@ -1,9 +1,7 @@
 import React from 'react';
-import { TRENDING_PRODUCTS } from '../../data/demoProducts';
-import { useCart } from '../../context/CartContext';
+import { ProductGrid } from '../products/ProductGrid';
 
-export function TrendingNow({ onSelectProduct }) {
-  const { addToCart } = useCart();
+export function TrendingNow({ onSelectProduct, products = [], loading = false, error = '' }) {
 
   return (
     <section className="fk-featured-section">
@@ -16,33 +14,7 @@ export function TrendingNow({ onSelectProduct }) {
         </p>
       </div>
 
-      <div className="fk-products-grid">
-        {TRENDING_PRODUCTS.map((product) => (
-          <div
-            key={product.id}
-            className="fk-product-card"
-            onClick={() => onSelectProduct && onSelectProduct(product)}
-          >
-            <div className="fk-product-img-box">
-              <img
-                src={product.image}
-                alt={`${product.brand} ${product.name}`}
-                className="fk-product-img"
-                loading="lazy"
-              />
-            </div>
-            <div className="fk-product-details">
-              <div className="fk-product-brand">{product.brand}</div>
-              <div className="fk-product-name">{product.name}</div>
-              <div className="fk-product-subtext">{product.variant}</div>
-              <div className={`fk-product-price ${product.priceColor}`}>
-                {product.price}
-              </div>
-              <div className="fk-product-subtext">{product.subtext}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <ProductGrid products={products} loading={loading} error={error} onSelectProduct={onSelectProduct} />
     </section>
   );
 }

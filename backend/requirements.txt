@@ -106,6 +106,7 @@ packaging==26.3
 pandas==3.0.6
 pdf2image==1.17.0
 pillow==12.3.0
+imagekitio==5.12.0
 propcache==0.5.4
 proto-plus==1.29.0
 protobuf==7.36.2

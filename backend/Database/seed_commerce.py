@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.Database.connection import DATABASE_URL, SessionLocal
@@ -75,6 +75,14 @@ PRODUCTS = (
     (226, "Classmate", "Hardbound Ruled Notebook", "A5 Blue", 180, "Pack of three, 160 pages each", "stationery", "/assets/cat_books_hi.jpg"),
     (227, "Parker", "Jotter Ball Pen Set", "Blue Ink", 650, "Set of three refillable pens", "stationery", "/assets/cat_books_hi.jpg"),
     (228, "Faber-Castell", "Colour Pencil Set", "24 Shades", 420, "Break-resistant pencils", "stationery", "/assets/cat_books_hi.jpg"),
+    (229, "Roadster", "Classic Cotton Polo T-Shirt", "Navy Blue", 999, "Classic cotton polo shirt", "men", "/assets/cat_men_hi.jpg"),
+    (230, "Aurelia", "Printed Straight Kurta", "Printed", 1499, "Printed straight kurta", "women", "/assets/cat_women_hi.jpg"),
+    (231, "Lavie", "Compact Crossbody Sling Bag", "Tan", 1299, "Compact everyday crossbody bag", "accessories", "/assets/cat_women_hi.jpg"),
+    (232, "Campus", "Everyday Running Shoes", "Grey", 2199, "Lightweight everyday running shoes", "footwear", "/assets/cat_sports_hi.jpg"),
+    (233, "Home Centre", "Ceramic Table Lamp", "Ivory", 1699, "Ceramic table lamp", "home-living", "/assets/cat_home_living_hi.jpg"),
+    (234, "Minimalist", "Vitamin C Face Serum", "30 ml", 699, "Vitamin C face serum", "beauty", "/assets/cat_beauty_hi.jpg"),
+    (235, "boAt", "Wireless Bluetooth Headphones", "Black", 2499, "Wireless Bluetooth headphones", "electronics", "/assets/cat_electronics_hi.jpg"),
+    (236, "Classmate", "Dotted Journal Set", "Set of two", 249, "Dotted journal set", "stationery", "/assets/cat_books_hi.jpg"),
 )
 
 TARGET_CUSTOMERS = ("user1@gmail.com", "user3@gmail.com")
@@ -123,13 +131,13 @@ def seed_catalog(session, *, update_catalog: bool = False) -> dict[str, int]:
     for product_id, brand, name, variant_name, rupees, description, category_slug, image_key in PRODUCTS:
         slug = slugify(name)
         product = session.scalar(
-            select(Product).where(
-                or_(
-                    Product.slug == slug,
-                    Product.attributes["catalogue_id"].as_integer() == product_id,
-                )
-            )
+            select(Product).where(Product.attributes["catalogue_id"].as_integer() == product_id)
         )
+        if product is None:
+            product = session.scalar(select(Product).where(Product.slug == slug))
+            if product is not None and not update_catalog:
+                # A matching slug alone does not make a manually curated product seed-owned.
+                continue
         if product is None:
             product = Product(
                 name=name, slug=slug, brand=brand,
@@ -148,13 +156,14 @@ def seed_catalog(session, *, update_catalog: bool = False) -> dict[str, int]:
         if variant is None:
             variant = ProductVariant(
                 product_id=product.id, sku=sku, name=variant_name,
-                price=rupees, is_available=True,
+                price=rupees, mrp=rupees, is_available=True,
             )
             session.add(variant)
             session.flush()
         elif update_catalog:
             variant.product_id, variant.name = product.id, variant_name
             variant.price = rupees
+            variant.mrp = rupees
 
         inventory = session.scalar(select(Inventory).where(Inventory.variant_id == variant.id))
         if inventory is None:

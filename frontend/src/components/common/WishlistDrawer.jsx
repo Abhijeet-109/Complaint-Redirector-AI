@@ -2,8 +2,8 @@ import React from 'react';
 import { X, ShoppingBag, Trash2 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 
-export function WishlistDrawer() {
-  const { wishlistItems, toggleWishlist, addToCart, isWishlistOpen, setIsWishlistOpen } = useCart();
+export function WishlistDrawer({ onNavigate }) {
+  const { wishlistItems, wishlistError, toggleWishlist, isWishlistOpen, setIsWishlistOpen } = useCart();
 
   if (!isWishlistOpen) return null;
 
@@ -23,6 +23,7 @@ export function WishlistDrawer() {
         </div>
 
         <div className="fk-drawer-content">
+          {wishlistError && <p className="fk-cart-error" role="alert">{wishlistError}</p>}
           {wishlistItems.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--fk-text-muted)' }}>
               No items in your wishlist yet.
@@ -30,7 +31,7 @@ export function WishlistDrawer() {
           ) : (
             wishlistItems.map((item) => (
               <div key={item.id} className="fk-drawer-item">
-                <img src={item.image} alt={item.name} className="fk-drawer-item-img" />
+                <img src={item.images?.[0]?.url || item.image || ''} alt={item.name} className="fk-drawer-item-img" />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--fk-text-primary)' }}>
                     {item.brand}
@@ -39,19 +40,22 @@ export function WishlistDrawer() {
                     {item.name}
                   </div>
                   <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--fk-price-coral)', marginTop: '2px' }}>
-                    {item.price}
+                    {item.variants?.[0]?.price != null ? `₹${Number(item.variants[0].price).toLocaleString('en-IN')}` : item.price ?? 'Price unavailable'}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     className="fk-add-cart-btn"
                     style={{ fontSize: '11px', padding: '4px 8px' }}
+                    type="button"
                     onClick={() => {
-                      addToCart(item);
-                      toggleWishlist(item);
+                      setIsWishlistOpen(false);
+                      if (item.slug) onNavigate?.('product', item.slug);
                     }}
+                    disabled={!item.slug}
+                    title="Choose a product option before adding it to your cart"
                   >
-                    Move to Cart
+                    Choose option
                   </button>
                   <button
                     style={{ color: '#9E9E9E', cursor: 'pointer', background: 'none', border: 'none' }}

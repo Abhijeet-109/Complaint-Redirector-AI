@@ -8,9 +8,11 @@ from backend.Database.models import (
     Cart,
     CartItem,
     CommerceOrder,
+    CommerceOrderItem,
     Inventory,
     Product,
     ProductCategory,
+    ProductImage,
     ProductVariant,
     ReturnRequest,
     Shipment,
@@ -31,6 +33,7 @@ def get_category_tree(session: Session, *, active_only: bool = True) -> list[dic
     nodes = {
         category.id: {
             "id": category.id,
+            "parent_id": category.parent_id,
             "name": category.name,
             "slug": category.slug,
             "is_active": category.is_active,
@@ -210,6 +213,8 @@ def add_cart_item(session: Session, user_id: int, variant_id: int, quantity: int
         session.add(item)
     else:
         next_quantity = item.quantity + quantity
+        if next_quantity > 999:
+            raise ValueError("Cart quantity cannot exceed 999")
         if inventory.available_stock < next_quantity:
             raise ValueError("Insufficient available stock")
         item.quantity = next_quantity
@@ -233,6 +238,42 @@ def remove_cart_item(session: Session, user_id: int, variant_id: int) -> bool:
     return True
 
 
+def update_cart_item_quantity(
+    session: Session,
+    user_id: int,
+    variant_id: int,
+    quantity: int,
+) -> CartItem:
+    """Set a customer's cart line quantity after checking current stock."""
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+        raise ValueError("quantity must be a positive integer")
+    inventory = session.scalar(
+        select(Inventory).where(Inventory.variant_id == variant_id).with_for_update()
+    )
+    item = session.scalar(
+        select(CartItem)
+        .join(Cart, CartItem.cart_id == Cart.id)
+        .where(Cart.user_id == user_id, Cart.status == "active", CartItem.variant_id == variant_id)
+        .with_for_update()
+    )
+    if item is None:
+        raise LookupError("Cart item not found")
+    variant = session.scalar(
+        select(ProductVariant).where(
+            ProductVariant.id == variant_id,
+            ProductVariant.is_available.is_(True),
+            ProductVariant.product.has(Product.is_active.is_(True)),
+        )
+    )
+    if variant is None:
+        raise LookupError("Available product variant not found")
+    if inventory is None or inventory.available_stock < quantity:
+        raise ValueError("Insufficient available stock")
+    item.quantity = quantity
+    session.flush()
+    return item
+
+
 def get_cart(session: Session, user_id: int) -> Cart | None:
     return session.scalar(
         select(Cart)
@@ -246,7 +287,13 @@ def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[Comm
         raise ValueError("limit must be between 1 and 100")
     query = (
         select(CommerceOrder)
-        .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.shipment))
+        .options(
+            selectinload(CommerceOrder.items)
+            .selectinload(CommerceOrderItem.variant)
+            .selectinload(ProductVariant.product)
+            .selectinload(Product.images),
+            selectinload(CommerceOrder.shipment),
+        )
         .where(CommerceOrder.user_id == user_id)
         .order_by(CommerceOrder.created_at.desc())
         .limit(limit)
@@ -257,7 +304,13 @@ def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[Comm
 def get_order(session: Session, user_id: int, order_id: int) -> CommerceOrder | None:
     return session.scalar(
         select(CommerceOrder)
-        .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.shipment))
+        .options(
+            selectinload(CommerceOrder.items)
+            .selectinload(CommerceOrderItem.variant)
+            .selectinload(ProductVariant.product)
+            .selectinload(Product.images),
+            selectinload(CommerceOrder.shipment),
+        )
         .where(CommerceOrder.id == order_id, CommerceOrder.user_id == user_id)
     )
 

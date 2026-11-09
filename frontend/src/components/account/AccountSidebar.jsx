@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   User,
   MapPin,
@@ -11,16 +11,25 @@ import {
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { getSupportTickets } from '../../services/supportTicketCache';
 
 export function AccountSidebar({
   activeItem = 'conversations',
   onNavigate,
-  onOpenOrders,
   onOpenWishlist,
   onToggleChatbot,
   showDecor = false,
 }) {
-  const { logout } = useAuth();
+  const { logout, user, isAuthenticated } = useAuth();
+  const [ticketCount, setTicketCount] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    if (!isAuthenticated || !user?.id) { setTicketCount(null); return () => { alive = false; }; }
+    setTicketCount(null);
+    getSupportTickets(user.id).then((tickets) => { if (alive) setTicketCount(tickets.length); }).catch(() => { if (alive) setTicketCount(null); });
+    return () => { alive = false; };
+  }, [isAuthenticated, user?.id]);
 
   const handleLogout = () => {
     logout();
@@ -34,21 +43,25 @@ export function AccountSidebar({
       id: 'profile',
       label: 'Profile Information',
       icon: User,
-      action: () => {},
+      action: () => onNavigate?.('account', 'profile'),
     },
     {
       id: 'address',
       label: 'Address Book',
       icon: MapPin,
-      action: () => {},
+      action: () => onNavigate?.('account', 'address'),
     },
     {
       id: 'orders',
       label: 'My Orders',
       icon: Package,
-      action: () => {
-        if (onOpenOrders) onOpenOrders();
-      },
+      action: () => onNavigate?.('account', 'orders'),
+    },
+    {
+      id: 'support-tickets',
+      label: `My Support Tickets${ticketCount == null ? '' : ` (${ticketCount})`}`,
+      icon: Headphones,
+      action: () => onNavigate?.('account', 'support-tickets'),
     },
     {
       id: 'wishlist',
@@ -56,13 +69,14 @@ export function AccountSidebar({
       icon: Heart,
       action: () => {
         if (onOpenWishlist) onOpenWishlist();
+        else onNavigate?.('account', 'wishlist');
       },
     },
     {
       id: 'payments',
       label: 'Payment Methods',
       icon: CreditCard,
-      action: () => {},
+      action: () => onNavigate?.('account', 'payments'),
     },
     {
       id: 'complaints',
@@ -86,6 +100,7 @@ export function AccountSidebar({
       icon: HelpCircle,
       action: () => {
         if (onToggleChatbot) onToggleChatbot();
+        else onNavigate?.('my-conversations');
       },
     },
   ];

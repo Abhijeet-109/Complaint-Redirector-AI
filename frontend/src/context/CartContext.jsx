@@ -1,92 +1,141 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { FEATURED_PRODUCTS } from '../data/demoProducts';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useAuth } from './AuthContext';
+import { productService } from '../services/productService';
+import { accountService } from '../services/accountService';
+import { cartForOwner, cartQuantity, EMPTY_SERVER_CART } from '../utils/commerceState';
 
 const CartContext = createContext(null);
+const GUEST_WISHLIST_KEY = 'flatkart_guest_wishlist';
+
+function loadWishlist() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(GUEST_WISHLIST_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
 
 export function CartProvider({ children }) {
-  // Initialize with the 2 items matching the screenshot badge '2'
-  const [cartItems, setCartItems] = useState(() => {
-    const saved = localStorage.getItem('flatkart_cart');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        // ignore
-      }
-    }
-    return [
-      { ...FEATURED_PRODUCTS[0], quantity: 1 },
-      { ...FEATURED_PRODUCTS[2], quantity: 1 },
-    ];
-  });
-
-  const [wishlistItems, setWishlistItems] = useState(() => {
-    const saved = localStorage.getItem('flatkart_wishlist');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        // ignore
-      }
-    }
-    return [FEATURED_PRODUCTS[1]];
-  });
-
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const ownerId = isAuthenticated ? user?.id : null;
+  const [serverCart, setServerCart] = useState({ ownerId: null, value: EMPTY_SERVER_CART });
+  const [serverWishlist, setServerWishlist] = useState({ ownerId: null, value: [] });
+  const [guestWishlist, setGuestWishlist] = useState(loadWishlist);
+  const [wishlistError, setWishlistError] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
+  const [cartLoading, setCartLoading] = useState(false);
+  const [cartError, setCartError] = useState('');
+  const requestVersion = useRef(0);
 
-  useEffect(() => {
-    localStorage.setItem('flatkart_cart', JSON.stringify(cartItems));
-  }, [cartItems]);
+  const cart = cartForOwner(serverCart, ownerId);
+  const cartItems = cart.items;
+  const wishlistItems = ownerId === null ? guestWishlist : (serverWishlist.ownerId === ownerId ? serverWishlist.value : []);
 
-  useEffect(() => {
-    localStorage.setItem('flatkart_wishlist', JSON.stringify(wishlistItems));
-  }, [wishlistItems]);
-
-  const addToCart = (product) => {
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.id === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
+  const refreshCart = useCallback(async () => {
+    const version = ++requestVersion.current;
+    if (!ownerId || authLoading) {
+      setServerCart({ ownerId: null, value: EMPTY_SERVER_CART });
+      setCartLoading(false);
+      return EMPTY_SERVER_CART;
+    }
+    setCartLoading(true);
+    setCartError('');
+    try {
+      const result = await productService.getCart();
+      if (version === requestVersion.current) setServerCart({ ownerId, value: result });
+      return result;
+    } catch (error) {
+      if (version === requestVersion.current) {
+        setServerCart({ ownerId, value: EMPTY_SERVER_CART });
+        setCartError(error.message || 'Could not load your cart.');
       }
-      return [...prev, { ...product, quantity: 1 }];
-    });
+      return EMPTY_SERVER_CART;
+    } finally {
+      if (version === requestVersion.current) setCartLoading(false);
+    }
+  }, [ownerId, authLoading]);
+
+  useEffect(() => {
+    setServerCart({ ownerId: null, value: EMPTY_SERVER_CART });
+    setServerWishlist({ ownerId: null, value: [] });
+    if (!authLoading && ownerId) refreshCart();
+    else { setCartLoading(false); setCartError(''); }
+    return () => { requestVersion.current += 1; };
+  }, [ownerId, authLoading, refreshCart]);
+
+  useEffect(() => {
+    localStorage.setItem(GUEST_WISHLIST_KEY, JSON.stringify(guestWishlist));
+  }, [guestWishlist]);
+
+  useEffect(() => {
+    if (!ownerId || authLoading) return undefined;
+    let active = true;
+    const load = async () => {
+      try {
+        let saved = await accountService.wishlist();
+        const guests = loadWishlist();
+        if (guests.length) {
+          await Promise.all(guests.filter((item) => item?.id).map((item) => accountService.addWishlist(item.id).catch(() => null)));
+          localStorage.removeItem(GUEST_WISHLIST_KEY);
+          saved = await accountService.wishlist();
+        }
+        if (active) { setServerWishlist({ ownerId, value: saved }); setGuestWishlist([]); setWishlistError(''); }
+      } catch (error) {
+        if (active) setWishlistError(error.message || 'Could not load your wishlist.');
+      }
+    };
+    load();
+    return () => { active = false; };
+  }, [ownerId, authLoading]);
+
+  const addToCart = async (product, variant) => {
+    if (!ownerId) throw new Error('Sign in to add items to your cart.');
+    if (!variant?.id) throw new Error('Choose an available product option first.');
+    const result = await productService.addCartItem(product.id, variant.id, 1);
+    setServerCart({ ownerId, value: result });
+    setCartError('');
     setIsCartOpen(true);
+    return result;
   };
 
-  const removeFromCart = (productId) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== productId));
+  const updateQuantity = async (variantId, quantity) => {
+    const result = await productService.updateCartItem(variantId, quantity);
+    setServerCart({ ownerId, value: result });
+    return result;
   };
 
-  const toggleWishlist = (product) => {
-    setWishlistItems((prev) => {
-      const exists = prev.some((item) => item.id === product.id);
-      if (exists) {
-        return prev.filter((item) => item.id !== product.id);
-      }
-      return [...prev, product];
-    });
+  const removeFromCart = async (variantId) => {
+    const result = await productService.removeCartItem(variantId);
+    setServerCart({ ownerId, value: result });
+    return result;
   };
 
-  const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
+  const toggleWishlist = async (product) => {
+    setWishlistError('');
+    if (!ownerId) {
+      setGuestWishlist((prev) => prev.some((item) => item.id === product.id)
+        ? prev.filter((item) => item.id !== product.id) : [...prev, product]);
+      return;
+    }
+    try {
+      const exists = serverWishlist.ownerId === ownerId && serverWishlist.value.some((item) => item.id === product.id);
+      if (exists) await accountService.removeWishlist(product.id);
+      else await accountService.addWishlist(product.id);
+      const value = await accountService.wishlist();
+      setServerWishlist({ ownerId, value });
+    } catch (error) {
+      setWishlistError(error.message || 'Could not update your wishlist.');
+    }
+  };
 
   return (
-    <CartContext.Provider
-      value={{
-        cartItems,
-        wishlistItems,
-        cartCount,
-        addToCart,
-        removeFromCart,
-        toggleWishlist,
-        isCartOpen,
-        setIsCartOpen,
-        isWishlistOpen,
-        setIsWishlistOpen,
-      }}
-    >
+    <CartContext.Provider value={{
+      cart, cartItems, cartCount: cartQuantity(cart), subtotal: cart.subtotal,
+      paymentMethods: cart.payment_methods, cartLoading, cartError, setCartError,
+      refreshCart, addToCart, updateQuantity, removeFromCart,
+      wishlistItems, wishlistError, toggleWishlist, isCartOpen, setIsCartOpen,
+      isWishlistOpen, setIsWishlistOpen,
+    }}>
       {children}
     </CartContext.Provider>
   );

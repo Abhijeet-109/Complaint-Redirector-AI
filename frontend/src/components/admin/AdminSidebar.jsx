@@ -10,6 +10,9 @@ import {
   Bot,
   LogOut,
   ShoppingCart,
+  ShoppingBag,
+  Tags,
+  Truck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -44,10 +47,23 @@ export function AdminSidebar({
             {isSuperAdmin ? 'Super Admin' : 'Admin'}
           </span>
         </div>
+
       </div>
 
       {/* Navigation Links */}
       <nav className="ad-sidebar-nav">
+        <div className="ad-sidebar-group">
+          <div className="ad-sidebar-group-title">Store Management</div>
+          <button className={`ad-sidebar-item ${currentView === 'products' ? 'active' : ''}`} onClick={() => onSelectView('products')}>
+            <ShoppingBag size={17} /><span>Manage Products</span>
+          </button>
+          <button className={`ad-sidebar-item ${currentView === 'categories' ? 'active' : ''}`} onClick={() => onSelectView('categories')}>
+            <Tags size={17} /><span>Manage Categories</span>
+          </button>
+          <button className={`ad-sidebar-item ${currentView === 'shipment-options' ? 'active' : ''}`} onClick={() => onSelectView('shipment-options')}>
+            <Truck size={17} /><span>Shipment Options</span>
+          </button>
+        </div>
         {/* Workspace Section */}
         <div className="ad-sidebar-group">
           <div className="ad-sidebar-group-title">Workspace</div>

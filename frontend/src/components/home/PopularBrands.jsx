@@ -1,7 +1,6 @@
 import React from 'react';
-import { POPULAR_BRANDS } from '../../data/demoProducts';
-
-export function PopularBrands({ onSelectBrand }) {
+export function PopularBrands({ onSelectBrand, products = [] }) {
+  const brands = [...new Set(products.map((product) => product.brand).filter(Boolean))].slice(0, 8);
   return (
     <section className="fk-featured-section">
       <div style={{ marginBottom: '14px' }}>
@@ -20,10 +19,10 @@ export function PopularBrands({ onSelectBrand }) {
           gap: '14px',
         }}
       >
-        {POPULAR_BRANDS.map((brand) => (
+        {brands.map((brand) => (
           <div
-            key={brand.id}
-            onClick={() => onSelectBrand && onSelectBrand(brand.name)}
+            key={brand}
+            onClick={() => onSelectBrand && onSelectBrand(brand)}
             style={{
               backgroundColor: 'var(--fk-surface)',
               borderRadius: '6px',
@@ -54,7 +53,7 @@ export function PopularBrands({ onSelectBrand }) {
                 letterSpacing: '-0.01em',
               }}
             >
-              {brand.name}
+              {brand}
             </div>
             <div
               style={{
@@ -63,7 +62,7 @@ export function PopularBrands({ onSelectBrand }) {
                 marginTop: '3px',
               }}
             >
-              {brand.tag}
+              From the Flatkart catalogue
             </div>
           </div>
         ))}

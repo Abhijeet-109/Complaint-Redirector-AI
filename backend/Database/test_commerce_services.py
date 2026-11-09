@@ -19,7 +19,7 @@ from backend.Database.models import (
     Shipment,
     User,
 )
-from backend.Database.seed_commerce import seed_catalog, seed_demo_activity
+from backend.Database.seed_commerce import PRODUCTS, seed_catalog, seed_demo_activity
 from backend.Database.services import (
     add_cart_item,
     get_cart,
@@ -46,13 +46,16 @@ class CommerceServiceTests(unittest.TestCase):
         def enable_foreign_keys(dbapi_connection, _record):
             dbapi_connection.execute("PRAGMA foreign_keys=ON")
 
-        Base.metadata.create_all(self.engine)
+        Base.metadata.create_all(
+            self.engine,
+            tables=[table for table in Base.metadata.sorted_tables if table.name != "knowledge_chunks"],
+        )
         self.session = Session(self.engine)
         self.user = User(name="Test Customer", email="customer@example.com", password="hash", role="user")
         self.other_user = User(name="Other Customer", email="other@example.com", password="hash", role="user")
         self.session.add_all([self.user, self.other_user])
         self.session.flush()
-        seed_catalog(self.session)
+        self.variant_ids = seed_catalog(self.session)
         self.session.commit()
 
     def tearDown(self):
@@ -65,10 +68,10 @@ class CommerceServiceTests(unittest.TestCase):
     def test_seed_is_idempotent_and_retrieval_is_bounded(self):
         seed_catalog(self.session)
         self.session.commit()
-        self.assertEqual(self.session.scalar(select(func.count()).select_from(Product)), 12)
+        self.assertEqual(self.session.scalar(select(func.count()).select_from(Product)), len(PRODUCTS))
         self.assertEqual(len(list_categories(self.session)), 9)
-        self.assertEqual(len(list_products(self.session)), 12)
-        self.assertEqual(len(list_products(self.session, search="Roadster")), 1)
+        self.assertEqual(len(list_products(self.session)), len(PRODUCTS))
+        self.assertEqual(len(list_products(self.session, search="Roadster")), 2)
         self.assertEqual(len(list_products(self.session, limit=1)), 1)
         with self.assertRaises(ValueError):
             list_products(self.session, limit=101)
@@ -338,22 +341,22 @@ class CommerceServiceTests(unittest.TestCase):
         self.session.rollback()
 
     def test_seeded_demo_activity_is_repeatable_for_existing_user(self):
-        seed_demo_activity(self.session, self.user.id, self.user.email)
-        seed_demo_activity(self.session, self.user.id, self.user.email)
+        seed_demo_activity(self.session, self.user.id, self.user.email, self.variant_ids)
+        seed_demo_activity(self.session, self.user.id, self.user.email, self.variant_ids)
         self.session.commit()
         self.assertEqual(self.session.scalar(select(func.count()).select_from(Cart).where(Cart.user_id == self.user.id)), 1)
-        self.assertEqual(self.session.scalar(select(func.count()).select_from(CommerceOrder)), 1)
-        self.assertEqual(self.session.scalar(select(func.count()).select_from(Shipment)), 1)
-        self.assertEqual(self.session.scalar(select(func.count()).select_from(ReturnRequest)), 1)
+        self.assertEqual(self.session.scalar(select(func.count()).select_from(CommerceOrder)), 8)
+        self.assertEqual(self.session.scalar(select(func.count()).select_from(Shipment)), 4)
+        self.assertEqual(self.session.scalar(select(func.count()).select_from(ReturnRequest)), 2)
 
     def test_demo_activity_requires_matching_customer_identity(self):
         with self.assertRaises(LookupError):
-            seed_demo_activity(self.session, self.user.id, self.other_user.email)
+            seed_demo_activity(self.session, self.user.id, self.other_user.email, self.variant_ids)
         admin = User(name="Admin", email="admin@example.com", password="hash", role="admin")
         self.session.add(admin)
         self.session.flush()
         with self.assertRaises(LookupError):
-            seed_demo_activity(self.session, admin.id, admin.email)
+            seed_demo_activity(self.session, admin.id, admin.email, self.variant_ids)
 
     def test_audit_primary_key_indexes_match_the_models(self):
         inspector = inspect(self.engine).get_indexes("chatbot_audit_requests")

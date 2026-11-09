@@ -23,6 +23,7 @@ test('customers retain the shopping site and cannot open administrative dashboar
   assert.equal(resolveAuthorizedPage('home', 'user', true), 'home');
   assert.equal(resolveAuthorizedPage('my-complaints', 'user', true), 'my-complaints');
   assert.equal(resolveAuthorizedPage('admin-dashboard', 'user', true), 'my-complaints');
+  assert.equal(resolveAuthorizedPage('checkout', 'user', true), 'checkout');
 });
 
 test('public login and registration remain available, while protected routes require login', () => {
@@ -31,6 +32,7 @@ test('public login and registration remain available, while protected routes req
   assert.equal(resolveAuthorizedPage('register', 'super_admin', true), 'register');
   assert.equal(resolveAuthorizedPage('handler-dashboard', null, false), 'login');
   assert.equal(resolveAuthorizedPage('my-complaints', null, false), 'login');
+  assert.equal(resolveAuthorizedPage('checkout', null, false), 'login');
 });
 
 test('unrecognized authenticated roles fail closed', () => {

@@ -16,7 +16,6 @@ import { AccountSidebar } from './AccountSidebar';
 export function AccountLayout({
   activeItem = 'conversations',
   onNavigate,
-  onOpenOrders,
   onOpenWishlist,
   onToggleChatbot,
   activeCategory = 'Home',
@@ -29,12 +28,12 @@ export function AccountLayout({
       {/* 1. Website Header (Fixed height, flex-shrink: 0) */}
       <Header
         onNavigate={onNavigate}
-        onOpenOrders={onOpenOrders}
       />
 
       {/* 2. Category Navigation (Fixed height, flex-shrink: 0) */}
       <CategoryNav
         activeCategory={activeCategory}
+        onNavigate={onNavigate}
         onSelectCategory={
           onSelectCategory ||
           ((cat) => {
@@ -49,7 +48,6 @@ export function AccountLayout({
         <AccountSidebar
           activeItem={activeItem}
           onNavigate={onNavigate}
-          onOpenOrders={onOpenOrders}
           onOpenWishlist={onOpenWishlist}
           onToggleChatbot={onToggleChatbot}
         />

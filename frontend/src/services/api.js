@@ -3,10 +3,8 @@ const API_BASE = '';
 export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('flatkart_token');
   
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  };
+  const headers = { ...(options.headers || {}) };
+  if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
