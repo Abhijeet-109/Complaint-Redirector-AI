@@ -29,6 +29,8 @@ ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 MAX_GALLERY_IMAGES = 8
 
 
+#we will have new dashboard for the admin in the new branch 
+
 class ImageOrderInput(BaseModel):
     image_ids: list[int] = Field(default_factory=list)
     variant_id: int | None = None
