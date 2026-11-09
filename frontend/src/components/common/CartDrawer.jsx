@@ -39,7 +39,8 @@ export function CartDrawer({ onNavigate }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--fk-text-primary)' }}>{item.product_name}</div>
                 <div style={{ fontSize: '12.5px', color: 'var(--fk-text-muted)' }}>{item.variant_name} · SKU {item.sku}</div>
-                <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--fk-price-coral)', marginTop: '2px' }}>{currency(item.unit_price)} · line {currency(item.line_total)}</div>
+                <div style={{ fontSize: '12px', color: 'var(--fk-text-muted)', marginTop: '3px' }}>Unit {currency(item.unit_price)} · Qty {item.quantity}</div>
+                <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--fk-price-coral)', marginTop: '2px' }}>Line total {currency(item.line_total)}</div>
                 <div className="fk-cart-quantity" aria-label={`Quantity ${item.quantity}`}>
                   <button type="button" aria-label={`Decrease ${item.product_name} quantity`} disabled={busyVariant === item.variant_id} onClick={() => mutate(item.variant_id, () => item.quantity === 1 ? removeFromCart(item.variant_id) : updateQuantity(item.variant_id, item.quantity - 1))}><Minus size={14} /></button>
                   <span>{item.quantity}</span>

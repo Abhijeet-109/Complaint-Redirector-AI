@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, ShoppingCart, Package, Heart, LogOut, LogIn, ChevronDown, MessageSquare } from 'lucide-react';
+import { Search, ShoppingCart, Package, Heart, LogOut, LogIn, ChevronDown, MessageSquare, UserRound, Headphones } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { productService } from '../../services/productService';
@@ -71,6 +71,7 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
   const handleOrdersClick = () => {
     if (isAuthenticated) {
       if (onOpenOrders) onOpenOrders();
+      else handleNavigate('account', 'orders');
     } else {
       handleNavigate('login');
     }
@@ -203,19 +204,24 @@ export function Header({ onOpenAuth, onOpenOrders, onSelectProduct, onNavigate }
                     } else if (user?.role === 'department_handler') {
                       handleNavigate('handler-dashboard');
                     } else {
-                      handleNavigate('my-complaints');
+                      handleNavigate('account', 'profile');
                     }
                   }}
                 >
-                  <Package size={16} />{' '}
+                  <UserRound size={16} />{' '}
                   {user?.role === 'super_admin'
                     ? 'Super Admin Portal'
                     : user?.role === 'admin'
                     ? 'Admin Portal'
                     : user?.role === 'department_handler'
                     ? 'Handler Dashboard'
-                    : 'My Orders & Complaints'}
+                    : 'My Account'}
                 </button>
+
+                {user?.role === 'user' && <>
+                  <button className="fk-user-dropdown-item" onClick={() => { setIsUserMenuOpen(false); handleOrdersClick(); }}><Package size={16} /> My Orders</button>
+                  <button className="fk-user-dropdown-item" onClick={() => { setIsUserMenuOpen(false); handleNavigate('my-complaints'); }}><Headphones size={16} /> My Complaints</button>
+                </>}
 
                 <button
                   className="fk-user-dropdown-item"

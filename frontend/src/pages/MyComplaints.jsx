@@ -10,10 +10,12 @@ import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { OrdersModal } from '../components/common/OrdersModal';
 import { complaintService } from '../services/complaintService';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import './MyComplaints.css';
 
 export function MyComplaints({ onNavigate }) {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { setIsWishlistOpen } = useCart();
 
   // Complaints data state
   const [complaints, setComplaints] = useState([]);
@@ -151,7 +153,7 @@ export function MyComplaints({ onNavigate }) {
       activeItem="complaints"
       onNavigate={onNavigate}
       onOpenOrders={() => setIsOrdersOpen(true)}
-      onOpenWishlist={() => {}}
+      onOpenWishlist={() => setIsWishlistOpen(true)}
       onToggleChatbot={() => setIsChatbotOpen(!isChatbotOpen)}
       activeCategory={activeCategory}
       onSelectCategory={handleSelectCategory}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
+import { AddressProvider } from './context/AddressContext';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -11,6 +12,7 @@ import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { SuperAdminDashboardPage } from './pages/SuperAdminDashboardPage';
 import { ProductDetails } from './pages/ProductDetails';
 import { Checkout } from './pages/Checkout';
+import { MyAccount } from './pages/MyAccount';
 import { resolveAuthorizedPage } from './utils/roleAccess';
 
 function AppContent() {
@@ -21,6 +23,7 @@ function AppContent() {
     const path = window.location.pathname.toLowerCase();
     if (/^\/products\/[^/]+\/?$/.test(path)) return 'product';
     if (path === '/checkout') return 'checkout';
+    if (path.startsWith('/account')) return 'account';
     if (path === '/login') return 'login';
     if (path === '/register') return 'register';
     if (path === '/my-complaints') return 'my-complaints';
@@ -38,6 +41,7 @@ function AppContent() {
       const productMatch = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i);
       if (productMatch) { setProductSlug(decodeURIComponent(productMatch[1])); setCurrentPage('product'); }
       else if (path === '/checkout') setCurrentPage('checkout');
+      else if (path.startsWith('/account')) setCurrentPage('account');
       else if (path === '/login') setCurrentPage('login');
       else if (path === '/register') setCurrentPage('register');
       else if (path === '/my-complaints') setCurrentPage('my-complaints');
@@ -60,6 +64,7 @@ function AppContent() {
       setProductSlug(value);
     }
     if (page === 'checkout') targetPath = '/checkout';
+    if (page === 'account') targetPath = `/account/${value || 'profile'}`;
     if (page === 'login') targetPath = '/login';
     if (page === 'register') targetPath = '/register';
     if (page === 'my-complaints') targetPath = '/my-complaints';
@@ -127,6 +132,11 @@ function AppContent() {
     return <Checkout onNavigate={navigateTo} />;
   }
 
+  if (authorizedPage === 'account') {
+    const section = window.location.pathname.split('/')[2] || 'profile';
+    return <MyAccount section={section} onNavigate={navigateTo} />;
+  }
+
   return <Home onNavigate={navigateTo} />;
 }
 
@@ -134,7 +144,9 @@ export function App() {
   return (
     <AuthProvider>
       <CartProvider>
-        <AppContent />
+        <AddressProvider>
+          <AppContent />
+        </AddressProvider>
       </CartProvider>
     </AuthProvider>
   );

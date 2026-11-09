@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import os
+from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -116,6 +117,26 @@ def serialize_cart(cart):
     }
 
 
+def checkout_source(session: Session, user_id: int, checkout_mode: str, variant_id: int | None = None,
+                   quantity: int | None = None):
+    if checkout_mode == "cart":
+        if variant_id is not None or quantity is not None:
+            raise ValueError("Cart checkout cannot include Buy Now item details")
+        return active_cart_for_update(session, user_id)
+    if checkout_mode != "buy_now" or variant_id is None or quantity is None or quantity < 1:
+        raise ValueError("Buy Now checkout requires a valid variant and quantity")
+    variant = session.scalar(select(ProductVariant).options(
+        selectinload(ProductVariant.product).selectinload(Product.images),
+        selectinload(ProductVariant.inventory),
+    ).where(ProductVariant.id == variant_id))
+    if variant is None or variant.product is None or not variant.product.is_active or not variant.is_available:
+        raise ValueError("The selected product option is no longer available")
+    if variant.inventory is None or variant.inventory.available_stock < quantity:
+        raise ValueError("The selected option does not have enough available stock")
+    line = SimpleNamespace(id=None, variant_id=variant_id, quantity=quantity, variant=variant)
+    return SimpleNamespace(id=None, items=[line])
+
+
 def _cart_lines_and_total(cart):
     if cart is None or not cart.items:
         raise ValueError("Your cart is empty")
@@ -196,7 +217,9 @@ def _order_items_match_cart(order, cart):
     return expected == stored
 
 
-def create_online_order(session: Session, *, user_id: int, idempotency_key: str, address: dict):
+def create_online_order(session: Session, *, user_id: int, idempotency_key: str, address: dict,
+                        online_method: str = "upi", checkout_mode: str = "cart",
+                        variant_id: int | None = None, quantity: int | None = None):
     existing = session.scalar(
         select(CommerceOrder)
         .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.payment_attempts))
@@ -208,9 +231,9 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
             return existing, attempt, True
         if attempt and attempt.status == "captured":
             return existing, attempt, True
-        cart = active_cart_for_update(session, user_id)
+        cart = checkout_source(session, user_id, checkout_mode, variant_id, quantity)
         lines, subtotal, methods = _cart_lines_and_total(cart)
-        if not methods["online"] or not _order_items_match_cart(existing, cart):
+        if not methods["online"] or online_method not in methods.get("online_methods", []) or not _order_items_match_cart(existing, cart):
             raise ValueError("Your cart has changed. Review it before retrying payment")
         _reserve_lines(session, lines)
         existing.status = "pending_payment"
@@ -218,6 +241,8 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
         existing.subtotal = subtotal
         existing.total_amount = subtotal
         existing.delivery_address = address
+        existing.payment_method = online_method
+        existing.checkout_mode = checkout_mode
         existing.idempotency_key = idempotency_key
         by_variant = {item.variant_id: item for item in existing.items}
         for _, variant, product, price, _ in lines:
@@ -239,9 +264,9 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
         session.flush()
         return existing, retry_attempt, False
 
-    cart = active_cart_for_update(session, user_id)
+    cart = checkout_source(session, user_id, checkout_mode, variant_id, quantity)
     lines, subtotal, methods = _cart_lines_and_total(cart)
-    if not methods["online"]:
+    if not methods["online"] or online_method not in methods.get("online_methods", []):
         raise PermissionError("Online payment is not available for every item in your cart")
 
     retry_order = session.scalar(
@@ -249,7 +274,8 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
         .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.payment_attempts))
         .where(
             CommerceOrder.user_id == user_id,
-            CommerceOrder.payment_method == "razorpay",
+            CommerceOrder.payment_method.in_(["razorpay", "upi", "netbanking"]),
+            CommerceOrder.checkout_mode == checkout_mode,
             CommerceOrder.status == "payment_failed",
         )
         .order_by(CommerceOrder.created_at.desc())
@@ -260,6 +286,8 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
         order.status = "pending_payment"
         order.payment_status = "pending"
         order.delivery_address = address
+        order.payment_method = online_method
+        order.checkout_mode = checkout_mode
         order.idempotency_key = idempotency_key
     else:
         order = CommerceOrder(
@@ -269,7 +297,8 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
             subtotal=subtotal,
             total_amount=subtotal,
             currency="INR",
-            payment_method="razorpay",
+            payment_method=online_method,
+            checkout_mode=checkout_mode,
             payment_status="pending",
             delivery_address=address,
             idempotency_key=idempotency_key,
@@ -301,7 +330,9 @@ def create_online_order(session: Session, *, user_id: int, idempotency_key: str,
     return order, attempt, False
 
 
-def create_cod_order(session: Session, *, user_id: int, idempotency_key: str, address: dict):
+def create_cod_order(session: Session, *, user_id: int, idempotency_key: str, address: dict,
+                     checkout_mode: str = "cart", variant_id: int | None = None,
+                     quantity: int | None = None):
     existing = session.scalar(
         select(CommerceOrder)
         .options(selectinload(CommerceOrder.items))
@@ -309,7 +340,7 @@ def create_cod_order(session: Session, *, user_id: int, idempotency_key: str, ad
     )
     if existing:
         return existing, True
-    cart = active_cart_for_update(session, user_id)
+    cart = checkout_source(session, user_id, checkout_mode, variant_id, quantity)
     lines, subtotal, methods = _cart_lines_and_total(cart)
     if not methods["cod"]:
         raise PermissionError("Cash on Delivery is not available for every item in your cart")
@@ -322,6 +353,7 @@ def create_cod_order(session: Session, *, user_id: int, idempotency_key: str, ad
         total_amount=subtotal,
         currency="INR",
         payment_method="cod",
+        checkout_mode=checkout_mode,
         payment_status="pending",
         delivery_address=address,
         idempotency_key=idempotency_key,
@@ -338,7 +370,8 @@ def create_cod_order(session: Session, *, user_id: int, idempotency_key: str, ad
             quantity=line.quantity,
             unit_price=price,
         ))
-    cart.items.clear()
+    if checkout_mode == "cart":
+        cart.items.clear()
     session.flush()
     return order, False
 
@@ -348,6 +381,7 @@ def serialize_order(order):
     for item in order.items:
         price = money(item.unit_price)
         items.append({
+            "variant_id": item.variant_id,
             "product_name": item.product_name,
             "variant_name": item.variant_name,
             "sku": item.sku,
@@ -361,6 +395,7 @@ def serialize_order(order):
         "status": order.status,
         "payment_status": order.payment_status,
         "payment_method": order.payment_method,
+        "checkout_mode": order.checkout_mode,
         "subtotal": str(money(order.subtotal or 0)),
         "total_amount": str(money(order.total_amount or 0)),
         "currency": order.currency,
@@ -424,7 +459,7 @@ def confirm_attempt(session: Session, attempt: PaymentAttempt, payment_id: str):
     order.placed_at = now
     cart = session.scalar(
         select(Cart).where(Cart.user_id == order.user_id, Cart.status == "active").with_for_update()
-    )
+    ) if order.checkout_mode != "buy_now" else None
     if cart:
         ordered = {(item.variant_id, item.quantity) for item in order.items}
         for line in list(cart.items):

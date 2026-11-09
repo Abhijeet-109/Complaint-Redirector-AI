@@ -84,6 +84,9 @@ class User(Base):
         nullable=True
     )
 
+    mobile_number = Column(String(15), nullable=True)
+    preferred_payment_method = Column(String(24), nullable=True)
+
 
 
     create_at = Column(
@@ -437,6 +440,7 @@ class CommerceOrder(Base):
     total_amount = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(3), nullable=False, default="INR", server_default="INR")
     payment_method = Column(String(24), nullable=True)
+    checkout_mode = Column(String(16), nullable=False, default="cart", server_default="cart")
     payment_status = Column(String(24), nullable=False, default="pending", server_default="pending")
     delivery_address = Column(JSON, nullable=True)
     idempotency_key = Column(String(120), nullable=True)
@@ -543,6 +547,59 @@ class ReturnRequest(Base):
     requested_at = Column(DateTime, nullable=False, server_default=func.now())
     order = relationship("CommerceOrder")
     order_item = relationship("CommerceOrderItem", overlaps="order")
+
+
+class UserAddress(Base):
+    __tablename__ = "user_addresses"
+    __table_args__ = (
+        CheckConstraint("length(pin_code) = 6", name="ck_user_addresses_pin_six_digits"),
+        CheckConstraint("label IN ('Home', 'Work', 'Other')", name="ck_user_addresses_label_valid"),
+        Index("uq_user_addresses_one_default_per_user", "user_id", unique=True,
+              postgresql_where=text("is_default = true")),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_name = Column(String(120), nullable=False)
+    mobile_number = Column(String(15), nullable=False)
+    address_line1 = Column(String(240), nullable=False)
+    address_line2 = Column(String(240), nullable=True)
+    locality = Column(String(120), nullable=False)
+    city = Column(String(100), nullable=False)
+    state = Column(String(100), nullable=False)
+    pin_code = Column(String(6), nullable=False)
+    label = Column(String(16), nullable=False, default="Home")
+    is_default = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class WishlistItem(Base):
+    __tablename__ = "wishlist_items"
+    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_wishlist_items_user_product"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    product = relationship("Product")
+
+
+class ShipmentOption(Base):
+    __tablename__ = "shipment_options"
+    __table_args__ = (
+        CheckConstraint("length(pin_code) = 6", name="ck_shipment_options_pin_six_digits"),
+        UniqueConstraint("pin_code", "area", name="uq_shipment_options_pin_area"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    pin_code = Column(String(6), nullable=False, index=True)
+    area = Column(String(120), nullable=False)
+    city = Column(String(100), nullable=False)
+    state = Column(String(100), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
 class KnowledgeChunk(Base):

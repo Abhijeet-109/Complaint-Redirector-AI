@@ -28,12 +28,14 @@ import { AccountLayout } from '../components/account/AccountLayout';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { OrdersModal } from '../components/common/OrdersModal';
+import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
 import { isValidStructuredResponse } from '../components/chatbot/agentResponsePresentation';
 
 const AssistantMessageContent = lazy(() => import('../components/chatbot/AssistantMessageContent'));
 
 import { chatbotService } from '../services/chatbotService';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import './MyConversations.css';
 
 // Quick action suggestions matching reference UI
@@ -78,6 +80,7 @@ function formatConversationDate(dateStr) {
 
 export function MyConversations({ onNavigate }) {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
+  const { setIsWishlistOpen } = useCart();
 
   // Conversations list & active selection
   const [conversations, setConversations] = useState([]);
@@ -103,6 +106,7 @@ export function MyConversations({ onNavigate }) {
   // Dropdown & modal states
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
   const [isOrdersOpen, setIsOrdersOpen] = useState(false);
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
 
   // Custom delete confirmation modal & in-app toast states
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -496,6 +500,8 @@ export function MyConversations({ onNavigate }) {
       activeItem="conversations"
       onNavigate={onNavigate}
       onOpenOrders={() => setIsOrdersOpen(true)}
+      onOpenWishlist={() => setIsWishlistOpen(true)}
+      onToggleChatbot={() => setIsChatbotOpen((open) => !open)}
     >
       <div className="fk-conversations-main">
         <div className="fk-conversations-header">
@@ -875,6 +881,7 @@ export function MyConversations({ onNavigate }) {
       <CartDrawer onNavigate={onNavigate} />
       <WishlistDrawer onNavigate={onNavigate} />
       <OrdersModal isOpen={isOrdersOpen} onClose={() => setIsOrdersOpen(false)} />
+      <ChatbotWidget isOpen={isChatbotOpen} onToggle={() => setIsChatbotOpen((open) => !open)} onNavigate={onNavigate} />
 
       {/* Custom Delete Confirmation Modal */}
       {isDeleteModalOpen && (

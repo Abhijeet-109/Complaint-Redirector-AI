@@ -107,5 +107,6 @@ def get_current_user_profile(
         "id": current_user.id,
         "name": current_user.name,
         "email": current_user.email,
-        "role": current_user.role
+        "role": current_user.role,
+        "mobile_number": current_user.mobile_number,
     }

@@ -13,6 +13,7 @@ export function resolveAuthorizedPage(page, role, isAuthenticated) {
     'my-complaints',
     'my-conversations',
     'checkout',
+    'account',
     'handler-dashboard',
     'admin-dashboard',
     'super-admin-dashboard',

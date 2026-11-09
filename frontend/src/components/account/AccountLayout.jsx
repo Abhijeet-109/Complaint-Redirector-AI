@@ -35,6 +35,7 @@ export function AccountLayout({
       {/* 2. Category Navigation (Fixed height, flex-shrink: 0) */}
       <CategoryNav
         activeCategory={activeCategory}
+        onNavigate={onNavigate}
         onSelectCategory={
           onSelectCategory ||
           ((cat) => {

@@ -88,6 +88,7 @@ export function Home({ onNavigate }) {
         activeCategory={activeCategory}
         onSelectCategory={handleSelectCategory}
         items={['Home', ...categoryRows.map((category) => category.name)]}
+        onNavigate={onNavigate}
       />
 
       {/* 3. Hero Carousel Banner */}

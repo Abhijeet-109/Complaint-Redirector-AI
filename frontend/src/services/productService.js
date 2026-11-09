@@ -21,12 +21,12 @@ export const productService = {
     method: 'PUT', body: JSON.stringify({ quantity }),
   }),
   removeCartItem: (variantId) => apiRequest(`/api/cart/items/${variantId}`, { method: 'DELETE' }),
-  getCheckoutSummary: () => apiRequest('/api/checkout/summary'),
-  placeCodOrder: (address, idempotencyKey) => apiRequest('/api/checkout/cod', {
-    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ address }),
+  getCheckoutSummary: (intent = null) => apiRequest(`/api/checkout/summary${intent ? `?variant_id=${encodeURIComponent(intent.variantId)}&quantity=${encodeURIComponent(intent.quantity)}` : ''}`),
+  placeCodOrder: (address, idempotencyKey, checkout = {}) => apiRequest('/api/checkout/cod', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ address, ...checkout }),
   }),
-  createRazorpayCheckout: (address, idempotencyKey) => apiRequest('/api/checkout/razorpay', {
-    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ address }),
+  createRazorpayCheckout: (address, idempotencyKey, checkout = {}) => apiRequest('/api/checkout/razorpay', {
+    method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ address, ...checkout }),
   }),
   verifyRazorpayPayment: (payment) => apiRequest('/api/payments/verify', {
     method: 'POST', body: JSON.stringify(payment),

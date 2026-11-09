@@ -34,13 +34,13 @@ export function AccountSidebar({
       id: 'profile',
       label: 'Profile Information',
       icon: User,
-      action: () => {},
+      action: () => onNavigate?.('account', 'profile'),
     },
     {
       id: 'address',
       label: 'Address Book',
       icon: MapPin,
-      action: () => {},
+      action: () => onNavigate?.('account', 'address'),
     },
     {
       id: 'orders',
@@ -48,6 +48,7 @@ export function AccountSidebar({
       icon: Package,
       action: () => {
         if (onOpenOrders) onOpenOrders();
+        else onNavigate?.('account', 'orders');
       },
     },
     {
@@ -56,13 +57,14 @@ export function AccountSidebar({
       icon: Heart,
       action: () => {
         if (onOpenWishlist) onOpenWishlist();
+        else onNavigate?.('account', 'wishlist');
       },
     },
     {
       id: 'payments',
       label: 'Payment Methods',
       icon: CreditCard,
-      action: () => {},
+      action: () => onNavigate?.('account', 'payments'),
     },
     {
       id: 'complaints',
@@ -86,6 +88,7 @@ export function AccountSidebar({
       icon: HelpCircle,
       action: () => {
         if (onToggleChatbot) onToggleChatbot();
+        else onNavigate?.('my-conversations');
       },
     },
   ];

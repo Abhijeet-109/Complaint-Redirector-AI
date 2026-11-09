@@ -21,6 +21,7 @@ import { ManagementTable } from './ManagementTable';
 import { PipelineManagementView } from './pipeline/PipelineManagementView';
 import { ProductManagement } from './ProductManagement';
 import { CategoryManagement } from './CategoryManagement';
+import { ShipmentOptions } from './ShipmentOptions';
 
 export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
   // Navigation State
@@ -194,6 +195,7 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
         <>
           {currentView === 'products' && <ProductManagement />}
           {currentView === 'categories' && <CategoryManagement />}
+          {currentView === 'shipment-options' && <ShipmentOptions />}
           {/* ========================================================
               VIEW 1: OVERVIEW
               ======================================================== */}

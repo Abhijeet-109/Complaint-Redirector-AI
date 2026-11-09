@@ -6,6 +6,7 @@ import { Footer } from '../components/layout/Footer';
 import { CartDrawer } from '../components/common/CartDrawer';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
 import { productService } from '../services/productService';
+import { accountService } from '../services/accountService';
 import { getProductGalleryImages } from '../utils/productImages';
 import { useCart } from '../context/CartContext';
 
@@ -105,8 +106,11 @@ function PurchaseActions({ product, variant, available, onNavigate }) {
     setBusy(true);
     setError('');
     try {
-      await addToCart(product, variant);
-      if (goToCheckout) { setIsCartOpen(false); onNavigate('checkout'); }
+      if (goToCheckout) {
+        sessionStorage.setItem('flatkart_buy_now_intent', JSON.stringify({ variantId: variant.id, quantity: 1 }));
+        setIsCartOpen(false);
+        onNavigate('checkout');
+      } else await addToCart(product, variant);
     } catch (cause) { setError(cause.message || 'Could not add this option to your cart.'); }
     finally { setBusy(false); }
   };
@@ -133,6 +137,7 @@ export function ProductDetails({ slug, onNavigate }) {
   const [selectedVariant, setSelectedVariant] = useState(null);
   const [pin, setPin] = useState('');
   const [pinFeedback, setPinFeedback] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
   const [state, setState] = useState({ loading: true, error: '' });
   const { wishlistItems, toggleWishlist } = useCart();
 
@@ -164,10 +169,15 @@ export function ProductDetails({ slug, onNavigate }) {
   const discount = currentVariant && Number(currentVariant.mrp) > Number(currentVariant.price) && Number(currentVariant.mrp) > 0
     ? Math.round(((Number(currentVariant.mrp) - Number(currentVariant.price)) / Number(currentVariant.mrp)) * 100) : 0;
 
-  const checkPin = (event) => {
+  const checkPin = async (event) => {
     event.preventDefault();
-    if (!/^\d{6}$/.test(pin)) setPinFeedback('Enter a valid six-digit PIN code.');
-    else setPinFeedback('Delivery availability will be confirmed at checkout.');
+    if (!/^\d{6}$/.test(pin)) { setPinFeedback('Enter a valid six-digit PIN code.'); return; }
+    setPinLoading(true); setPinFeedback('Checking delivery availability…');
+    try {
+      const result = await accountService.deliveryCheck(pin);
+      setPinFeedback(result.deliverable ? `Delivery available in ${result.area}, ${result.city}.` : 'Delivery is unavailable at this PIN code.');
+    } catch (error) { setPinFeedback(error.message || 'Could not check delivery availability.'); }
+    finally { setPinLoading(false); }
   };
 
   return <div className="fk-page-container">
@@ -210,7 +220,7 @@ export function ProductDetails({ slug, onNavigate }) {
                     <section className="fk-detail-payment"><h3>Accepted payment methods</h3>{product.payment_methods?.length
                       ? <p>{product.payment_methods.map((method) => methodLabels[method]).filter(Boolean).join(' · ')}</p>
                       : <p>Payment options will be confirmed at checkout.</p>}</section>
-                    <form className="fk-detail-pin" onSubmit={checkPin} noValidate><label htmlFor="fk-delivery-pin">Check delivery availability</label><div><input id="fk-delivery-pin" inputMode="numeric" autoComplete="postal-code" maxLength="6" value={pin} onChange={(event) => { setPin(event.target.value.replace(/\D/g, '').slice(0, 6)); setPinFeedback(''); }} placeholder="6-digit PIN" /><button type="submit">Check</button></div>{pinFeedback && <p role="status">{pinFeedback}</p>}</form>
+                    <form className="fk-detail-pin" onSubmit={checkPin} noValidate><label htmlFor="fk-delivery-pin">Check delivery availability</label><div><input id="fk-delivery-pin" inputMode="numeric" autoComplete="postal-code" maxLength="6" value={pin} onChange={(event) => { setPin(event.target.value.replace(/\D/g, '').slice(0, 6)); setPinFeedback(''); }} placeholder="6-digit PIN" /><button type="submit" disabled={pinLoading}>{pinLoading ? 'Checking…' : 'Check'}</button></div>{pinFeedback && <p role="status">{pinFeedback}</p>}</form>
                   </section>
                 </div>
                 <PurchaseActions product={product} variant={currentVariant} available={isAvailable} onNavigate={onNavigate} />

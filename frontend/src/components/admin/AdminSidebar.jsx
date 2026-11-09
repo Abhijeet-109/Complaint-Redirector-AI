@@ -12,6 +12,7 @@ import {
   ShoppingCart,
   ShoppingBag,
   Tags,
+  Truck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -58,6 +59,9 @@ export function AdminSidebar({
           </button>
           <button className={`ad-sidebar-item ${currentView === 'categories' ? 'active' : ''}`} onClick={() => onSelectView('categories')}>
             <Tags size={17} /><span>Manage Categories</span>
+          </button>
+          <button className={`ad-sidebar-item ${currentView === 'shipment-options' ? 'active' : ''}`} onClick={() => onSelectView('shipment-options')}>
+            <Truck size={17} /><span>Shipment Options</span>
           </button>
         </div>
         {/* Workspace Section */}

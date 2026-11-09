@@ -24,12 +24,15 @@ from backend.Database.checkout_services import (
     money,
     serialize_cart,
     serialize_order,
+    checkout_source,
     utcnow_naive,
 )
-from backend.Database.models import CommerceOrder, PaymentAttempt
+from backend.Database.models import CommerceOrder, PaymentAttempt, ShipmentOption, UserAddress
 from backend.Database.services import (
     add_cart_item,
+    get_order,
     get_cart,
+    list_orders,
     remove_cart_item,
     update_cart_item_quantity,
 )
@@ -37,6 +40,33 @@ from backend.auth.dependencies import get_current_user, get_db
 
 
 router = APIRouter(tags=["Cart and Checkout"])
+
+
+def _order_history_payload(order):
+    result = serialize_order(order)
+    result["created_at"] = order.created_at.isoformat() if order.created_at else None
+    result["shipment"] = ({"status": order.shipment.status,
+                           "tracking_reference": order.shipment.tracking_reference}
+                          if order.shipment else None)
+    for output, item in zip(result["items"], order.items):
+        images = item.variant.product.images
+        chosen = next((image for image in images if image.variant_id == item.variant_id), None)
+        chosen = chosen or next((image for image in images if image.variant_id is None), None)
+        output["image"] = chosen.storage_key if chosen else None
+    return result
+
+
+@router.get("/api/orders")
+def get_customer_orders(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return [_order_history_payload(order) for order in list_orders(db, user.id)]
+
+
+@router.get("/api/orders/{order_id}")
+def get_customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    order = get_order(db, user.id, order_id)
+    if order is None:
+        raise HTTPException(404, "Order not found")
+    return _order_history_payload(order)
 
 
 class CartItemInput(BaseModel):
@@ -85,7 +115,12 @@ class DeliveryAddress(BaseModel):
 
 
 class CheckoutInput(BaseModel):
-    address: DeliveryAddress
+    address: DeliveryAddress | None = None
+    address_id: int | None = Field(default=None, gt=0)
+    online_method: str | None = Field(default=None, pattern=r"^(upi|netbanking)$")
+    checkout_mode: str = Field(default="cart", pattern=r"^(cart|buy_now)$")
+    variant_id: int | None = Field(default=None, gt=0)
+    quantity: int | None = Field(default=None, gt=0, le=999)
 
 
 class VerifyPaymentInput(BaseModel):
@@ -251,9 +286,16 @@ def delete_customer_cart_item(variant_id: int, db: Session = Depends(get_db), us
 
 
 @router.get("/api/checkout/summary")
-def checkout_summary(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def checkout_summary(variant_id: int | None = None, quantity: int | None = None,
+                     db: Session = Depends(get_db), user=Depends(get_current_user)):
     _expire_user_attempts(db, user.id)
-    return serialize_cart(get_cart(db, user.id))
+    if (variant_id is None) != (quantity is None):
+        raise HTTPException(422, "Both variant_id and quantity are required for Buy Now")
+    try:
+        source = checkout_source(db, user.id, "buy_now" if variant_id is not None else "cart", variant_id, quantity)
+        return serialize_cart(source)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 def _idempotency_key(value: str | None):
@@ -261,6 +303,26 @@ def _idempotency_key(value: str | None):
     if not 8 <= len(value) <= 100 or not re.fullmatch(r"[A-Za-z0-9._:-]+", value):
         raise HTTPException(400, "A valid Idempotency-Key header is required")
     return value
+
+
+def _checkout_address(payload: CheckoutInput, db: Session, user_id: int):
+    if payload.address_id is not None:
+        saved = db.scalar(select(UserAddress).where(UserAddress.id == payload.address_id, UserAddress.user_id == user_id))
+        if saved is None:
+            raise HTTPException(404, "Saved delivery address not found")
+        address = {key: getattr(saved, key) for key in (
+            "recipient_name", "mobile_number", "address_line1", "address_line2", "locality", "city", "state", "pin_code"
+        )}
+    elif payload.address is not None:
+        address = payload.address.model_dump()
+    else:
+        raise HTTPException(422, "Provide a saved address or delivery address details")
+    serviceable = db.scalar(select(ShipmentOption.id).where(
+        ShipmentOption.pin_code == address["pin_code"], ShipmentOption.is_active.is_(True)
+    ).limit(1))
+    if serviceable is None:
+        raise HTTPException(409, "Delivery is unavailable at the selected PIN code")
+    return address
 
 
 @router.post("/api/checkout/cod")
@@ -273,7 +335,11 @@ def place_cod_order(
     key = _idempotency_key(idempotency_key)
     try:
         _expire_user_attempts(db, user.id)
-        order, duplicate = create_cod_order(db, user_id=user.id, idempotency_key=key, address=payload.address.model_dump())
+        address = _checkout_address(payload, db, user.id)
+        order, duplicate = create_cod_order(
+            db, user_id=user.id, idempotency_key=key, address=address,
+            checkout_mode=payload.checkout_mode, variant_id=payload.variant_id, quantity=payload.quantity,
+        )
         db.commit()
     except PermissionError as exc:
         db.rollback()
@@ -310,7 +376,11 @@ def create_razorpay_checkout(
             db,
             user_id=user.id,
             idempotency_key=key,
-            address=payload.address.model_dump(),
+            address=_checkout_address(payload, db, user.id),
+            online_method=payload.online_method or "upi",
+            checkout_mode=payload.checkout_mode,
+            variant_id=payload.variant_id,
+            quantity=payload.quantity,
         )
     except PermissionError as exc:
         db.rollback()

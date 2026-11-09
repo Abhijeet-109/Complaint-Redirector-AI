@@ -3,7 +3,7 @@ import { X, ShoppingBag, Trash2 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 
 export function WishlistDrawer({ onNavigate }) {
-  const { wishlistItems, toggleWishlist, isWishlistOpen, setIsWishlistOpen } = useCart();
+  const { wishlistItems, wishlistError, toggleWishlist, isWishlistOpen, setIsWishlistOpen } = useCart();
 
   if (!isWishlistOpen) return null;
 
@@ -23,6 +23,7 @@ export function WishlistDrawer({ onNavigate }) {
         </div>
 
         <div className="fk-drawer-content">
+          {wishlistError && <p className="fk-cart-error" role="alert">{wishlistError}</p>}
           {wishlistItems.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--fk-text-muted)' }}>
               No items in your wishlist yet.

@@ -1,6 +1,10 @@
 import { apiRequest } from './api';
 
 export const adminService = {
+  listShipmentOptions: (search = '') => apiRequest(`/api/admin/shipment-options?search=${encodeURIComponent(search)}`),
+  createShipmentOption: (data) => apiRequest('/api/admin/shipment-options', { method: 'POST', body: JSON.stringify(data) }),
+  updateShipmentOption: (id, data) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deactivateShipmentOption: (id) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'DELETE' }),
   // Users Management
   async getUsers() {
     return await apiRequest('/api/admin/users', { method: 'GET' });

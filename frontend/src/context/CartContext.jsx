@@ -1,14 +1,15 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { productService } from '../services/productService';
+import { accountService } from '../services/accountService';
 import { cartForOwner, cartQuantity, EMPTY_SERVER_CART } from '../utils/commerceState';
 
 const CartContext = createContext(null);
-const LEGACY_WISHLIST_KEY = 'flatkart_wishlist';
+const GUEST_WISHLIST_KEY = 'flatkart_guest_wishlist';
 
 function loadWishlist() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LEGACY_WISHLIST_KEY) || '[]');
+    const parsed = JSON.parse(localStorage.getItem(GUEST_WISHLIST_KEY) || '[]');
     return Array.isArray(parsed) ? parsed : [];
   } catch { return []; }
 }
@@ -17,7 +18,9 @@ export function CartProvider({ children }) {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const ownerId = isAuthenticated ? user?.id : null;
   const [serverCart, setServerCart] = useState({ ownerId: null, value: EMPTY_SERVER_CART });
-  const [wishlistItems, setWishlistItems] = useState(loadWishlist);
+  const [serverWishlist, setServerWishlist] = useState({ ownerId: null, value: [] });
+  const [guestWishlist, setGuestWishlist] = useState(loadWishlist);
+  const [wishlistError, setWishlistError] = useState('');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
   const [cartLoading, setCartLoading] = useState(false);
@@ -26,6 +29,7 @@ export function CartProvider({ children }) {
 
   const cart = cartForOwner(serverCart, ownerId);
   const cartItems = cart.items;
+  const wishlistItems = ownerId === null ? guestWishlist : (serverWishlist.ownerId === ownerId ? serverWishlist.value : []);
 
   const refreshCart = useCallback(async () => {
     const version = ++requestVersion.current;
@@ -53,14 +57,36 @@ export function CartProvider({ children }) {
 
   useEffect(() => {
     setServerCart({ ownerId: null, value: EMPTY_SERVER_CART });
+    setServerWishlist({ ownerId: null, value: [] });
     if (!authLoading && ownerId) refreshCart();
     else { setCartLoading(false); setCartError(''); }
     return () => { requestVersion.current += 1; };
   }, [ownerId, authLoading, refreshCart]);
 
   useEffect(() => {
-    localStorage.setItem(LEGACY_WISHLIST_KEY, JSON.stringify(wishlistItems));
-  }, [wishlistItems]);
+    localStorage.setItem(GUEST_WISHLIST_KEY, JSON.stringify(guestWishlist));
+  }, [guestWishlist]);
+
+  useEffect(() => {
+    if (!ownerId || authLoading) return undefined;
+    let active = true;
+    const load = async () => {
+      try {
+        let saved = await accountService.wishlist();
+        const guests = loadWishlist();
+        if (guests.length) {
+          await Promise.all(guests.filter((item) => item?.id).map((item) => accountService.addWishlist(item.id).catch(() => null)));
+          localStorage.removeItem(GUEST_WISHLIST_KEY);
+          saved = await accountService.wishlist();
+        }
+        if (active) { setServerWishlist({ ownerId, value: saved }); setGuestWishlist([]); setWishlistError(''); }
+      } catch (error) {
+        if (active) setWishlistError(error.message || 'Could not load your wishlist.');
+      }
+    };
+    load();
+    return () => { active = false; };
+  }, [ownerId, authLoading]);
 
   const addToCart = async (product, variant) => {
     if (!ownerId) throw new Error('Sign in to add items to your cart.');
@@ -84,10 +110,22 @@ export function CartProvider({ children }) {
     return result;
   };
 
-  const toggleWishlist = (product) => {
-    setWishlistItems((prev) => prev.some((item) => item.id === product.id)
-      ? prev.filter((item) => item.id !== product.id)
-      : [...prev, product]);
+  const toggleWishlist = async (product) => {
+    setWishlistError('');
+    if (!ownerId) {
+      setGuestWishlist((prev) => prev.some((item) => item.id === product.id)
+        ? prev.filter((item) => item.id !== product.id) : [...prev, product]);
+      return;
+    }
+    try {
+      const exists = serverWishlist.ownerId === ownerId && serverWishlist.value.some((item) => item.id === product.id);
+      if (exists) await accountService.removeWishlist(product.id);
+      else await accountService.addWishlist(product.id);
+      const value = await accountService.wishlist();
+      setServerWishlist({ ownerId, value });
+    } catch (error) {
+      setWishlistError(error.message || 'Could not update your wishlist.');
+    }
   };
 
   return (
@@ -95,7 +133,7 @@ export function CartProvider({ children }) {
       cart, cartItems, cartCount: cartQuantity(cart), subtotal: cart.subtotal,
       paymentMethods: cart.payment_methods, cartLoading, cartError, setCartError,
       refreshCart, addToCart, updateQuantity, removeFromCart,
-      wishlistItems, toggleWishlist, isCartOpen, setIsCartOpen,
+      wishlistItems, wishlistError, toggleWishlist, isCartOpen, setIsCartOpen,
       isWishlistOpen, setIsWishlistOpen,
     }}>
       {children}

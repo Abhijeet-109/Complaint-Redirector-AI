@@ -8,9 +8,11 @@ from backend.Database.models import (
     Cart,
     CartItem,
     CommerceOrder,
+    CommerceOrderItem,
     Inventory,
     Product,
     ProductCategory,
+    ProductImage,
     ProductVariant,
     ReturnRequest,
     Shipment,
@@ -285,7 +287,13 @@ def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[Comm
         raise ValueError("limit must be between 1 and 100")
     query = (
         select(CommerceOrder)
-        .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.shipment))
+        .options(
+            selectinload(CommerceOrder.items)
+            .selectinload(CommerceOrderItem.variant)
+            .selectinload(ProductVariant.product)
+            .selectinload(Product.images),
+            selectinload(CommerceOrder.shipment),
+        )
         .where(CommerceOrder.user_id == user_id)
         .order_by(CommerceOrder.created_at.desc())
         .limit(limit)
@@ -296,7 +304,13 @@ def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[Comm
 def get_order(session: Session, user_id: int, order_id: int) -> CommerceOrder | None:
     return session.scalar(
         select(CommerceOrder)
-        .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.shipment))
+        .options(
+            selectinload(CommerceOrder.items)
+            .selectinload(CommerceOrderItem.variant)
+            .selectinload(ProductVariant.product)
+            .selectinload(Product.images),
+            selectinload(CommerceOrder.shipment),
+        )
         .where(CommerceOrder.id == order_id, CommerceOrder.user_id == user_id)
     )
 
