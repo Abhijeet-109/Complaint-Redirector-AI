@@ -92,7 +92,7 @@ def get_dashboard_kpis(
 
 @router.get("/dashboard/revenue-chart")
 def get_revenue_chart(
-    period: str = Query("month", pattern="^(day|month|year)$"),
+    period: str = Query("month", pattern="^(day|week|month)$"),
     db: Session = Depends(get_db),
     _actor: User = Depends(admin_access),
 ):
@@ -107,7 +107,7 @@ def get_revenue_chart(
 
 @router.get("/dashboard/hot-products")
 def get_dashboard_hot_products(
-    period: str = Query("week", pattern="^(day|week|month|year)$"),
+    period: str = Query("week", pattern="^(day|week|month)$"),
     limit: int = Query(5, ge=1, le=50),
     db: Session = Depends(get_db),
     _actor: User = Depends(admin_access),

@@ -65,13 +65,14 @@ const SHIPMENT_STATUSES = ['pending', 'shipped', 'out_for_delivery', 'delivered'
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function OrderManagement() {
+export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) {
   const [orders, setOrders] = useState([]);
   const [total, setTotal] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [toast, setToast] = useState(null);
+  const [highlightOrderId, setHighlightOrderId] = useState(focusedOrderId);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -97,6 +98,27 @@ export function OrderManagement() {
   const [estimatedDelivery, setEstimatedDelivery] = useState('');
   const [shipmentStatus, setShipmentStatus] = useState('');
   const [shipmentNotes, setShipmentNotes] = useState('');
+
+  // Handle focused order highlight and auto-scroll
+  useEffect(() => {
+    if (focusedOrderId) {
+      setHighlightOrderId(focusedOrderId);
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`order-row-${focusedOrderId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      const clearTimer = setTimeout(() => {
+        setHighlightOrderId(null);
+        if (onClearFocusedOrder) onClearFocusedOrder();
+      }, 7000);
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(clearTimer);
+      };
+    }
+  }, [focusedOrderId, orders, onClearFocusedOrder]);
 
   const showToast = (type, message) => {
     setToast({ type, message });
@@ -346,13 +368,22 @@ export function OrderManagement() {
                 </tr>
               </thead>
               <tbody>
-                {orders.map(order => (
-                  <tr
-                    key={order.id}
-                    style={{ borderBottom: '1px solid #F0EBDC', transition: 'background 0.1s ease', cursor: 'pointer' }}
-                    onClick={() => openOrderDetail(order.id)}
-                    className="sd-table-row-hover"
-                  >
+                {orders.map(order => {
+                  const isHighlighted = highlightOrderId === order.id || highlightOrderId === order.order_number;
+                  return (
+                    <tr
+                      id={`order-row-${order.id}`}
+                      key={order.id}
+                      style={{
+                        borderBottom: '1px solid #F0EBDC',
+                        background: isHighlighted ? '#FEF9C3' : 'transparent',
+                        boxShadow: isHighlighted ? 'inset 3px 0 0 #C2A15A' : 'none',
+                        transition: 'background 0.2s ease',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => openOrderDetail(order.id)}
+                      className={isHighlighted ? '' : 'sd-table-row-hover'}
+                    >
                     <td style={{ padding: '12px 16px', fontWeight: 600, color: '#122D29' }}>
                       {order.order_number}
                     </td>
@@ -394,7 +425,8 @@ export function OrderManagement() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                );
+              })}
               </tbody>
             </table>
           </div>

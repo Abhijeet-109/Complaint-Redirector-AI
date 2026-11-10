@@ -451,6 +451,7 @@ class CommerceOrder(Base):
     items = relationship("CommerceOrderItem", back_populates="order", cascade="all, delete-orphan")
     shipment = relationship("Shipment", back_populates="order", uselist=False, cascade="all, delete-orphan")
     payment_attempts = relationship("PaymentAttempt", back_populates="order", cascade="all, delete-orphan")
+    user = relationship("User")
 
 
 class CommerceOrderItem(Base):

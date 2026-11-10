@@ -35,13 +35,14 @@ function StatusBadge({ status }) {
   );
 }
 
-export function PaymentHistory() {
+export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment }) {
   const [payments, setPayments] = useState([]);
   const [total, setTotal] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [toast, setToast] = useState(null);
+  const [highlightId, setHighlightId] = useState(focusedPaymentId);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -75,7 +76,7 @@ export function PaymentHistory() {
         setPayments(prev => [...prev, ...(res.items || [])]);
       } else {
         setPayments(res.items || []);
-        setTotal(res.total || 0);
+        setTotal(res.total != null ? res.total : (res.total_count || 0));
         setSelectedIds(new Set());
         setSelectAllFiltered(false);
       }
@@ -94,6 +95,27 @@ export function PaymentHistory() {
     }, 250);
     return () => clearTimeout(timer);
   }, [fetchPayments]);
+
+  // Handle focused payment auto-scroll & highlight
+  useEffect(() => {
+    if (focusedPaymentId) {
+      setHighlightId(focusedPaymentId);
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`payment-row-${focusedPaymentId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      const clearTimer = setTimeout(() => {
+        setHighlightId(null);
+        if (onClearFocusedPayment) onClearFocusedPayment();
+      }, 7000);
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(clearTimer);
+      };
+    }
+  }, [focusedPaymentId, payments, onClearFocusedPayment]);
 
   // Selection handlers
   const toggleRow = (id) => {
@@ -348,13 +370,16 @@ export function PaymentHistory() {
               <tbody>
                 {payments.map(pay => {
                   const isSelected = selectedIds.has(pay.id);
+                  const isHighlighted = highlightId === pay.id || highlightId === pay.attempt_id;
                   return (
                     <tr
+                      id={`payment-row-${pay.id}`}
                       key={pay.id}
                       style={{
                         borderBottom: '1px solid #F0EBDC',
-                        background: isSelected ? '#FAF7F2' : 'transparent',
-                        transition: 'background 0.1s ease',
+                        background: isHighlighted ? '#FEF9C3' : (isSelected ? '#FAF7F2' : 'transparent'),
+                        boxShadow: isHighlighted ? 'inset 3px 0 0 #C2A15A' : 'none',
+                        transition: 'background 0.2s ease',
                       }}
                     >
                       <td style={{ padding: '12px 16px' }}>

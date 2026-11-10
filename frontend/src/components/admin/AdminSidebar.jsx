@@ -34,32 +34,34 @@ export function AdminSidebar({ currentView = 'store-dashboard', onSelectView, is
 
   return (
     <aside className={`ad-sidebar ${collapsed ? 'ad-sidebar-collapsed' : ''}`}>
-      {/* Brand */}
-      <div
-        className="ad-sidebar-brand"
-        onClick={() => onNavigate && onNavigate('home')}
-        title="Return to Flatkart Store"
-        role="button"
-        tabIndex={0}
-        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '9px', overflow: 'hidden' }}
-      >
-        <ShoppingCart size={22} strokeWidth={2.4} color="#FFFFFF" style={{ flexShrink: 0 }} />
-        {!collapsed && (
-          <div className="ad-sidebar-brand-info">
-            <span className="ad-sidebar-brand-name">Flatkart</span>
-            <span className="ad-sidebar-brand-badge">{isSuperAdmin ? 'Super Admin' : 'Admin'}</span>
-          </div>
-        )}
-      </div>
+      {/* Brand & Toggle Header Row */}
+      <div className={`ad-sidebar-header-row ${collapsed ? 'collapsed' : ''}`}>
+        <div
+          className="ad-sidebar-brand"
+          onClick={() => onNavigate && onNavigate('home')}
+          title="Return to Flatkart Store"
+          role="button"
+          tabIndex={0}
+        >
+          <ShoppingCart size={22} strokeWidth={2.4} color="#FFFFFF" style={{ flexShrink: 0 }} />
+          {!collapsed && (
+            <div className="ad-sidebar-brand-info">
+              <span className="ad-sidebar-brand-name">Flatkart</span>
+              <span className="ad-sidebar-brand-badge">{isSuperAdmin ? 'Super Admin' : 'Admin'}</span>
+            </div>
+          )}
+        </div>
 
-      {/* Toggle Button */}
-      <button
-        className="ad-sidebar-toggle"
-        onClick={() => setCollapsed(c => !c)}
-        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
-      </button>
+        {/* Toggle Button */}
+        <button
+          className={`ad-sidebar-toggle ${collapsed ? 'collapsed' : 'expanded'}`}
+          onClick={() => setCollapsed(c => !c)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
+      </div>
 
       <nav className="ad-sidebar-nav">
         {/* WORKSPACE - FIRST */}

@@ -81,7 +81,7 @@ def _escape_csv_field(value) -> str:
 # ---------------------------------------------------------------------------
 
 def get_store_dashboard_kpis(db: Session) -> dict:
-    """Compute all KPI metrics for the store dashboard."""
+    """Compute all KPI metrics for the store dashboard from actual database state."""
     # Online captured revenue
     online_revenue = db.scalar(
         select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
@@ -114,10 +114,44 @@ def get_store_dashboard_kpis(db: Session) -> dict:
     order_by_status = {row[0]: row[1] for row in order_status_rows}
     total_orders = sum(order_by_status.values())
 
-    # Pending fulfilment: placed + processing + packed
-    pending_fulfilment = sum(
-        order_by_status.get(s, 0) for s in ("placed", "processing", "packed")
+    # Fulfilment counts: Reconcile CommerceOrder.status and Shipment.status
+    # Exclude terminal/cancelled/failed orders: cancelled, payment_failed, pending_payment
+    fulfilment_query = (
+        select(
+            CommerceOrder.id,
+            CommerceOrder.status,
+            Shipment.status.label("shipment_status"),
+        )
+        .outerjoin(Shipment, Shipment.order_id == CommerceOrder.id)
+        .where(CommerceOrder.status.not_in(["cancelled", "payment_failed", "pending_payment"]))
     )
+    active_orders = db.execute(fulfilment_query).all()
+
+    fc = {
+        "pending": 0,
+        "processing": 0,
+        "packed": 0,
+        "shipped": 0,
+        "out_for_delivery": 0,
+        "delivered": 0,
+    }
+    for row in active_orders:
+        ord_st = (row.status or "").lower()
+        shp_st = (row.shipment_status or "").lower()
+        if ord_st == "delivered" or shp_st == "delivered":
+            fc["delivered"] += 1
+        elif ord_st == "out_for_delivery" or shp_st == "out_for_delivery":
+            fc["out_for_delivery"] += 1
+        elif ord_st == "shipped" or shp_st == "shipped":
+            fc["shipped"] += 1
+        elif ord_st == "packed":
+            fc["packed"] += 1
+        elif ord_st == "processing":
+            fc["processing"] += 1
+        else:
+            fc["pending"] += 1
+
+    pending_fulfilment = fc["pending"] + fc["processing"] + fc["packed"]
 
     # Pending payment capture
     pending_payments = db.scalar(
@@ -125,7 +159,7 @@ def get_store_dashboard_kpis(db: Session) -> dict:
             CommerceOrder.payment_status == "pending",
             CommerceOrder.status.not_in(["cancelled", "payment_failed"]),
         )
-    )
+    ) or 0
 
     # Inventory totals
     inv_rows = db.execute(
@@ -141,11 +175,16 @@ def get_store_dashboard_kpis(db: Session) -> dict:
             Inventory.available_stock > 0,
             Inventory.available_stock <= 5,
         )
-    )
+    ) or 0
 
     out_of_stock_count = db.scalar(
         select(func.count(Inventory.id)).where(Inventory.available_stock == 0)
-    )
+    ) or 0
+
+    # Returns awaiting action
+    pending_returns = db.scalar(
+        select(func.count(ReturnRequest.id)).where(ReturnRequest.status == "requested")
+    ) or 0
 
     return {
         "total_revenue": str(total_revenue),
@@ -154,143 +193,165 @@ def get_store_dashboard_kpis(db: Session) -> dict:
         "refunds_total": str(_money(refunds_total)),
         "total_orders": total_orders,
         "orders_by_status": order_by_status,
+        "fulfilment_counts": fc,
         "pending_fulfilment": pending_fulfilment,
-        "pending_payments": pending_payments or 0,
+        "pending_payments": pending_payments,
+        "total_stock": int(inv_rows[0]),
         "total_stock_units": int(inv_rows[0]),
+        "available_stock": int(inv_rows[1]),
         "available_stock_units": int(inv_rows[1]),
-        "low_stock_count": low_stock_count or 0,
-        "out_of_stock_count": out_of_stock_count or 0,
+        "low_stock_count": low_stock_count,
+        "out_of_stock_count": out_of_stock_count,
+        "pending_returns": pending_returns,
+        "refunded_amount": str(_money(refunds_total)),
     }
 
 
 def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
     """
-    period: 'day' (hourly buckets for today), 'month' (daily buckets for this month),
-            'year' (monthly buckets for this year)
-    Returns list of {label, value}
+    period: 'day' (days 1 to 30 of current month),
+            'week' (Mon to Sun of current week),
+            'month' (12 months of current year, Jan-Dec).
+    Returns list of {label, full_label, value}
     Only captured online payments + COD deliveries - processed refunds for each bucket.
     """
     if period == "day":
-        # Hourly buckets for today (0-23)
-        buckets = []
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        for hour in range(24):
-            bucket_start = day_start + timedelta(hours=hour)
-            bucket_end = bucket_start + timedelta(hours=1)
-
-            online = db.scalar(
-                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                    PaymentAttempt.status == "captured",
-                    PaymentAttempt.paid_at >= bucket_start,
-                    PaymentAttempt.paid_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            cod = db.scalar(
-                select(func.coalesce(func.sum(CommerceOrder.total_amount), 0)).where(
-                    CommerceOrder.payment_method == "cod",
-                    CommerceOrder.status == "delivered",
-                    CommerceOrder.updated_at >= bucket_start,
-                    CommerceOrder.updated_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            refunds = db.scalar(
-                select(func.coalesce(func.sum(Refund.amount), 0)).where(
-                    Refund.status == "processed",
-                    Refund.updated_at >= bucket_start,
-                    Refund.updated_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            value = _money(online) + _money(cod) - _money(refunds)
-            buckets.append({"label": f"{hour:02d}:00", "value": str(value)})
-        return buckets
-
-    elif period == "month":
-        # Daily buckets for this month
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # Determine days in this month
-        if now.month == 12:
-            next_month = now.replace(year=now.year + 1, month=1, day=1)
-        else:
-            next_month = now.replace(month=now.month + 1, day=1)
-        days = (next_month - month_start).days
+        # Days 1 to 30 of current month
+        start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_name = now.strftime("%B")
+        
+        # Batch load payments in window
+        online_rows = db.execute(
+            select(PaymentAttempt.amount, PaymentAttempt.paid_at).where(
+                PaymentAttempt.status == "captured",
+                PaymentAttempt.paid_at >= start_date,
+            )
+        ).all()
+        cod_rows = db.execute(
+            select(CommerceOrder.total_amount, CommerceOrder.updated_at).where(
+                CommerceOrder.payment_method == "cod",
+                CommerceOrder.status == "delivered",
+                CommerceOrder.updated_at >= start_date,
+            )
+        ).all()
+        refund_rows = db.execute(
+            select(Refund.amount, Refund.updated_at).where(
+                Refund.status == "processed",
+                Refund.updated_at >= start_date,
+            )
+        ).all()
 
         buckets = []
-        for day in range(days):
-            bucket_start = month_start + timedelta(days=day)
-            bucket_end = bucket_start + timedelta(days=1)
+        for i in range(1, 31):
+            try:
+                b_start = now.replace(day=i, hour=0, minute=0, second=0, microsecond=0)
+                b_end = b_start + timedelta(days=1)
+                
+                online_sum = sum((r[0] for r in online_rows if b_start <= r[1] < b_end), Decimal(0))
+                cod_sum = sum((r[0] for r in cod_rows if b_start <= r[1] < b_end), Decimal(0))
+                refund_sum = sum((r[0] for r in refund_rows if b_start <= r[1] < b_end), Decimal(0))
+                val = _money(online_sum) + _money(cod_sum) - _money(refund_sum)
+            except ValueError:
+                val = Decimal(0)
 
-            online = db.scalar(
-                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                    PaymentAttempt.status == "captured",
-                    PaymentAttempt.paid_at >= bucket_start,
-                    PaymentAttempt.paid_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            cod = db.scalar(
-                select(func.coalesce(func.sum(CommerceOrder.total_amount), 0)).where(
-                    CommerceOrder.payment_method == "cod",
-                    CommerceOrder.status == "delivered",
-                    CommerceOrder.updated_at >= bucket_start,
-                    CommerceOrder.updated_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            refunds = db.scalar(
-                select(func.coalesce(func.sum(Refund.amount), 0)).where(
-                    Refund.status == "processed",
-                    Refund.updated_at >= bucket_start,
-                    Refund.updated_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            value = _money(online) + _money(cod) - _money(refunds)
-            buckets.append({"label": str(bucket_start.day), "value": str(value)})
+            buckets.append({
+                "label": str(i),
+                "full_label": f"{month_name} {i}",
+                "value": str(val),
+            })
         return buckets
 
-    else:  # year
-        # Monthly buckets for this year
+    elif period == "week":
+        # 7 days of the current week (Monday through Sunday)
+        monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        online_rows = db.execute(
+            select(PaymentAttempt.amount, PaymentAttempt.paid_at).where(
+                PaymentAttempt.status == "captured",
+                PaymentAttempt.paid_at >= monday,
+            )
+        ).all()
+        cod_rows = db.execute(
+            select(CommerceOrder.total_amount, CommerceOrder.updated_at).where(
+                CommerceOrder.payment_method == "cod",
+                CommerceOrder.status == "delivered",
+                CommerceOrder.updated_at >= monday,
+            )
+        ).all()
+        refund_rows = db.execute(
+            select(Refund.amount, Refund.updated_at).where(
+                Refund.status == "processed",
+                Refund.updated_at >= monday,
+            )
+        ).all()
+
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        short_names = ["M", "T", "W", "T", "F", "S", "S"]
+        buckets = []
+        for i in range(7):
+            b_start = monday + timedelta(days=i)
+            b_end = b_start + timedelta(days=1)
+
+            online_sum = sum((r[0] for r in online_rows if b_start <= r[1] < b_end), Decimal(0))
+            cod_sum = sum((r[0] for r in cod_rows if b_start <= r[1] < b_end), Decimal(0))
+            refund_sum = sum((r[0] for r in refund_rows if b_start <= r[1] < b_end), Decimal(0))
+            val = _money(online_sum) + _money(cod_sum) - _money(refund_sum)
+            buckets.append({
+                "label": day_names[i],
+                "short_label": short_names[i],
+                "full_label": f"{day_names[i]}, {b_start.strftime('%b %d')}",
+                "value": str(val),
+            })
+        return buckets
+
+    else:  # month (12 months of current year)
         year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        year_end = year_start.replace(year=now.year + 1)
         month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        full_month_names = ["January", "February", "March", "April", "May", "June",
+                            "July", "August", "September", "October", "November", "December"]
+
+        online_rows = db.execute(
+            select(PaymentAttempt.amount, PaymentAttempt.paid_at).where(
+                PaymentAttempt.status == "captured",
+                PaymentAttempt.paid_at >= year_start,
+                PaymentAttempt.paid_at < year_end,
+            )
+        ).all()
+        cod_rows = db.execute(
+            select(CommerceOrder.total_amount, CommerceOrder.updated_at).where(
+                CommerceOrder.payment_method == "cod",
+                CommerceOrder.status == "delivered",
+                CommerceOrder.updated_at >= year_start,
+                CommerceOrder.updated_at < year_end,
+            )
+        ).all()
+        refund_rows = db.execute(
+            select(Refund.amount, Refund.updated_at).where(
+                Refund.status == "processed",
+                Refund.updated_at >= year_start,
+                Refund.updated_at < year_end,
+            )
+        ).all()
+
         buckets = []
-        for month_idx in range(12):
-            bucket_start = year_start.replace(month=month_idx + 1)
-            if month_idx == 11:
-                bucket_end = year_start.replace(year=now.year + 1, month=1)
+        for m_idx in range(12):
+            m_start = year_start.replace(month=m_idx + 1)
+            if m_idx == 11:
+                m_end = year_end
             else:
-                bucket_end = year_start.replace(month=month_idx + 2)
+                m_end = year_start.replace(month=m_idx + 2)
 
-            online = db.scalar(
-                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                    PaymentAttempt.status == "captured",
-                    PaymentAttempt.paid_at >= bucket_start,
-                    PaymentAttempt.paid_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            cod = db.scalar(
-                select(func.coalesce(func.sum(CommerceOrder.total_amount), 0)).where(
-                    CommerceOrder.payment_method == "cod",
-                    CommerceOrder.status == "delivered",
-                    CommerceOrder.updated_at >= bucket_start,
-                    CommerceOrder.updated_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            refunds = db.scalar(
-                select(func.coalesce(func.sum(Refund.amount), 0)).where(
-                    Refund.status == "processed",
-                    Refund.updated_at >= bucket_start,
-                    Refund.updated_at < bucket_end,
-                )
-            ) or Decimal(0)
-
-            value = _money(online) + _money(cod) - _money(refunds)
-            buckets.append({"label": month_names[month_idx], "value": str(value)})
+            online_sum = sum((r[0] for r in online_rows if m_start <= r[1] < m_end), Decimal(0))
+            cod_sum = sum((r[0] for r in cod_rows if m_start <= r[1] < m_end), Decimal(0))
+            refund_sum = sum((r[0] for r in refund_rows if m_start <= r[1] < m_end), Decimal(0))
+            val = _money(online_sum) + _money(cod_sum) - _money(refund_sum)
+            buckets.append({
+                "label": month_names[m_idx],
+                "full_label": f"{full_month_names[m_idx]} {now.year}",
+                "value": str(val),
+            })
         return buckets
 
 
@@ -300,15 +361,14 @@ def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
 
 def get_hot_products(db: Session, period: str, limit: int = 10) -> list:
     """
-    period: 'day', 'week', 'month', 'year'
+    period: 'day', 'week', 'month'
     Returns top N products by quantity sold (excluding cancelled/failed/pending orders).
     """
     now = _utcnow()
     period_map = {
         "day": timedelta(days=1),
-        "week": timedelta(weeks=1),
+        "week": timedelta(days=7),
         "month": timedelta(days=30),
-        "year": timedelta(days=365),
     }
     delta = period_map.get(period, timedelta(days=30))
     since = now - delta
@@ -332,7 +392,7 @@ def get_hot_products(db: Session, period: str, limit: int = 10) -> list:
             CommerceOrder.created_at >= since,
         )
         .group_by(CommerceOrderItem.variant_id)
-        .order_by(func.sum(CommerceOrderItem.quantity).desc())
+        .order_by(func.sum(CommerceOrderItem.quantity).desc(), func.sum(CommerceOrderItem.quantity * CommerceOrderItem.unit_price).desc())
         .limit(limit)
     ).all()
 
@@ -342,10 +402,13 @@ def get_hot_products(db: Session, period: str, limit: int = 10) -> list:
             "product_name": row.product_name,
             "variant_name": row.variant_name,
             "sku": row.sku,
+            "units_sold": int(row.total_qty),
             "total_qty": int(row.total_qty),
+            "revenue": str(_money(row.total_revenue)),
             "total_revenue": str(_money(row.total_revenue)),
+            "rank": idx + 1,
         }
-        for row in rows
+        for idx, row in enumerate(rows)
     ]
 
 
@@ -354,6 +417,23 @@ def get_hot_products(db: Session, period: str, limit: int = 10) -> list:
 # ---------------------------------------------------------------------------
 
 def _serialize_order_summary(order: CommerceOrder) -> dict:
+    customer_name = None
+    if order.user:
+        customer_name = order.user.name or order.user.email
+    if not customer_name and order.shipping_address and isinstance(order.shipping_address, dict):
+        customer_name = order.shipping_address.get("full_name") or order.shipping_address.get("name")
+
+    prod_summary = None
+    first_item = order.items[0] if order.items else None
+    if first_item:
+        prod_summary = first_item.product_name
+        if first_item.variant_name:
+            prod_summary += f" ({first_item.variant_name})"
+        if len(order.items) > 1:
+            prod_summary += f" +{len(order.items) - 1} more"
+
+    total_qty = sum(item.quantity for item in order.items)
+
     return {
         "id": order.id,
         "order_number": order.order_number,
@@ -366,7 +446,10 @@ def _serialize_order_summary(order: CommerceOrder) -> dict:
         "created_at": order.created_at.isoformat() if order.created_at else None,
         "updated_at": order.updated_at.isoformat() if order.updated_at else None,
         "shipment_status": order.shipment.status if order.shipment else None,
-        "item_count": sum(item.quantity for item in order.items),
+        "item_count": total_qty,
+        "quantity": total_qty,
+        "customer_name": customer_name,
+        "product_summary": prod_summary,
     }
 
 
@@ -389,6 +472,7 @@ def list_admin_orders(
         .options(
             selectinload(CommerceOrder.items),
             selectinload(CommerceOrder.shipment),
+            selectinload(CommerceOrder.user),
         )
         .order_by(CommerceOrder.id.desc())
     )
@@ -945,8 +1029,25 @@ def get_category_stock_summary(db: Session) -> list:
 # ---------------------------------------------------------------------------
 
 def _payment_row(attempt: PaymentAttempt, order: CommerceOrder, customer: User | None) -> dict:
+    prod_summary = None
+    if order.items:
+        first = order.items[0]
+        prod_summary = first.product_name
+        if len(order.items) > 1:
+            prod_summary += f" +{len(order.items) - 1} more"
+
+    cust_name = None
+    cust_email = None
+    if customer:
+        cust_name = customer.name or customer.email
+        cust_email = customer.email
+    elif order.shipping_address and isinstance(order.shipping_address, dict):
+        cust_name = order.shipping_address.get("full_name") or order.shipping_address.get("name")
+
     return {
+        "id": f"attempt-{attempt.id}",
         "attempt_id": attempt.id,
+        "transaction_id": attempt.provider_payment_id or f"TXN-{attempt.id}",
         "order_id": order.id,
         "order_number": order.order_number,
         "provider": attempt.provider,
@@ -957,8 +1058,9 @@ def _payment_row(attempt: PaymentAttempt, order: CommerceOrder, customer: User |
         "provider_order_id": attempt.provider_order_id,
         "provider_payment_id": attempt.provider_payment_id,
         "failure_reason": attempt.failure_reason,
-        "customer_name": customer.name if customer else None,
-        "customer_email": customer.email if customer else None,
+        "customer_name": cust_name,
+        "customer_email": cust_email,
+        "product_summary": prod_summary,
         "created_at": attempt.created_at.isoformat(),
         "paid_at": attempt.paid_at.isoformat() if attempt.paid_at else None,
         "shipment_status": order.shipment.status if order.shipment else None,
@@ -978,17 +1080,39 @@ def list_payments(
     amount_max: Decimal | None = None,
     limit: int = 20,
     cursor_id: int | None = None,
-    selected_ids: list[int] | None = None,
+    selected_ids: list[str | int] | None = None,
 ) -> dict:
     """
     Returns ALL payment attempts (not just latest per order).
     For COD orders: creates virtual payment record from the order itself.
     """
+    parsed_attempt_ids = []
+    parsed_cod_order_ids = []
+    if selected_ids:
+        for sid in selected_ids:
+            s_str = str(sid).strip()
+            if s_str.startswith("attempt-"):
+                try:
+                    parsed_attempt_ids.append(int(s_str.replace("attempt-", "")))
+                except ValueError:
+                    pass
+            elif s_str.startswith("cod-"):
+                try:
+                    parsed_cod_order_ids.append(int(s_str.replace("cod-", "")))
+                except ValueError:
+                    pass
+            else:
+                try:
+                    parsed_attempt_ids.append(int(s_str))
+                except ValueError:
+                    pass
+
     # Online payment attempts
     online_stmt = (
         select(PaymentAttempt)
         .options(
             selectinload(PaymentAttempt.order).selectinload(CommerceOrder.shipment),
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.items),
         )
         .join(CommerceOrder, CommerceOrder.id == PaymentAttempt.order_id)
         .order_by(PaymentAttempt.id.desc())
@@ -1015,7 +1139,10 @@ def list_payments(
             Shipment.status == shipment_status
         )
     if selected_ids:
-        online_stmt = online_stmt.where(PaymentAttempt.id.in_(selected_ids))
+        if parsed_attempt_ids:
+            online_stmt = online_stmt.where(PaymentAttempt.id.in_(parsed_attempt_ids))
+        else:
+            online_stmt = online_stmt.where(PaymentAttempt.id == -1)
 
     attempts = db.scalars(online_stmt.limit(limit + 1)).all()
     has_more = len(attempts) > limit
@@ -1033,16 +1160,21 @@ def list_payments(
     # COD virtual rows — only if no payment_method filter or filter = 'cod'
     # and not filtering by online-only fields
     cod_items = []
-    if not selected_ids and (payment_method is None or payment_method == "cod"):
+    if (not selected_ids or parsed_cod_order_ids) and (payment_method is None or payment_method == "cod"):
         cod_stmt = (
             select(CommerceOrder)
-            .options(selectinload(CommerceOrder.shipment))
+            .options(
+                selectinload(CommerceOrder.shipment),
+                selectinload(CommerceOrder.items),
+            )
             .where(
                 CommerceOrder.payment_method == "cod",
                 CommerceOrder.status.not_in(["pending_payment", "payment_failed"]),
             )
             .order_by(CommerceOrder.id.desc())
         )
+        if selected_ids and parsed_cod_order_ids:
+            cod_stmt = cod_stmt.where(CommerceOrder.id.in_(parsed_cod_order_ids))
         if search:
             like = f"%{search}%"
             cod_stmt = cod_stmt.where(CommerceOrder.order_number.ilike(like))
@@ -1068,8 +1200,24 @@ def list_payments(
 
         for o in cod_orders:
             customer = users_by_id.get(o.user_id)
+            prod_summary = None
+            if o.items:
+                first = o.items[0]
+                prod_summary = first.product_name
+                if len(o.items) > 1:
+                    prod_summary += f" +{len(o.items) - 1} more"
+            cust_name = None
+            cust_email = None
+            if customer:
+                cust_name = customer.name or customer.email
+                cust_email = customer.email
+            elif o.shipping_address and isinstance(o.shipping_address, dict):
+                cust_name = o.shipping_address.get("full_name") or o.shipping_address.get("name")
+
             cod_items.append({
+                "id": f"cod-{o.id}",
                 "attempt_id": None,
+                "transaction_id": f"COD-{o.order_number}",
                 "order_id": o.id,
                 "order_number": o.order_number,
                 "provider": "cod",
@@ -1080,8 +1228,9 @@ def list_payments(
                 "provider_order_id": None,
                 "provider_payment_id": None,
                 "failure_reason": None,
-                "customer_name": customer.name if customer else None,
-                "customer_email": customer.email if customer else None,
+                "customer_name": cust_name,
+                "customer_email": cust_email,
+                "product_summary": prod_summary,
                 "created_at": o.created_at.isoformat(),
                 "paid_at": None,
                 "shipment_status": o.shipment.status if o.shipment else None,
@@ -1093,6 +1242,7 @@ def list_payments(
     return {
         "items": all_items,
         "next_cursor": page[-1].id if has_more and page else None,
+        "total": total,
         "total_count": total,
     }
 
@@ -1101,7 +1251,7 @@ def export_payments_csv(
     db: Session,
     *,
     filters: dict | None = None,
-    selected_attempt_ids: list[int] | None = None,
+    selected_attempt_ids: list[str | int] | None = None,
 ) -> str:
     """Generate CSV string from payment data."""
     filters = filters or {}
@@ -1114,14 +1264,15 @@ def export_payments_csv(
     output = io.StringIO()
     writer = csv.writer(output)
     headers = [
-        "Order Number", "Order ID", "Attempt ID", "Provider", "Status",
-        "Payment Method", "Amount (INR)", "Customer Name", "Customer Email",
+        "Transaction ID", "Order Number", "Order ID", "Attempt ID", "Provider", "Status",
+        "Payment Method", "Amount (INR)", "Product", "Customer Name", "Customer Email",
         "Provider Order ID", "Provider Payment ID", "Failure Reason",
         "Shipment Status", "Created At", "Paid At",
     ]
     writer.writerow(headers)
     for row in result["items"]:
         writer.writerow([
+            _escape_csv_field(row.get("transaction_id")),
             _escape_csv_field(row.get("order_number")),
             _escape_csv_field(row.get("order_id")),
             _escape_csv_field(row.get("attempt_id")),
@@ -1129,6 +1280,7 @@ def export_payments_csv(
             _escape_csv_field(row.get("status")),
             _escape_csv_field(row.get("payment_method")),
             _escape_csv_field(row.get("amount")),
+            _escape_csv_field(row.get("product_summary")),
             _escape_csv_field(row.get("customer_name")),
             _escape_csv_field(row.get("customer_email")),
             _escape_csv_field(row.get("provider_order_id")),

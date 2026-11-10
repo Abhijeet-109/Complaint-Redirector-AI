@@ -35,8 +35,20 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
     const returningFromDriveOAuth = isSuperAdmin
       && oauthPendingAt > 0
       && Date.now() - oauthPendingAt < 10 * 60 * 1000;
-    return returningFromDriveOAuth ? 'pipeline' : 'store-dashboard';
+    return returningFromDriveOAuth ? 'pipeline' : 'overview';
   });
+  const [focusedPaymentId, setFocusedPaymentId] = useState(null);
+  const [focusedOrderId, setFocusedOrderId] = useState(null);
+
+  const handleNavigateView = (view, targetId = null) => {
+    if (view === 'payments' && targetId) {
+      setFocusedPaymentId(targetId);
+    }
+    if (view === 'orders' && targetId) {
+      setFocusedOrderId(targetId);
+    }
+    setCurrentView(view);
+  };
 
   // Core Data
   const [users, setUsers] = useState([]);
@@ -201,10 +213,10 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
           {currentView === 'products' && <ProductManagement />}
           {currentView === 'categories' && <CategoryManagement />}
           {currentView === 'shipment-options' && <ShipmentOptions />}
-          {currentView === 'store-dashboard' && <StoreDashboard onNavigate={setCurrentView} />}
-          {currentView === 'orders' && <OrderManagement />}
+          {currentView === 'store-dashboard' && <StoreDashboard onNavigate={handleNavigateView} />}
+          {currentView === 'orders' && <OrderManagement focusedOrderId={focusedOrderId} onClearFocusedOrder={() => setFocusedOrderId(null)} />}
           {currentView === 'inventory' && <InventoryManagement />}
-          {currentView === 'payments' && <PaymentHistory />}
+          {currentView === 'payments' && <PaymentHistory focusedPaymentId={focusedPaymentId} onClearFocusedPayment={() => setFocusedPaymentId(null)} />}
           {currentView === 'returns' && <RefundManagement />}
           {/* ========================================================
               VIEW 1: OVERVIEW
