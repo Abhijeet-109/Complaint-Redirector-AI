@@ -112,7 +112,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
       const clearTimer = setTimeout(() => {
         setHighlightOrderId(null);
         if (onClearFocusedOrder) onClearFocusedOrder();
-      }, 7000);
+      }, 2500);
       return () => {
         clearTimeout(timer);
         clearTimeout(clearTimer);

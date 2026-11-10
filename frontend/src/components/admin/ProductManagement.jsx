@@ -475,18 +475,23 @@ export function ProductManagement() {
                 <td className="fk-col-check">
                   <input type="checkbox" aria-label={`Select ${product.name}`} checked={checked} onChange={() => toggleRow(product.id)} />
                 </td>
-                <td className="fk-admin-product-name">{product.images?.[0]?.url && <img src={product.images[0].url} alt="" />}<strong>{product.name}</strong></td>
+                <td className="fk-admin-product-name">
+                  {product.images?.[0]?.url && <img src={product.images[0].url} alt="" />}
+                  <strong title={product.name}>{product.name}</strong>
+                </td>
                 <td>{product.brand || '—'}<small>{product.category?.name || 'Uncategorised'}</small></td>
                 <td>{product.variants.length}<small>{product.variants[0]?.sku || ''}</small></td>
                 <td>{product.variants[0] ? `₹${Number(product.variants[0].price).toLocaleString('en-IN')}` : '—'}</td>
                 <td>{stock}</td>
                 <td>{product.is_active ? 'Active' : 'Archived'}</td>
-                <td>
-                  <button onClick={() => edit(product)}>Edit</button>{' '}
-                  <button onClick={() => toggleArchive(product)}>{product.is_active ? 'Archive' : 'Restore'}</button>{' '}
-                  <button title="Permanently delete product" aria-label={`Permanently delete ${product.name}`}
-                    onClick={() => { setMessage(''); setDeleteTarget({ product }); }}
-                    style={{ color: '#C03E33', borderColor: '#f3d3d0' }}><Trash2 size={14} /></button>
+                <td className="fk-catalog-actions-cell">
+                  <div className="fk-catalog-actions-wrap">
+                    <button type="button" onClick={() => edit(product)}>Edit</button>
+                    <button type="button" onClick={() => toggleArchive(product)}>{product.is_active ? 'Archive' : 'Restore'}</button>
+                    <button type="button" className="fk-btn-delete-icon" title="Permanently delete product" aria-label={`Permanently delete ${product.name}`}
+                      onClick={() => { setMessage(''); setDeleteTarget({ product }); }}
+                      style={{ color: '#C03E33', borderColor: '#f3d3d0' }}><Trash2 size={14} /></button>
+                  </div>
                 </td>
               </tr>;
             })}

@@ -62,42 +62,72 @@ function BarChart({ data }) {
     );
   }
 
-  const maxVal = Math.max(...data.map(d => parseFloat(d.value) || 0)) || 1;
+  const maxCol = Math.max(...data.map(d => parseFloat(d.collections ?? d.value) || 0), 0);
+  const maxRef = Math.max(...data.map(d => parseFloat(d.refunds) || 0), 0);
+  const hasRefunds = maxRef > 0;
+  const effectiveMaxCol = maxCol > 0 ? maxCol : 1;
+  const effectiveMaxRef = maxRef > 0 ? maxRef : 1;
   const is30Days = data.length > 20;
+
+  // Apportion vertical space between positive collections (above baseline) and refunds (below baseline)
+  const totalBarHeight = 154;
+  let posHeight = 142;
+  let negHeight = 10;
+  if (hasRefunds) {
+    const rawRatio = maxCol / (maxCol + maxRef);
+    const ratio = Math.min(Math.max(rawRatio, 0.62), 0.80);
+    posHeight = Math.round(totalBarHeight * ratio);
+    negHeight = totalBarHeight - posHeight;
+  }
 
   return (
     <div style={{ position: 'relative', width: '100%', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', marginTop: 8 }}>
       
-      {/* Sleek Custom Floating Tooltip (No ugly black native box) */}
+      {/* Sleek Custom Floating Tooltip */}
       {hovered && (
         <div
           style={{
             position: 'absolute',
             bottom: 'calc(100% - 6px)',
-            left: `${hovered.leftPct}%`,
+            left: `${Math.min(Math.max(hovered.leftPct, 16), 84)}%`,
             transform: 'translateX(-50%)',
             backgroundColor: '#122D29',
             color: '#FFFFFF',
-            padding: '7px 12px',
+            padding: '9px 14px',
             borderRadius: '8px',
-            boxShadow: '0 8px 20px rgba(18, 45, 41, 0.25)',
-            border: '1px solid rgba(194, 161, 90, 0.45)',
+            boxShadow: '0 8px 24px rgba(18, 45, 41, 0.35)',
+            border: '1px solid rgba(194, 161, 90, 0.55)',
             pointerEvents: 'none',
             zIndex: 30,
             whiteSpace: 'nowrap',
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
-            gap: 2,
+            gap: 3,
+            minWidth: 154,
             transition: 'left 0.08s ease-out',
           }}
         >
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#C2A15A', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#C2A15A', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid rgba(255,255,255,0.14)', paddingBottom: 4, marginBottom: 2, textAlign: 'center' }}>
             {hovered.fullLabel || hovered.label}
-          </span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF', fontVariantNumeric: 'tabular-nums' }}>
-            {formatINRDecimals(hovered.value)}
-          </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, fontSize: 11.5 }}>
+            <span style={{ color: '#D4CEBF' }}>Collections:</span>
+            <span style={{ fontWeight: 700, color: '#4ADE80', fontVariantNumeric: 'tabular-nums' }}>
+              +{formatINRDecimals(hovered.collections)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, fontSize: 11.5 }}>
+            <span style={{ color: '#D4CEBF' }}>Refunds:</span>
+            <span style={{ fontWeight: 700, color: hovered.refunds > 0 ? '#F87171' : '#9CA3AF', fontVariantNumeric: 'tabular-nums' }}>
+              {hovered.refunds > 0 ? `-${formatINRDecimals(hovered.refunds)}` : formatINRDecimals(0)}
+            </span>
+          </div>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.14)', paddingTop: 4, marginTop: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, fontSize: 12, fontWeight: 700 }}>
+            <span style={{ color: '#FFFFFF' }}>Net:</span>
+            <span style={{ color: hovered.net >= 0 ? '#FFFFFF' : '#FCA5A5', fontVariantNumeric: 'tabular-nums' }}>
+              {hovered.net < 0 ? '-' : ''}{formatINRDecimals(Math.abs(hovered.net))}
+            </span>
+          </div>
           {/* Downward Arrow */}
           <div
             style={{
@@ -115,23 +145,39 @@ function BarChart({ data }) {
         </div>
       )}
 
-      {/* Bars Row */}
+      {/* Plot Columns Container */}
       <div
         style={{
           display: 'flex',
-          alignItems: 'flex-end',
-          gap: is30Days ? 2 : 8,
-          height: 125,
+          gap: is30Days ? 2 : (data.length <= 7 ? 12 : 8),
+          height: totalBarHeight,
           width: '100%',
+          position: 'relative',
         }}
         onMouseLeave={() => setHovered(null)}
       >
+        {/* Continuous Horizontal Baseline Line */}
+        <div
+          style={{
+            position: 'absolute',
+            top: `${posHeight}px`,
+            left: 0,
+            right: 0,
+            height: '1.5px',
+            backgroundColor: '#D4CEBF',
+            zIndex: 1,
+            pointerEvents: 'none',
+          }}
+        />
+
         {data.map((d, i) => {
-          const valNum = parseFloat(d.value) || 0;
-          const pct = maxVal > 0 ? (valNum / maxVal) : 0;
-          const isHighest = valNum === maxVal && valNum > 0;
+          const colVal = parseFloat(d.collections ?? d.value) || 0;
+          const refVal = parseFloat(d.refunds) || 0;
+          const netVal = d.net !== undefined ? parseFloat(d.net) : (colVal - refVal);
+          const isHighestCol = colVal === maxCol && colVal > 0;
           const isHovered = hovered?.index === i;
-          const barHeightPx = Math.max(pct * 115, 3);
+          const colBarPx = colVal > 0 ? Math.max((colVal / effectiveMaxCol) * (posHeight - 6), 4) : 0;
+          const refBarPx = refVal > 0 ? Math.max((refVal / effectiveMaxRef) * (negHeight - 4), 4) : 0;
           const leftPct = ((i + 0.5) / data.length) * 100;
 
           return (
@@ -142,49 +188,99 @@ function BarChart({ data }) {
                 minWidth: 0,
                 height: '100%',
                 display: 'flex',
-                alignItems: 'flex-end',
-                justifyContent: 'center',
+                flexDirection: 'column',
                 position: 'relative',
+                cursor: 'pointer',
+                zIndex: 2,
               }}
               onMouseEnter={() => setHovered({
                 index: i,
                 label: d.label,
                 fullLabel: d.full_label || d.label,
-                value: valNum,
+                collections: colVal,
+                refunds: refVal,
+                net: netVal,
                 leftPct,
               })}
             >
+              {/* Top Positive Area: Collections growing upwards */}
               <div
                 style={{
+                  height: `${posHeight}px`,
                   width: '100%',
-                  height: `${barHeightPx}px`,
-                  backgroundColor: isHovered
-                    ? '#183A34'
-                    : (isHighest ? '#122D29' : (valNum > 0 ? '#C2A15A' : '#E5DFC8')),
-                  borderRadius: '3px 3px 0 0',
-                  opacity: isHovered ? 1 : (isHighest ? 1 : (valNum > 0 ? 0.8 : 0.4)),
-                  transform: isHovered ? 'scaleY(1.05)' : 'scaleY(1)',
-                  transformOrigin: 'bottom',
-                  boxShadow: isHovered ? '0 0 6px rgba(18, 45, 41, 0.3)' : 'none',
-                  transition: 'height 0.3s ease, transform 0.15s ease, background-color 0.15s ease',
-                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  justifyContent: 'center',
                 }}
-              />
+              >
+                {colVal > 0 ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: `${colBarPx}px`,
+                      backgroundColor: isHovered
+                        ? '#183A34'
+                        : (isHighestCol ? '#122D29' : '#122D29'),
+                      borderRadius: '3px 3px 0 0',
+                      opacity: isHovered ? 1 : 0.95,
+                      transform: isHovered ? 'scaleY(1.03)' : 'scaleY(1)',
+                      transformOrigin: 'bottom',
+                      boxShadow: isHovered ? '0 0 6px rgba(18, 45, 41, 0.35)' : 'none',
+                      transition: 'height 0.25s ease, transform 0.12s ease, background-color 0.12s ease',
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '2px',
+                      backgroundColor: isHovered ? '#122D29' : '#E5DFC8',
+                      opacity: 0.6,
+                      borderRadius: '1px 1px 0 0',
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Bottom Negative Area: Refunds growing downwards */}
+              <div
+                style={{
+                  height: `${negHeight}px`,
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'center',
+                }}
+              >
+                {refVal > 0 ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: `${refBarPx}px`,
+                      backgroundColor: isHovered ? '#991B1B' : '#C03E33',
+                      borderRadius: '0 0 3px 3px',
+                      opacity: isHovered ? 1 : 0.95,
+                      transform: isHovered ? 'scaleY(1.04)' : 'scaleY(1)',
+                      transformOrigin: 'top',
+                      boxShadow: isHovered ? '0 0 6px rgba(192, 62, 51, 0.4)' : 'none',
+                      transition: 'height 0.25s ease, transform 0.12s ease, background-color 0.12s ease',
+                    }}
+                  />
+                ) : null}
+              </div>
             </div>
           );
         })}
       </div>
-
-      {/* Bottom X-Axis Line: Pinned to Bottom */}
-      <div style={{ width: '100%', height: 1.5, backgroundColor: '#E5DFC8', marginTop: 4, marginBottom: 5 }} />
 
       {/* X-Axis Labels Row */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          gap: is30Days ? 2 : 8,
+          gap: is30Days ? 2 : (data.length <= 7 ? 12 : 8),
           width: '100%',
+          marginTop: 6,
         }}
       >
         {data.map((d, i) => {
@@ -223,7 +319,7 @@ function QuickAction({ icon: Icon, label, onClick }) {
       type="button"
     >
       <div className="sd-quick-action-icon-wrap">
-        <Icon size={19} color="#122D29" strokeWidth={2.2} />
+        <Icon size={20} color="#122D29" strokeWidth={2} />
       </div>
       <span className="sd-quick-action-label">{label}</span>
     </button>
@@ -334,9 +430,9 @@ export function StoreDashboard({ onNavigate }) {
     <div className="sd-dashboard">
       {/* Page Header */}
       <div className="sd-page-header">
-        <div>
-          <h1 className="sd-page-title">Store Dashboard</h1>
-          <p className="sd-page-subtitle">Live commerce operations overview</p>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+          <h1 className="sd-page-title" style={{ marginBottom: 0 }}>Store Dashboard</h1>
+          <span className="sd-page-subtitle" style={{ margin: 0 }}>Live commerce operations overview</span>
         </div>
         <button
           className="sd-refresh-icon-btn"
@@ -352,18 +448,18 @@ export function StoreDashboard({ onNavigate }) {
       {/* UPPER THREE-COLUMN GRID */}
       <div className="sd-upper-grid">
 
-        {/* LEFT: Revenue Overview + 6 Quick Actions (Utilizing Whitespace) */}
+        {/* LEFT: Revenue Overview + 6 Quick Actions */}
         <div className="sd-card sd-revenue-card">
           <div className="sd-revenue-header">
-            <span className="sd-card-label">Store Revenue</span>
-            <button className="sd-eye-btn" onClick={() => setRevenueHidden(h => !h)} title={revenueHidden ? 'Show revenue' : 'Hide revenue'}>
+            <span className="sd-card-label">Total Collected</span>
+            <button className="sd-eye-btn" onClick={() => setRevenueHidden(h => !h)} title={revenueHidden ? 'Show total collected' : 'Hide total collected'}>
               {revenueHidden ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           </div>
           <div className="sd-revenue-amount">
-            {revenueHidden ? '₹ ••••••' : formatINRDecimals(kpis?.total_revenue || 0)}
+            {revenueHidden ? '₹ ••••••' : formatINRDecimals(kpis?.total_collected || kpis?.total_revenue || 0)}
           </div>
-          <div className="sd-revenue-sub">Confirmed Revenue (Captured + COD − Refunds)</div>
+          <div className="sd-revenue-sub">Confirmed Gross Collections (Captured + Confirmed COD)</div>
 
           <div className="sd-divider" />
 
@@ -399,7 +495,19 @@ export function StoreDashboard({ onNavigate }) {
             <div className="sd-chart-header">
               <div>
                 <div className="sd-card-label">Earnings Activity</div>
-                <div className="sd-chart-amount">{formatINR(kpis?.total_revenue || 0)}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', marginTop: 2 }}>
+                  <div className="sd-chart-amount">{formatINR(kpis?.total_collected || kpis?.total_revenue || 0)}</div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#5C5A54' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: '#122D29' }} />
+                      <span>Collections</span>
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: '#C03E33' }} />
+                      <span>Refunds</span>
+                    </span>
+                  </div>
+                </div>
               </div>
               <div className="sd-period-tabs">
                 {[

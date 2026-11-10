@@ -1019,8 +1019,13 @@
 .fk-catalog-table th, .fk-catalog-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eceee9; font-size: 13px; }
 .fk-catalog-table th { background: #f8f8f5; color: #45564f; }
 .fk-catalog-table td small { display: block; color: #747e79; margin-top: 3px; }
-.fk-catalog-table .fk-admin-product-name { display: flex; align-items: center; gap: 9px; min-width: 220px; }
+.fk-catalog-table .fk-admin-product-name { display: flex; align-items: center; gap: 9px; min-width: 170px; max-width: 250px; }
+.fk-admin-product-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fk-admin-product-name img { width: 42px; height: 46px; object-fit: cover; border-radius: 4px; background: #f0eee8; }
+.fk-catalog-actions-cell { white-space: nowrap; }
+.fk-catalog-actions-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.fk-catalog-actions-wrap button { border: 1px solid #c9d0cb; border-radius: 4px; background: #fff; padding: 6px 10px; color: #23483d; height: 30px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.fk-catalog-actions-wrap .fk-btn-delete-icon { width: 30px; min-width: 30px; padding: 0; }
 .fk-catalog-table td button { border: 1px solid #c9d0cb; border-radius: 4px; background: #fff; padding: 6px 8px; color: #23483d; }
 .fk-catalog-form-backdrop { position: fixed; z-index: 1000; inset: 0; background: rgba(12, 25, 21, .54); display: flex; align-items: center; justify-content: center; padding: 20px; }
 .fk-catalog-form { background: #fff; width: min(900px, 100%); max-height: 92vh; overflow-y: auto; border-radius: 9px; padding: 22px; box-shadow: 0 18px 55px rgba(0,0,0,.2); }
@@ -1349,19 +1354,20 @@
 .sd-revenue-card {
   display: flex;
   flex-direction: column;
+  padding: 28px 24px 26px;
 }
 .sd-revenue-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .sd-card-label {
   font-size: 11px;
   font-weight: 700;
   color: #5C5A54;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }
 .sd-eye-btn {
   background: none;
@@ -1369,78 +1375,87 @@
   cursor: pointer;
   color: #5C5A54;
   display: flex;
-  padding: 2px;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
   border-radius: 4px;
+  transition: color 0.15s ease;
 }
 .sd-eye-btn:hover {
   color: #122D29;
 }
 .sd-revenue-amount {
-  font-size: 28px;
+  font-size: clamp(38px, 3.2vw, 48px);
   font-weight: 700;
   color: #122D29;
   font-family: 'Plus Jakarta Sans', sans-serif;
-  letter-spacing: -0.02em;
-  margin-bottom: 2px;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  margin: 6px 0 8px;
 }
 .sd-revenue-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: #5C5A54;
-  margin-bottom: 12px;
+  margin-bottom: 20px;
+  line-height: 1.4;
 }
 .sd-divider {
   height: 1px;
-  background: #F0EBDC;
-  margin: 6px 0 12px;
+  background: #EFEAE1;
+  margin: 0 0 20px;
 }
 .sd-quick-actions-title {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #122D29;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
+.sd-quick-actions-grid,
 .sd-quick-actions-grid-6 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px 8px;
+  gap: 20px 10px;
+  padding: 2px 0 4px;
 }
 .sd-quick-action-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 8px 4px;
+  padding: 2px;
   border-radius: 8px;
-  transition: background 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 .sd-quick-action-btn:hover {
-  background: rgba(18, 45, 41, 0.04);
+  opacity: 0.85;
 }
 .sd-quick-action-icon-wrap {
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
-  background-color: #F5F0E8;
-  border: 1px solid #E5DFC8;
+  background-color: #F7F3EB;
+  border: 1px solid #EAE3D5;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all 0.18s ease;
 }
 .sd-quick-action-btn:hover .sd-quick-action-icon-wrap {
   transform: translateY(-2px);
-  border-color: #122D29;
-  box-shadow: 0 2px 6px rgba(18, 45, 41, 0.08);
+  border-color: #C2A15A;
+  background-color: #F2ECE0;
+  box-shadow: 0 4px 10px rgba(18, 45, 41, 0.08);
 }
 .sd-quick-action-label {
-  font-size: 11px;
-  color: #5C5A54;
+  font-size: 12px;
+  color: #122D29;
   font-weight: 500;
   text-align: center;
-  line-height: 1.2;
+  line-height: 1.25;
+  max-width: 88px;
 }
 
 /* Center Column: KPI Cards + Chart */

@@ -27,6 +27,7 @@ from backend.Database.admin_commerce_services import (
     list_return_requests,
     update_return_status,
     list_refunds,
+    lookup_order_for_refund,
     process_razorpay_refund,
     record_cod_manual_refund,
 )
@@ -59,14 +60,16 @@ class ReturnStatusUpdateInput(BaseModel):
 
 
 class RazorpayRefundInput(BaseModel):
-    order_id: int
+    order_number: Optional[str] = None
+    order_id: Optional[int] = None
     payment_attempt_id: int
     amount: Decimal = Field(..., gt=0, description="Refund amount in INR")
     reason: str = Field(..., min_length=3, max_length=500)
 
 
 class CODManualRefundInput(BaseModel):
-    order_id: int
+    order_number: Optional[str] = None
+    order_id: Optional[int] = None
     amount: Decimal = Field(..., gt=0, description="Refund amount in INR")
     refund_method: str = Field(..., description="E.g. manual_cod, manual_bank, upi")
     external_reference: str = Field(..., min_length=1, max_length=120)
@@ -151,6 +154,19 @@ def get_admin_orders(
         limit=limit,
         cursor_id=cursor_id,
     )
+
+
+@router.get("/orders/lookup/{order_number}")
+def lookup_order_for_refund_endpoint(
+    order_number: str,
+    db: Session = Depends(get_db),
+    _actor: User = Depends(admin_access),
+):
+    """Lookup order details and eligible captured payment attempts by order_number for refund initiation."""
+    order_data = lookup_order_for_refund(db, order_number)
+    if order_data is None:
+        raise HTTPException(status_code=404, detail=f"Order '{order_number}' not found")
+    return order_data
 
 
 @router.get("/orders/{order_id}")
@@ -400,6 +416,7 @@ def create_razorpay_refund(
             amount=payload.amount,
             reason=payload.reason,
             processed_by=actor,
+            order_number=payload.order_number,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
@@ -424,6 +441,7 @@ def create_cod_manual_refund(
             external_reference=payload.external_reference,
             reason=payload.reason,
             processed_by=actor,
+            order_number=payload.order_number,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))

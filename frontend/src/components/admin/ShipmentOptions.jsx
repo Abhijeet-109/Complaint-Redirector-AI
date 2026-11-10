@@ -9,6 +9,10 @@ const BLANK_FORM = { pin_code: '', area: '', city: '', state: '', is_active: tru
 export function ShipmentOptions() {
   const [rows, setRows] = useState([]);
   const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active' | 'inactive'
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmBulkDeactivate, setConfirmBulkDeactivate] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -37,6 +41,85 @@ export function ShipmentOptions() {
     const timer = setTimeout(() => fetchOptions(query), 250);
     return () => clearTimeout(timer);
   }, [query, fetchOptions]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [statusFilter, query]);
+
+  const filteredRows = rows.filter(r => {
+    if (statusFilter === 'active') return r.is_active;
+    if (statusFilter === 'inactive') return !r.is_active;
+    return true;
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredRows.length && filteredRows.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredRows.map(r => r.id)));
+    }
+  };
+
+  const toggleRow = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkActivate = async () => {
+    const toActivate = filteredRows.filter(r => selectedIds.has(r.id) && !r.is_active);
+    if (toActivate.length === 0) {
+      showToast('error', 'None of the selected locations are inactive.');
+      return;
+    }
+    setBulkBusy(true);
+    let successCount = 0;
+    let failCount = 0;
+    for (const row of toActivate) {
+      try {
+        await adminService.activateShipmentOption(row.id, row);
+        successCount++;
+      } catch (err) {
+        failCount++;
+      }
+    }
+    setBulkBusy(false);
+    setSelectedIds(new Set());
+    showToast(successCount > 0 ? 'success' : 'error', `Activated ${successCount} location(s)${failCount ? `, ${failCount} failed` : ''}.`);
+    await fetchOptions();
+  };
+
+  const handleBulkDeactivate = async () => {
+    const toDeactivate = filteredRows.filter(r => selectedIds.has(r.id) && r.is_active);
+    if (toDeactivate.length === 0) {
+      showToast('error', 'None of the selected locations are active.');
+      return;
+    }
+    setConfirmBulkDeactivate(true);
+  };
+
+  const confirmAndExecuteBulkDeactivate = async () => {
+    const toDeactivate = filteredRows.filter(r => selectedIds.has(r.id) && r.is_active);
+    setBulkBusy(true);
+    setConfirmBulkDeactivate(false);
+    let successCount = 0;
+    let failCount = 0;
+    for (const row of toDeactivate) {
+      try {
+        await adminService.deactivateShipmentOption(row.id);
+        successCount++;
+      } catch (err) {
+        failCount++;
+      }
+    }
+    setBulkBusy(false);
+    setSelectedIds(new Set());
+    showToast(successCount > 0 ? 'success' : 'error', `Deactivated ${successCount} location(s)${failCount ? `, ${failCount} failed` : ''}.`);
+    await fetchOptions();
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -225,29 +308,84 @@ export function ShipmentOptions() {
         </form>
       </div>
 
-      {/* Search Bar */}
+      {/* Modern Filter Toolbar */}
       <div className="sd-card" style={{ marginBottom: 16, padding: '12px 16px' }}>
-        <div style={{ position: 'relative', maxWidth: 440 }}>
-          <Search size={16} color="#A8A293" style={{ position: 'absolute', left: 12, top: 11 }} />
-          <input
-            type="text"
-            placeholder="Search PIN code, area, city or state..."
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            style={{
-              width: '100%', height: 38, padding: '0 12px 0 36px',
-              borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 13,
-            }}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 260, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 360 }}>
+              <Search size={16} color="#8B8578" style={{ position: 'absolute', left: 12, top: 11 }} />
+              <input
+                type="text"
+                placeholder="Search PIN code, area, city or state..."
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                style={{
+                  width: '100%', height: 38, padding: '0 12px 0 36px',
+                  borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 13, background: '#FFFFFF',
+                }}
+              />
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              style={{
+                height: 38, padding: '0 28px 0 12px', borderRadius: 8,
+                border: '1px solid #E5DFC8', background: '#FFFFFF', fontSize: 13,
+                color: '#122D29', fontWeight: 500, cursor: 'pointer',
+              }}
+            >
+              <option value="all">All Statuses ({rows.length})</option>
+              <option value="active">Active Only ({rows.filter(r => r.is_active).length})</option>
+              <option value="inactive">Inactive Only ({rows.filter(r => !r.is_active).length})</option>
+            </select>
+          </div>
+
+          {selectedIds.size > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#122D29', background: '#F5F0E8', padding: '4px 10px', borderRadius: 6, border: '1px solid #E5DFC8' }}>
+                {selectedIds.size} selected
+              </span>
+              <button
+                type="button"
+                onClick={handleBulkActivate}
+                disabled={bulkBusy}
+                style={{
+                  height: 34, padding: '0 12px', borderRadius: 6,
+                  background: '#DCFCE7', border: '1px solid #BBF7D0',
+                  color: '#15803D', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {bulkBusy ? 'Activating…' : 'Activate Selected'}
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeactivate}
+                disabled={bulkBusy}
+                style={{
+                  height: 34, padding: '0 12px', borderRadius: 6,
+                  background: '#FEF2F2', border: '1px solid #FEE2E2',
+                  color: '#991B1B', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                {bulkBusy ? 'Deactivating…' : 'Deactivate Selected'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Table Card */}
       <div className="sd-card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #F0EBDC' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #F0EBDC', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: '#122D29' }}>
-            Serviceable Locations ({rows.length})
+            Serviceable Locations ({filteredRows.length})
           </span>
+          {statusFilter !== 'all' && (
+            <span style={{ fontSize: 12, color: '#8B8578' }}>
+              Filtered by: <strong>{statusFilter}</strong>
+            </span>
+          )}
         </div>
 
         {loading ? (
@@ -255,99 +393,160 @@ export function ShipmentOptions() {
             <div style={{ width: 24, height: 24, border: '2px solid #E5DFC8', borderTopColor: '#122D29', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
             <span style={{ color: '#8B8578', fontSize: 13 }}>Loading serviceable locations...</span>
           </div>
-        ) : rows.length === 0 ? (
-          <div className="sd-empty" style={{ padding: 48 }}>No shipment options match your search.</div>
+        ) : filteredRows.length === 0 ? (
+          <div className="sd-empty" style={{ padding: 48 }}>No shipment options match your filters.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+          <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+            <table style={{ width: '100%', minWidth: '700px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#FDFCFA', borderBottom: '1px solid #E5DFC8', color: 'rgba(18,45,41,0.6)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.04em' }}>
-                  <th style={{ padding: '12px 16px' }}>PIN Code</th>
-                  <th style={{ padding: '12px 16px' }}>Area / Locality</th>
-                  <th style={{ padding: '12px 16px' }}>City</th>
-                  <th style={{ padding: '12px 16px' }}>State</th>
-                  <th style={{ padding: '12px 16px' }}>Status</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
+                  <th style={{ width: 44, padding: '10px 14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={filteredRows.length > 0 && selectedIds.size === filteredRows.length}
+                      onChange={toggleSelectAll}
+                      style={{ cursor: 'pointer', accentColor: '#122D29' }}
+                      aria-label="Select all locations"
+                    />
+                  </th>
+                  <th style={{ padding: '10px 14px' }}>PIN Code</th>
+                  <th style={{ padding: '10px 14px' }}>Area / Locality</th>
+                  <th style={{ padding: '10px 14px' }}>City</th>
+                  <th style={{ padding: '10px 14px' }}>State</th>
+                  <th style={{ padding: '10px 14px' }}>Status</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(row => (
-                  <tr key={row.id} style={{ borderBottom: '1px solid #F0EBDC' }}>
-                    <td style={{ padding: '12px 16px', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
-                      {row.pin_code}
-                    </td>
-                    <td style={{ padding: '12px 16px', fontWeight: 600, color: '#1D1C17' }}>
-                      {row.area}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#5C5A54' }}>
-                      {row.city}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#5C5A54' }}>
-                      {row.state}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        backgroundColor: row.is_active ? '#DCFCE7' : '#FEF2F2',
-                        color: row.is_active ? '#15803D' : '#991B1B',
-                        padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600,
-                      }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: row.is_active ? '#15803D' : '#991B1B' }} />
-                        {row.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: 6 }}>
-                        <button
-                          type="button"
-                          title="Edit"
-                          onClick={() => {
-                            setEditingId(row.id);
-                            setForm({ pin_code: row.pin_code, area: row.area, city: row.city, state: row.state, is_active: row.is_active });
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                          }}
-                          style={{
-                            background: '#F5F0E8', border: '1px solid #E5DFC8', borderRadius: 6,
-                            padding: '4px 8px', color: '#122D29', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                          }}
-                        >
-                          <Pencil size={14} />
-                        </button>
+                {filteredRows.map(row => {
+                  const isChecked = selectedIds.has(row.id);
+                  return (
+                    <tr
+                      key={row.id}
+                      style={{
+                        borderBottom: '1px solid #F0EBDC',
+                        background: isChecked ? '#FAF7F2' : 'transparent',
+                        transition: 'background 0.15s ease',
+                      }}
+                    >
+                      <td style={{ width: 44, padding: '10px 14px' }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleRow(row.id)}
+                          style={{ cursor: 'pointer', accentColor: '#122D29' }}
+                          aria-label={`Select PIN ${row.pin_code}`}
+                        />
+                      </td>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
+                        {row.pin_code}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1D1C17' }}>
+                        {row.area}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#5C5A54' }}>
+                        {row.city}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#5C5A54' }}>
+                        {row.state}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          backgroundColor: row.is_active ? '#DCFCE7' : '#FEF2F2',
+                          color: row.is_active ? '#15803D' : '#991B1B',
+                          padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600,
+                        }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: row.is_active ? '#15803D' : '#991B1B' }} />
+                          {row.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            title="Edit"
+                            onClick={() => {
+                              setEditingId(row.id);
+                              setForm({ pin_code: row.pin_code, area: row.area, city: row.city, state: row.state, is_active: row.is_active });
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                            style={{
+                              background: '#F5F0E8', border: '1px solid #E5DFC8', borderRadius: 6,
+                              padding: '4px 8px', color: '#122D29', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                            }}
+                          >
+                            <Pencil size={14} />
+                          </button>
 
-                        {row.is_active ? (
-                          <button
-                            type="button"
-                            title="Deactivate"
-                            onClick={() => setConfirmDeactivateId(row.id)}
-                            style={{
-                              background: '#FEF2F2', border: '1px solid #FEE2E2', borderRadius: 6,
-                              padding: '4px 8px', color: '#991B1B', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                            }}
-                          >
-                            <Ban size={14} />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            title="Activate"
-                            onClick={() => handleActivate(row)}
-                            style={{
-                              background: '#DCFCE7', border: '1px solid #BBF7D0', borderRadius: 6,
-                              padding: '4px 8px', color: '#15803D', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                            }}
-                          >
-                            <CheckCircle size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {row.is_active ? (
+                            <button
+                              type="button"
+                              title="Deactivate"
+                              onClick={() => setConfirmDeactivateId(row.id)}
+                              style={{
+                                background: '#FEF2F2', border: '1px solid #FEE2E2', borderRadius: 6,
+                                padding: '4px 8px', color: '#991B1B', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                              }}
+                            >
+                              <Ban size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              title="Activate"
+                              onClick={() => handleActivate(row)}
+                              style={{
+                                background: '#DCFCE7', border: '1px solid #BBF7D0', borderRadius: 6,
+                                padding: '4px 8px', color: '#15803D', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                              }}
+                            >
+                              <CheckCircle size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {/* Confirmation Modal for Bulk Deactivation */}
+      {confirmBulkDeactivate && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(18,45,41,0.4)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+        }}>
+          <div className="sd-card" style={{ maxWidth: 420, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#B45309', marginBottom: 12 }}>
+              <AlertTriangle size={20} />
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#122D29' }}>Bulk Deactivate Locations?</span>
+            </div>
+            <p style={{ fontSize: 13, color: '#5C5A54', lineHeight: 1.5, marginBottom: 20 }}>
+              Are you sure you want to deactivate {filteredRows.filter(r => selectedIds.has(r.id) && r.is_active).length} active location(s)? Customers in these PIN codes will no longer be able to place orders until reactivated.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={() => setConfirmBulkDeactivate(false)}
+                style={{ padding: '8px 16px', borderRadius: 8, background: '#F5F0E8', border: '1px solid #E5DFC8', fontSize: 13, fontWeight: 600, color: '#5C5A54', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAndExecuteBulkDeactivate}
+                style={{ padding: '8px 18px', borderRadius: 8, background: '#991B1B', border: 'none', fontSize: 13, fontWeight: 600, color: '#FFFFFF', cursor: 'pointer' }}
+              >
+                Yes, Deactivate Selected
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal for Deactivation */}
       {confirmDeactivateId && (

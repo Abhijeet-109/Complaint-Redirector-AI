@@ -63,8 +63,11 @@ export function RefundManagement() {
   // Refund issuance modal
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
   const [refundType, setRefundType] = useState('razorpay'); // 'razorpay' | 'cod'
-  const [refundOrderId, setRefundOrderId] = useState('');
-  const [refundAttemptId, setRefundAttemptId] = useState('');
+  const [refundOrderNumber, setRefundOrderNumber] = useState('');
+  const [orderLookup, setOrderLookup] = useState(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState('');
+  const [selectedAttemptId, setSelectedAttemptId] = useState(null);
   const [refundAmount, setRefundAmount] = useState('');
   const [refundReason, setRefundReason] = useState('');
   const [refundExternalRef, setRefundExternalRef] = useState('');
@@ -127,21 +130,56 @@ export function RefundManagement() {
     }
   };
 
+  const handleOrderLookup = async () => {
+    if (!refundOrderNumber.trim()) return;
+    setLookupLoading(true);
+    setLookupError('');
+    setOrderLookup(null);
+    setSelectedAttemptId(null);
+    try {
+      const res = await adminService.lookupOrderForRefund(refundOrderNumber.trim());
+      setOrderLookup(res);
+      if (res.captured_attempts && res.captured_attempts.length === 1) {
+        setSelectedAttemptId(res.captured_attempts[0].id);
+        if (!refundAmount) setRefundAmount(String(res.captured_attempts[0].refundable_amount || res.captured_attempts[0].amount));
+      } else if (res.total_amount && !refundAmount) {
+        setRefundAmount(String(res.total_amount));
+      }
+      if (res.payment_method === 'cod') {
+        setRefundType('cod');
+      } else {
+        setRefundType('razorpay');
+      }
+    } catch (err) {
+      setLookupError(err.message || 'Order not found');
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
   const handleIssueRefund = async (e) => {
     e.preventDefault();
+    if (!orderLookup) {
+      showToast('error', 'Please look up and verify the order number first');
+      return;
+    }
+    if (refundType === 'razorpay' && !selectedAttemptId) {
+      showToast('error', 'Please select a captured payment transaction to refund');
+      return;
+    }
     setProcessingRefund(true);
     try {
       if (refundType === 'razorpay') {
         await adminService.processRazorpayRefund({
-          order_id: parseInt(refundOrderId, 10),
-          payment_attempt_id: parseInt(refundAttemptId, 10),
+          order_number: refundOrderNumber.trim(),
+          payment_attempt_id: parseInt(selectedAttemptId, 10),
           amount: parseFloat(refundAmount),
           reason: refundReason,
         });
         showToast('success', 'Razorpay refund initiated successfully');
       } else {
         await adminService.recordCODRefund({
-          order_id: parseInt(refundOrderId, 10),
+          order_number: refundOrderNumber.trim(),
           amount: parseFloat(refundAmount),
           refund_method: refundMethod,
           external_reference: refundExternalRef,
@@ -150,8 +188,9 @@ export function RefundManagement() {
         showToast('success', 'COD refund recorded successfully');
       }
       setIsRefundModalOpen(false);
-      setRefundOrderId('');
-      setRefundAttemptId('');
+      setRefundOrderNumber('');
+      setOrderLookup(null);
+      setSelectedAttemptId(null);
       setRefundAmount('');
       setRefundReason('');
       setRefundExternalRef('');
@@ -533,37 +572,103 @@ export function RefundManagement() {
               </div>
 
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>
-                  Order ID (Database ID)
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#5C5A54', display: 'block', marginBottom: 4 }}>
+                  Order Number
                 </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 1"
-                  required
-                  value={refundOrderId}
-                  onChange={e => setRefundOrderId(e.target.value)}
-                  style={{ width: '100%', height: 36, padding: '0 10px', borderRadius: 6, border: '1px solid #E5DFC8', fontSize: 13 }}
-                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder="e.g. FK-20261109-88964AF8"
+                    required
+                    value={refundOrderNumber}
+                    onChange={e => {
+                      setRefundOrderNumber(e.target.value);
+                      setOrderLookup(null);
+                      setLookupError('');
+                    }}
+                    style={{ flex: 1, height: 36, padding: '0 10px', borderRadius: 6, border: '1px solid #E5DFC8', fontSize: 13 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleOrderLookup}
+                    disabled={lookupLoading || !refundOrderNumber.trim()}
+                    style={{
+                      height: 36, padding: '0 14px', borderRadius: 6,
+                      border: '1px solid #C2A15A', background: '#FAF7F2',
+                      color: '#122D29', fontSize: 12, fontWeight: 600,
+                      cursor: 'pointer', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {lookupLoading ? 'Looking up…' : 'Look up'}
+                  </button>
+                </div>
+                {lookupError && (
+                  <div style={{ color: '#C03E33', fontSize: 12, marginTop: 4 }}>{lookupError}</div>
+                )}
               </div>
+
+              {/* Order Dossier */}
+              {orderLookup && (
+                <div style={{ padding: '10px 12px', borderRadius: 8, background: '#F5F0E8', border: '1px solid #E5DFC8', fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, color: '#122D29' }}>{orderLookup.order_number}</span>
+                    <span style={{ fontWeight: 600, color: '#122D29' }}>₹{orderLookup.total_amount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div style={{ color: '#5C5A54', marginBottom: 2 }}>
+                    Customer: <strong>{orderLookup.customer_name}</strong> {orderLookup.customer_email ? `(${orderLookup.customer_email})` : ''}
+                  </div>
+                  <div style={{ color: '#5C5A54', marginBottom: 2 }}>
+                    Method: <strong style={{ textTransform: 'uppercase' }}>{orderLookup.payment_method}</strong> · Payment: <strong style={{ textTransform: 'capitalize' }}>{orderLookup.payment_status}</strong> · Order: <strong style={{ textTransform: 'capitalize' }}>{orderLookup.order_status}</strong>
+                  </div>
+                  <div style={{ color: '#8B8578', marginTop: 4, fontSize: 11, borderTop: '1px dashed #E5DFC8', paddingTop: 4 }}>
+                    Items: {orderLookup.products}
+                  </div>
+                </div>
+              )}
 
               {refundType === 'razorpay' ? (
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>
-                    Payment Attempt ID (Captured Razorpay Attempt)
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#5C5A54', display: 'block', marginBottom: 4 }}>
+                    Captured Payment Transaction
                   </label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 1"
-                    required
-                    value={refundAttemptId}
-                    onChange={e => setRefundAttemptId(e.target.value)}
-                    style={{ width: '100%', height: 36, padding: '0 10px', borderRadius: 6, border: '1px solid #E5DFC8', fontSize: 13 }}
-                  />
+                  {!orderLookup ? (
+                    <div style={{ fontSize: 12, color: '#8B8578', padding: '8px 10px', background: '#FAF7F2', borderRadius: 6, border: '1px dashed #E5DFC8' }}>
+                      Enter Order Number and click "Look up" to select eligible payment transactions.
+                    </div>
+                  ) : (!orderLookup.captured_attempts || orderLookup.captured_attempts.length === 0) ? (
+                    <div style={{ fontSize: 12, color: '#C03E33', padding: '8px 10px', background: '#FDEDED', borderRadius: 6, border: '1px solid #F5C6CB' }}>
+                      No captured payment attempts found for this order. Only captured online payments can be refunded.
+                    </div>
+                  ) : orderLookup.captured_attempts.length === 1 ? (
+                    <div style={{ padding: '8px 10px', borderRadius: 6, background: '#E8F5E9', border: '1px solid #C8E6C9', fontSize: 12, color: '#2E7D32' }}>
+                      ✓ {orderLookup.captured_attempts[0].provider_payment_id} — ₹{orderLookup.captured_attempts[0].amount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Refundable: ₹{orderLookup.captured_attempts[0].refundable_amount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })})
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedAttemptId || ''}
+                      onChange={e => {
+                        const attId = parseInt(e.target.value, 10);
+                        setSelectedAttemptId(attId);
+                        const chosen = orderLookup.captured_attempts.find(a => a.id === attId);
+                        if (chosen && !refundAmount) {
+                          setRefundAmount(String(chosen.refundable_amount || chosen.amount));
+                        }
+                      }}
+                      style={{ width: '100%', height: 36, padding: '0 10px', borderRadius: 6, border: '1px solid #E5DFC8', fontSize: 13 }}
+                    >
+                      <option value="">Select a captured transaction…</option>
+                      {orderLookup.captured_attempts.map(att => (
+                        <option key={att.id} value={att.id}>
+                          {att.provider_payment_id} — ₹{att.amount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Refundable: ₹{att.refundable_amount})
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               ) : (
                 <>
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: '#5C5A54', display: 'block', marginBottom: 4 }}>
                       External Transaction Reference
                     </label>
                     <input
@@ -576,7 +681,7 @@ export function RefundManagement() {
                     />
                   </div>
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: '#5C5A54', display: 'block', marginBottom: 4 }}>
                       Refund Method
                     </label>
                     <select

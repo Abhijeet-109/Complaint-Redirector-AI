@@ -4,9 +4,15 @@ export const adminService = {
   // Delivery & Shipment Options
   listShipmentOptions: (search = '') => apiRequest(`/api/admin/shipment-options?search=${encodeURIComponent(search)}`),
   createShipmentOption: (data) => apiRequest('/api/admin/shipment-options', { method: 'POST', body: JSON.stringify(data) }),
-  updateShipmentOption: (id, data) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  updateShipmentOption: (id, data) => {
+    const { id: _, ...body } = data || {};
+    return apiRequest(`/api/admin/shipment-options/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
   deactivateShipmentOption: (id) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'DELETE' }),
-  activateShipmentOption: (id, data) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, is_active: true }) }),
+  activateShipmentOption: (id, data) => {
+    const { id: _, ...body } = data || {};
+    return apiRequest(`/api/admin/shipment-options/${id}`, { method: 'PUT', body: JSON.stringify({ ...body, is_active: true }) });
+  },
 
   // Users Management
   async getUsers() {
@@ -154,6 +160,8 @@ export const adminService = {
     const qs = q.toString();
     return apiRequest(`/api/admin/commerce/refunds${qs ? '?' + qs : ''}`);
   },
+  lookupOrderForRefund: (orderNumber) =>
+    apiRequest(`/api/admin/commerce/orders/lookup/${encodeURIComponent(orderNumber)}`),
   processRazorpayRefund: (data) =>
     apiRequest('/api/admin/commerce/refunds/razorpay', {
       method: 'POST',

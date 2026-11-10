@@ -109,7 +109,7 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
       const clearTimer = setTimeout(() => {
         setHighlightId(null);
         if (onClearFocusedPayment) onClearFocusedPayment();
-      }, 7000);
+      }, 2500);
       return () => {
         clearTimeout(timer);
         clearTimeout(clearTimer);
@@ -197,22 +197,22 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
       </div>
 
       {/* Toolbar: Search, Filters & Export */}
-      <div className="sd-card" style={{ marginBottom: 16, padding: '16px 20px' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="sd-card" style={{ marginBottom: 16, padding: '12px 16px' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', flex: 1 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
             {/* Search */}
-            <div style={{ position: 'relative', minWidth: 220, flex: '1 1 240px' }}>
-              <Search size={16} color="#A8A293" style={{ position: 'absolute', left: 12, top: 11 }} />
+            <div style={{ position: 'relative', width: 200, flexShrink: 0 }}>
+              <Search size={15} color="#A8A293" style={{ position: 'absolute', left: 10, top: 11 }} />
               <input
                 type="text"
-                placeholder="Search transaction ID, order #, customer, product..."
+                placeholder="Search payments..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 style={{
-                  width: '100%', height: 38, padding: '0 12px 0 36px',
+                  width: '100%', height: 36, padding: '0 10px 0 32px',
                   borderRadius: 8, border: '1px solid #E5DFC8',
-                  fontSize: 13, background: '#FFFFFF', color: '#1D1C17',
+                  fontSize: 12, background: '#FFFFFF', color: '#1D1C17',
                 }}
               />
             </div>
@@ -221,7 +221,7 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
             <select
               value={paymentStatus}
               onChange={e => setPaymentStatus(e.target.value)}
-              style={{ height: 38, padding: '0 12px', borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 13, background: '#FFFFFF', color: '#1D1C17' }}
+              style={{ height: 36, padding: '0 8px', borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 12, background: '#FFFFFF', color: '#1D1C17' }}
             >
               <option value="">All Payment Statuses</option>
               <option value="captured">Captured / Success</option>
@@ -235,7 +235,7 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
             <select
               value={paymentMethod}
               onChange={e => setPaymentMethod(e.target.value)}
-              style={{ height: 38, padding: '0 12px', borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 13, background: '#FFFFFF', color: '#1D1C17' }}
+              style={{ height: 36, padding: '0 8px', borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 12, background: '#FFFFFF', color: '#1D1C17' }}
             >
               <option value="">All Methods</option>
               <option value="razorpay">Razorpay</option>
@@ -248,7 +248,7 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
             <select
               value={shipmentStatus}
               onChange={e => setShipmentStatus(e.target.value)}
-              style={{ height: 38, padding: '0 12px', borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 13, background: '#FFFFFF', color: '#1D1C17' }}
+              style={{ height: 36, padding: '0 8px', borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 12, background: '#FFFFFF', color: '#1D1C17' }}
             >
               <option value="">All Shipment States</option>
               <option value="pending">Pending</option>
@@ -259,35 +259,36 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
           </div>
 
           {/* Export Buttons */}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
             <button
               onClick={() => handleExport('selected')}
               disabled={selectedIds.size === 0}
               title="Download selected transactions"
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '0 14px', height: 38, borderRadius: 8,
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '0 10px', height: 36, borderRadius: 8,
                 background: selectedIds.size > 0 ? '#122D29' : '#F5F0E8',
                 color: selectedIds.size > 0 ? '#FFFFFF' : '#A8A293',
-                border: '1px solid #E5DFC8', fontSize: 12, fontWeight: 600,
+                border: '1px solid #E5DFC8', fontSize: 11, fontWeight: 600,
                 cursor: selectedIds.size > 0 ? 'pointer' : 'not-allowed',
+                whiteSpace: 'nowrap',
               }}
             >
-              <Download size={14} />
+              <Download size={13} />
               Export Selected ({selectedIds.size})
             </button>
             <button
               onClick={() => handleExport('filtered')}
               title="Download all filtered transactions"
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '0 14px', height: 38, borderRadius: 8,
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '0 10px', height: 36, borderRadius: 8,
                 background: '#FFFFFF', color: '#122D29',
-                border: '1px solid #E5DFC8', fontSize: 12, fontWeight: 600,
-                cursor: 'pointer',
+                border: '1px solid #E5DFC8', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
-              <Download size={14} />
+              <Download size={13} />
               Export Filtered ({total})
             </button>
           </div>
@@ -344,33 +345,52 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
         ) : payments.length === 0 ? (
           <div className="sd-empty" style={{ padding: 48 }}>No payment attempts found matching the filters.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+          <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+            <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13, tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '38px' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '11%' }} />
+              </colgroup>
               <thead>
                 <tr style={{ background: '#FDFCFA', borderBottom: '1px solid #E5DFC8', color: 'rgba(18,45,41,0.6)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.04em' }}>
-                  <th style={{ padding: '12px 16px', width: 40 }}>
+                  <th style={{ padding: '10px 10px', width: 38 }}>
                     <input
                       type="checkbox"
                       checked={isAllPageSelected}
                       onChange={togglePageAll}
-                      style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#122D29' }}
+                      style={{ cursor: 'pointer', width: 15, height: 15, accentColor: '#122D29' }}
                     />
                   </th>
-                  <th style={{ padding: '12px 16px' }}>Transaction / Attempt ID</th>
-                  <th style={{ padding: '12px 16px' }}>Order Number</th>
-                  <th style={{ padding: '12px 16px' }}>Product</th>
-                  <th style={{ padding: '12px 16px' }}>Customer</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'right' }}>Amount</th>
-                  <th style={{ padding: '12px 16px' }}>Method</th>
-                  <th style={{ padding: '12px 16px' }}>Payment Status</th>
-                  <th style={{ padding: '12px 16px' }}>Shipment</th>
-                  <th style={{ padding: '12px 16px' }}>Date</th>
+                  <th style={{ padding: '10px 10px' }}>Transaction / Attempt ID</th>
+                  <th style={{ padding: '10px 10px' }}>Order Number</th>
+                  <th style={{ padding: '10px 10px' }}>Product</th>
+                  <th style={{ padding: '10px 10px' }}>Customer</th>
+                  <th style={{ padding: '10px 10px', textAlign: 'right' }}>Amount</th>
+                  <th style={{ padding: '10px 10px' }}>Method</th>
+                  <th style={{ padding: '10px 10px' }}>Payment Status</th>
+                  <th style={{ padding: '10px 10px' }}>Shipment</th>
+                  <th style={{ padding: '10px 10px' }}>Date</th>
                 </tr>
               </thead>
               <tbody>
                 {payments.map(pay => {
                   const isSelected = selectedIds.has(pay.id);
-                  const isHighlighted = highlightId === pay.id || highlightId === pay.attempt_id;
+                  const isHighlighted = Boolean(
+                    highlightId != null && (
+                      highlightId === pay.id ||
+                      (pay.attempt_id != null && highlightId === pay.attempt_id) ||
+                      (pay.id != null && highlightId === `attempt-${pay.id}`) ||
+                      (pay.order_id != null && highlightId === `cod-${pay.order_id}`)
+                    )
+                  );
                   return (
                     <tr
                       id={`payment-row-${pay.id}`}
@@ -382,48 +402,48 @@ export function PaymentHistory({ focusedPaymentId = null, onClearFocusedPayment 
                         transition: 'background 0.2s ease',
                       }}
                     >
-                      <td style={{ padding: '12px 16px' }}>
+                      <td style={{ padding: '10px 10px' }}>
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleRow(pay.id)}
-                          style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#122D29' }}
+                          style={{ cursor: 'pointer', width: 15, height: 15, accentColor: '#122D29' }}
                         />
                       </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ fontWeight: 600, color: '#122D29' }}>{pay.transaction_id || `ATTEMPT-${pay.id}`}</div>
+                      <td style={{ padding: '10px 10px', overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={pay.transaction_id || `ATTEMPT-${pay.id}`}>{pay.transaction_id || `ATTEMPT-${pay.id}`}</div>
                         {pay.provider_payment_id && (
-                          <div style={{ fontSize: 10, color: '#8B8578' }}>RZP: {pay.provider_payment_id}</div>
+                          <div style={{ fontSize: 10, color: '#8B8578', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>RZP: {pay.provider_payment_id}</div>
                         )}
                         {pay.failure_reason && (
-                          <div style={{ fontSize: 11, color: '#991B1B', marginTop: 2 }}>{pay.failure_reason}</div>
+                          <div style={{ fontSize: 11, color: '#991B1B', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={pay.failure_reason}>{pay.failure_reason}</div>
                         )}
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 600, color: '#122D29' }}>
+                      <td style={{ padding: '10px 10px', fontWeight: 600, color: '#122D29', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={pay.order_number}>
                         {pay.order_number}
                       </td>
-                      <td style={{ padding: '12px 16px', color: '#5C5A54', maxWidth: 200 }}>
-                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 10px', color: '#5C5A54', overflow: 'hidden' }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={pay.product_summary || 'Order Items'}>
                           {pay.product_summary || 'Order Items'}
                         </div>
                       </td>
-                      <td style={{ padding: '12px 16px', color: '#1D1C17' }}>
-                        <div>{pay.customer_name || 'Customer'}</div>
-                        <div style={{ fontSize: 11, color: '#8B8578' }}>{pay.customer_email || ''}</div>
+                      <td style={{ padding: '10px 10px', color: '#1D1C17', overflow: 'hidden' }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={pay.customer_name || 'Customer'}>{pay.customer_name || 'Customer'}</div>
+                        <div style={{ fontSize: 11, color: '#8B8578', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={pay.customer_email || ''}>{pay.customer_email || ''}</div>
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
+                      <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
                         {formatINR(pay.amount)}
                       </td>
-                      <td style={{ padding: '12px 16px', textTransform: 'uppercase', fontSize: 11, fontWeight: 600, color: '#5C5A54' }}>
+                      <td style={{ padding: '10px 10px', textTransform: 'uppercase', fontSize: 11, fontWeight: 600, color: '#5C5A54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {pay.payment_method || '—'}
                       </td>
-                      <td style={{ padding: '12px 16px' }}>
+                      <td style={{ padding: '10px 10px' }}>
                         <StatusBadge status={pay.status} />
                       </td>
-                      <td style={{ padding: '12px 16px' }}>
+                      <td style={{ padding: '10px 10px' }}>
                         <StatusBadge status={pay.shipment_status || 'pending'} />
                       </td>
-                      <td style={{ padding: '12px 16px', color: '#8B8578', fontSize: 12, whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '10px 10px', color: '#8B8578', fontSize: 12, whiteSpace: 'nowrap' }}>
                         {pay.created_at ? new Date(pay.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                       </td>
                     </tr>

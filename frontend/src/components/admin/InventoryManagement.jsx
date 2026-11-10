@@ -187,18 +187,28 @@ export function InventoryManagement() {
             ) : items.length === 0 ? (
               <div className="sd-empty" style={{ padding: 48 }}>No inventory records found.</div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+              <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+                <table style={{ width: '100%', minWidth: '850px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13, tableLayout: 'fixed' }}>
+                  <colgroup>
+                    <col style={{ width: '23%' }} />
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
+                  </colgroup>
                   <thead>
                     <tr style={{ background: '#FDFCFA', borderBottom: '1px solid #E5DFC8', color: 'rgba(18,45,41,0.6)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.04em' }}>
-                      <th style={{ padding: '12px 16px' }}>Product</th>
-                      <th style={{ padding: '12px 16px' }}>Category</th>
-                      <th style={{ padding: '12px 16px' }}>Variant / SKU</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Available</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Reserved</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total Stock</th>
-                      <th style={{ padding: '12px 16px' }}>Status</th>
-                      <th style={{ padding: '12px 16px' }}>Last Updated</th>
+                      <th style={{ padding: '10px 12px' }}>Product</th>
+                      <th style={{ padding: '10px 12px' }}>Category</th>
+                      <th style={{ padding: '10px 12px' }}>Variant / SKU</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Available</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Reserved</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Total Stock</th>
+                      <th style={{ padding: '10px 12px' }}>Status</th>
+                      <th style={{ padding: '10px 12px' }}>Last Updated</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -207,26 +217,26 @@ export function InventoryManagement() {
                       const isOut = item.available_stock === 0;
                       return (
                         <tr key={item.variant_id} style={{ borderBottom: '1px solid #F0EBDC' }}>
-                          <td style={{ padding: '12px 16px', fontWeight: 600, color: '#122D29' }}>
+                          <td style={{ padding: '10px 12px', fontWeight: 600, color: '#122D29', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.product_name}>
                             {item.product_name}
                           </td>
-                          <td style={{ padding: '12px 16px', color: '#5C5A54' }}>
-                            {item.category_name || '—'}
+                          <td style={{ padding: '10px 12px', color: '#5C5A54', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.category_name || item.category || ''}>
+                            {item.category_name || item.category || '—'}
                           </td>
-                          <td style={{ padding: '12px 16px' }}>
-                            <div style={{ fontWeight: 600, color: '#122D29' }}>{item.variant_name}</div>
-                            <div style={{ fontSize: 11, color: '#8B8578' }}>{item.sku}</div>
+                          <td style={{ padding: '10px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontWeight: 600, color: '#122D29', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.variant_name}>{item.variant_name}</div>
+                            <div style={{ fontSize: 11, color: '#8B8578', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.sku}</div>
                           </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: isOut ? '#991B1B' : isLowStock ? '#B45309' : '#15803D', fontVariantNumeric: 'tabular-nums' }}>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: isOut ? '#991B1B' : isLowStock ? '#B45309' : '#15803D', fontVariantNumeric: 'tabular-nums' }}>
                             {item.available_stock.toLocaleString('en-IN')}
                           </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', color: '#5C5A54', fontVariantNumeric: 'tabular-nums' }}>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: '#5C5A54', fontVariantNumeric: 'tabular-nums' }}>
                             {item.reserved_stock.toLocaleString('en-IN')}
                           </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
                             {item.total_stock.toLocaleString('en-IN')}
                           </td>
-                          <td style={{ padding: '12px 16px' }}>
+                          <td style={{ padding: '10px 12px' }}>
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4,
                               backgroundColor: isOut ? '#FEF2F2' : isLowStock ? '#FEF3C7' : '#DCFCE7',
@@ -237,7 +247,7 @@ export function InventoryManagement() {
                               {isOut ? 'Out of Stock' : isLowStock ? 'Low Stock' : 'In Stock'}
                             </span>
                           </td>
-                          <td style={{ padding: '12px 16px', color: '#8B8578', fontSize: 12 }}>
+                          <td style={{ padding: '10px 12px', color: '#8B8578', fontSize: 12 }}>
                             {item.updated_at ? new Date(item.updated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                           </td>
                         </tr>
@@ -283,46 +293,46 @@ export function InventoryManagement() {
           ) : categories.length === 0 ? (
             <div className="sd-empty" style={{ padding: 48 }}>No categories configured.</div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+            <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+              <table style={{ width: '100%', minWidth: '800px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#FDFCFA', borderBottom: '1px solid #E5DFC8', color: 'rgba(18,45,41,0.6)', textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.04em' }}>
-                    <th style={{ padding: '12px 16px' }}>Category Name</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Products</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Variants</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Available Units</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Reserved Units</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total Units</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Out of Stock</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right' }}>Low Stock (&le;5)</th>
+                    <th style={{ padding: '10px 12px' }}>Category Name</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Products</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Variants</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Available Units</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Reserved Units</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Total Units</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Out of Stock</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Low Stock (&le;5)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {categories.map(cat => (
-                    <tr key={cat.category_id} style={{ borderBottom: '1px solid #F0EBDC' }}>
-                      <td style={{ padding: '12px 16px', fontWeight: 600, color: '#122D29' }}>
-                        {cat.category_name}
+                  {categories.map((cat, idx) => (
+                    <tr key={cat.category_id || cat.id || idx} style={{ borderBottom: '1px solid #F0EBDC' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#122D29' }}>
+                        {cat.category_name || cat.name || '—'}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {cat.product_count}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {(cat.product_count ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                        {cat.variant_count}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {(cat.variant_count ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#15803D', fontVariantNumeric: 'tabular-nums' }}>
-                        {cat.available_stock.toLocaleString('en-IN')}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#15803D', fontVariantNumeric: 'tabular-nums' }}>
+                        {(cat.available_stock ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', color: '#5C5A54', fontVariantNumeric: 'tabular-nums' }}>
-                        {cat.reserved_stock.toLocaleString('en-IN')}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', color: '#5C5A54', fontVariantNumeric: 'tabular-nums' }}>
+                        {(cat.reserved_stock ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
-                        {cat.total_stock.toLocaleString('en-IN')}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
+                        {(cat.total_stock ?? 0).toLocaleString('en-IN')}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', color: cat.out_of_stock_products > 0 ? '#991B1B' : '#5C5A54', fontWeight: cat.out_of_stock_products > 0 ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>
-                        {cat.out_of_stock_products}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', color: (cat.out_of_stock_products || 0) > 0 ? '#991B1B' : '#5C5A54', fontWeight: (cat.out_of_stock_products || 0) > 0 ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>
+                        {cat.out_of_stock_products ?? 0}
                       </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', color: cat.low_stock_products > 0 ? '#B45309' : '#5C5A54', fontWeight: cat.low_stock_products > 0 ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>
-                        {cat.low_stock_products}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', color: (cat.low_stock_products || 0) > 0 ? '#B45309' : '#5C5A54', fontWeight: (cat.low_stock_products || 0) > 0 ? 700 : 400, fontVariantNumeric: 'tabular-nums' }}>
+                        {cat.low_stock_products ?? 0}
                       </td>
                     </tr>
                   ))}
