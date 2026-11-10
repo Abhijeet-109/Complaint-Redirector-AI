@@ -1,154 +1,105 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  LayoutDashboard,
-  Users,
-  Building2,
-  UserCheck,
-  ShieldAlert,
-  FileText,
-  GitCompare,
-  Bot,
-  LogOut,
-  ShoppingCart,
-  ShoppingBag,
-  Tags,
-  Truck,
+  LayoutDashboard, Users, Building2, UserCheck, ShieldAlert,
+  FileText, GitCompare, Bot, LogOut, ShoppingCart, ShoppingBag,
+  Tags, Truck, Package, CreditCard, RotateCcw, BarChart3,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-export function AdminSidebar({
-  currentView = 'overview',
-  onSelectView,
-  isSuperAdmin = false,
-  onNavigate,
-}) {
+export function AdminSidebar({ currentView = 'store-dashboard', onSelectView, isSuperAdmin = false, onNavigate }) {
   const { logout } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
 
   const handleSignOut = () => {
     logout();
     if (onNavigate) onNavigate('login');
   };
 
-  return (
-    <aside className="ad-sidebar">
-      {/* Brand Header: Cart Icon + FLATKART */}
-      <div
-        className="ad-sidebar-brand"
-        onClick={() => onNavigate && onNavigate('home')}
-        title="Return to Flatkart Store"
-        role="button"
-        tabIndex={0}
-        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '9px' }}
+  const NavItem = ({ view, icon: Icon, label, superAdminOnly = false }) => {
+    if (superAdminOnly && !isSuperAdmin) return null;
+    const isActive = currentView === view;
+    return (
+      <button
+        className={`ad-sidebar-item ${isActive ? 'active' : ''} ${collapsed ? 'collapsed' : ''}`}
+        onClick={() => onSelectView(view)}
+        title={collapsed ? label : undefined}
       >
-        <ShoppingCart size={22} strokeWidth={2.4} color="#FFFFFF" />
-        <div className="ad-sidebar-brand-info">
-          <span className="ad-sidebar-brand-name">Flatkart</span>
-          <span className="ad-sidebar-brand-badge">
-            {isSuperAdmin ? 'Super Admin' : 'Admin'}
-          </span>
+        <Icon size={17} strokeWidth={2} />
+        {!collapsed && <span className="ad-sidebar-label">{label}</span>}
+        {!collapsed && superAdminOnly && <span className="ad-super-badge">Super</span>}
+      </button>
+    );
+  };
+
+  return (
+    <aside className={`ad-sidebar ${collapsed ? 'ad-sidebar-collapsed' : ''}`}>
+      {/* Brand & Toggle Header Row */}
+      <div className={`ad-sidebar-header-row ${collapsed ? 'collapsed' : ''}`}>
+        <div
+          className="ad-sidebar-brand"
+          onClick={() => onNavigate && onNavigate('home')}
+          title="Return to Flatkart Store"
+          role="button"
+          tabIndex={0}
+        >
+          <ShoppingCart size={22} strokeWidth={2.4} color="#FFFFFF" style={{ flexShrink: 0 }} />
+          {!collapsed && (
+            <div className="ad-sidebar-brand-info">
+              <span className="ad-sidebar-brand-name">Flatkart</span>
+              <span className="ad-sidebar-brand-badge">{isSuperAdmin ? 'Super Admin' : 'Admin'}</span>
+            </div>
+          )}
         </div>
 
+        {/* Toggle Button */}
+        <button
+          className={`ad-sidebar-toggle ${collapsed ? 'collapsed' : 'expanded'}`}
+          onClick={() => setCollapsed(c => !c)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
       </div>
 
-      {/* Navigation Links */}
       <nav className="ad-sidebar-nav">
+        {/* WORKSPACE - FIRST */}
         <div className="ad-sidebar-group">
-          <div className="ad-sidebar-group-title">Store Management</div>
-          <button className={`ad-sidebar-item ${currentView === 'products' ? 'active' : ''}`} onClick={() => onSelectView('products')}>
-            <ShoppingBag size={17} /><span>Manage Products</span>
-          </button>
-          <button className={`ad-sidebar-item ${currentView === 'categories' ? 'active' : ''}`} onClick={() => onSelectView('categories')}>
-            <Tags size={17} /><span>Manage Categories</span>
-          </button>
-          <button className={`ad-sidebar-item ${currentView === 'shipment-options' ? 'active' : ''}`} onClick={() => onSelectView('shipment-options')}>
-            <Truck size={17} /><span>Shipment Options</span>
-          </button>
-        </div>
-        {/* Workspace Section */}
-        <div className="ad-sidebar-group">
-          <div className="ad-sidebar-group-title">Workspace</div>
-
-          <button
-            className={`ad-sidebar-item ${currentView === 'overview' ? 'active' : ''}`}
-            onClick={() => onSelectView('overview')}
-          >
-            <LayoutDashboard size={17} />
-            <span>Overview</span>
-          </button>
-
-          <button
-            className={`ad-sidebar-item ${currentView === 'users' ? 'active' : ''}`}
-            onClick={() => onSelectView('users')}
-          >
-            <Users size={17} />
-            <span>Manage Users</span>
-          </button>
-
-          <button
-            className={`ad-sidebar-item ${currentView === 'departments' ? 'active' : ''}`}
-            onClick={() => onSelectView('departments')}
-          >
-            <Building2 size={17} />
-            <span>Manage Departments</span>
-          </button>
-
-          <button
-            className={`ad-sidebar-item ${currentView === 'handlers' ? 'active' : ''}`}
-            onClick={() => onSelectView('handlers')}
-          >
-            <UserCheck size={17} />
-            <span>Manage Dept. Handlers</span>
-          </button>
-
-          {isSuperAdmin && (
-            <button
-              className={`ad-sidebar-item ${currentView === 'admins' ? 'active' : ''}`}
-              onClick={() => onSelectView('admins')}
-            >
-              <ShieldAlert size={17} />
-              <span>Manage Admins</span>
-            </button>
-          )}
+          {!collapsed && <div className="ad-sidebar-group-title">Workspace</div>}
+          <NavItem view="overview" icon={LayoutDashboard} label="Overview" />
+          <NavItem view="users" icon={Users} label="Manage Users" />
+          <NavItem view="departments" icon={Building2} label="Manage Departments" />
+          <NavItem view="handlers" icon={UserCheck} label="Manage Dept. Handlers" />
+          <NavItem view="admins" icon={ShieldAlert} label="Manage Admins" superAdminOnly />
+          <NavItem view="pipeline" icon={Bot} label="Chatbot & Pipeline" superAdminOnly />
         </div>
 
-        {/* Operations Section */}
+        {/* STORE MANAGEMENT - SECOND */}
         <div className="ad-sidebar-group">
-          <div className="ad-sidebar-group-title">Operations</div>
+          {!collapsed && <div className="ad-sidebar-group-title">Store Management</div>}
+          <NavItem view="store-dashboard" icon={BarChart3} label="Store Dashboard" />
+          <NavItem view="orders" icon={ShoppingBag} label="Orders & Shipments" />
+          <NavItem view="inventory" icon={Package} label="Inventory" />
+          <NavItem view="payments" icon={CreditCard} label="Payment History" />
+          <NavItem view="returns" icon={RotateCcw} label="Returns & Refunds" />
+          <NavItem view="products" icon={ShoppingCart} label="Manage Products" />
+          <NavItem view="categories" icon={Tags} label="Manage Categories" />
+          <NavItem view="shipment-options" icon={Truck} label="Shipment Options" />
+        </div>
 
-          <button
-            className={`ad-sidebar-item ${currentView === 'complaints' ? 'active' : ''}`}
-            onClick={() => onSelectView('complaints')}
-          >
-            <FileText size={17} />
-            <span>Complaints</span>
-          </button>
-
-          <button
-            className={`ad-sidebar-item ${currentView === 'analytics' ? 'active' : ''}`}
-            onClick={() => onSelectView('analytics')}
-          >
-            <GitCompare size={17} />
-            <span>Redirection Analytics</span>
-          </button>
-
-          {isSuperAdmin && (
-            <button
-              className={`ad-sidebar-item ${currentView === 'pipeline' ? 'active' : ''}`}
-              onClick={() => onSelectView('pipeline')}
-            >
-              <Bot size={17} />
-              <span>Chatbot & Pipeline</span>
-              <span className="ad-super-badge">Super Admin</span>
-            </button>
-          )}
+        {/* OPERATIONS - THIRD */}
+        <div className="ad-sidebar-group">
+          {!collapsed && <div className="ad-sidebar-group-title">Operations</div>}
+          <NavItem view="complaints" icon={FileText} label="Complaints" />
+          <NavItem view="analytics" icon={GitCompare} label="Redirection Analytics" />
         </div>
       </nav>
 
-      {/* Bottom Sign Out */}
       <div className="ad-sidebar-footer">
-        <button className="ad-sidebar-signout" onClick={handleSignOut}>
-          <LogOut size={17} />
-          <span>Sign out</span>
+        <button className="ad-sidebar-signout" onClick={handleSignOut} title="Sign out">
+          <LogOut size={17} style={{ flexShrink: 0 }} />
+          {!collapsed && <span>Sign out</span>}
         </button>
       </div>
     </aside>

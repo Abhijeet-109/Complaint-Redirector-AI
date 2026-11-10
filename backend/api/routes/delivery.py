@@ -15,7 +15,8 @@ admin_access = require_role("admin", "super_admin")
 
 
 class ShipmentOptionInput(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
+    id: int | None = None
     pin_code: str = Field(pattern=r"^\d{6}$")
     area: str = Field(min_length=2, max_length=120)
     city: str = Field(min_length=2, max_length=100)
@@ -70,8 +71,10 @@ def update_shipment_option(option_id: int, payload: ShipmentOptionInput,
     row = db.get(ShipmentOption, option_id)
     if row is None:
         raise HTTPException(404, "Shipment option not found")
-    for key, value in payload.model_dump().items():
-        setattr(row, key, value)
+    data = payload.model_dump(exclude={"id"})
+    for key, value in data.items():
+        if hasattr(row, key):
+            setattr(row, key, value)
     try:
         db.commit()
         db.refresh(row)

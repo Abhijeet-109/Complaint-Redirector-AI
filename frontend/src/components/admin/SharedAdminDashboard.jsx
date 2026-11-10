@@ -22,6 +22,11 @@ import { PipelineManagementView } from './pipeline/PipelineManagementView';
 import { ProductManagement } from './ProductManagement';
 import { CategoryManagement } from './CategoryManagement';
 import { ShipmentOptions } from './ShipmentOptions';
+import { StoreDashboard } from './StoreDashboard';
+import { OrderManagement } from './OrderManagement';
+import { InventoryManagement } from './InventoryManagement';
+import { PaymentHistory } from './PaymentHistory';
+import { RefundManagement } from './RefundManagement';
 
 export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
   // Navigation State
@@ -32,6 +37,18 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
       && Date.now() - oauthPendingAt < 10 * 60 * 1000;
     return returningFromDriveOAuth ? 'pipeline' : 'overview';
   });
+  const [focusedPaymentId, setFocusedPaymentId] = useState(null);
+  const [focusedOrderId, setFocusedOrderId] = useState(null);
+
+  const handleNavigateView = (view, targetId = null) => {
+    if (view === 'payments' && targetId) {
+      setFocusedPaymentId(targetId);
+    }
+    if (view === 'orders' && targetId) {
+      setFocusedOrderId(targetId);
+    }
+    setCurrentView(view);
+  };
 
   // Core Data
   const [users, setUsers] = useState([]);
@@ -196,6 +213,11 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
           {currentView === 'products' && <ProductManagement />}
           {currentView === 'categories' && <CategoryManagement />}
           {currentView === 'shipment-options' && <ShipmentOptions />}
+          {currentView === 'store-dashboard' && <StoreDashboard onNavigate={handleNavigateView} />}
+          {currentView === 'orders' && <OrderManagement focusedOrderId={focusedOrderId} onClearFocusedOrder={() => setFocusedOrderId(null)} />}
+          {currentView === 'inventory' && <InventoryManagement />}
+          {currentView === 'payments' && <PaymentHistory focusedPaymentId={focusedPaymentId} onClearFocusedPayment={() => setFocusedPaymentId(null)} />}
+          {currentView === 'returns' && <RefundManagement />}
           {/* ========================================================
               VIEW 1: OVERVIEW
               ======================================================== */}

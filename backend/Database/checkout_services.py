@@ -18,6 +18,7 @@ from backend.Database.models import (
     PaymentAttempt,
     Product,
     ProductVariant,
+    Shipment,
 )
 
 
@@ -397,6 +398,8 @@ def create_cod_order(session: Session, *, user_id: int, idempotency_key: str, ad
             quantity=line.quantity,
             unit_price=price,
         ))
+    shipment = Shipment(order_id=order.id, status="pending")
+    session.add(shipment)
     if checkout_mode == "cart":
         cart.items.clear()
     session.flush()
@@ -484,6 +487,9 @@ def confirm_attempt(session: Session, attempt: PaymentAttempt, payment_id: str):
     order.status = "placed"
     order.paid_at = now
     order.placed_at = now
+    existing_shipment = session.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    if not existing_shipment:
+        session.add(Shipment(order_id=order.id, status="pending"))
     cart = session.scalar(
         select(Cart).where(Cart.user_id == order.user_id, Cart.status == "active").with_for_update()
     ) if order.checkout_mode != "buy_now" else None

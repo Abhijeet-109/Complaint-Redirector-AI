@@ -42,6 +42,7 @@ from backend.api.routes.admin_catalog import router as admin_catalog_router
 from backend.api.routes.commerce import router as commerce_router
 from backend.api.routes.account import router as account_router
 from backend.api.routes.delivery import router as delivery_router
+from backend.api.routes.admin_commerce import router as admin_commerce_router
 from backend.security_config import app_environment, cors_origins
 from sqlalchemy.engine import make_url
 
@@ -121,6 +122,7 @@ app.include_router(admin_catalog_router)
 app.include_router(commerce_router)
 app.include_router(account_router)
 app.include_router(delivery_router)
+app.include_router(admin_commerce_router)
 
 def custom_openapi():
     if app.openapi_schema:
