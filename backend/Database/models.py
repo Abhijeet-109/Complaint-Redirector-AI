@@ -521,10 +521,74 @@ class Shipment(Base):
     order_id = Column(Integer, ForeignKey("commerce_orders.id", ondelete="CASCADE"), nullable=False, unique=True)
     tracking_reference = Column(String(120), nullable=True, index=True)
     status = Column(String(24), nullable=False, default="pending", index=True)
+    carrier = Column(String(120), nullable=True)
+    tracking_url = Column(String(500), nullable=True)
+    estimated_delivery_date = Column(DateTime, nullable=True)
+    notes = Column(String(500), nullable=True)
     shipped_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     order = relationship("CommerceOrder", back_populates="shipment")
+    events = relationship(
+        "ShipmentEvent",
+        back_populates="shipment",
+        cascade="all, delete-orphan",
+        order_by="ShipmentEvent.created_at",
+    )
+
+
+class ShipmentEvent(Base):
+    __tablename__ = "shipment_events"
+
+    id = Column(Integer, primary_key=True)
+    shipment_id = Column(
+        Integer,
+        ForeignKey("shipments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    previous_status = Column(String(32), nullable=True)
+    new_status = Column(String(32), nullable=False)
+    changed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    note = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    shipment = relationship("Shipment", back_populates="events")
+    changed_by = relationship("User", foreign_keys=[changed_by_id])
+
+
+class Refund(Base):
+    __tablename__ = "refunds"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_refunds_amount_positive"),
+        CheckConstraint("currency = 'INR'", name="ck_refunds_currency_inr"),
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'processed', 'failed')",
+            name="ck_refunds_status_valid",
+        ),
+        UniqueConstraint("idempotency_key", name="uq_refunds_idempotency_key"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(Integer, ForeignKey("commerce_orders.id"), nullable=False, index=True)
+    payment_attempt_id = Column(Integer, ForeignKey("payment_attempts.id"), nullable=True, index=True)
+    return_request_id = Column(Integer, ForeignKey("return_requests.id"), nullable=True, index=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(3), nullable=False, default="INR", server_default="INR")
+    reason = Column(String(500), nullable=False)
+    # refund_method: "razorpay", "manual_cod", "manual_bank"
+    refund_method = Column(String(40), nullable=False)
+    provider_refund_id = Column(String(120), nullable=True)
+    external_reference = Column(String(120), nullable=True)
+    status = Column(String(24), nullable=False, default="pending", index=True)
+    idempotency_key = Column(String(120), nullable=False)
+    processed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    failure_reason = Column(String(500), nullable=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    order = relationship("CommerceOrder")
+    payment_attempt = relationship("PaymentAttempt")
+    return_request = relationship("ReturnRequest")
+    processed_by = relationship("User", foreign_keys=[processed_by_id])
 
 
 class ReturnRequest(Base):

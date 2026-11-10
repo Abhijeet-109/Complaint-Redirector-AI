@@ -22,6 +22,11 @@ import { PipelineManagementView } from './pipeline/PipelineManagementView';
 import { ProductManagement } from './ProductManagement';
 import { CategoryManagement } from './CategoryManagement';
 import { ShipmentOptions } from './ShipmentOptions';
+import { StoreDashboard } from './StoreDashboard';
+import { OrderManagement } from './OrderManagement';
+import { InventoryManagement } from './InventoryManagement';
+import { PaymentHistory } from './PaymentHistory';
+import { RefundManagement } from './RefundManagement';
 
 export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
   // Navigation State
@@ -30,7 +35,7 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
     const returningFromDriveOAuth = isSuperAdmin
       && oauthPendingAt > 0
       && Date.now() - oauthPendingAt < 10 * 60 * 1000;
-    return returningFromDriveOAuth ? 'pipeline' : 'overview';
+    return returningFromDriveOAuth ? 'pipeline' : 'store-dashboard';
   });
 
   // Core Data
@@ -196,6 +201,11 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
           {currentView === 'products' && <ProductManagement />}
           {currentView === 'categories' && <CategoryManagement />}
           {currentView === 'shipment-options' && <ShipmentOptions />}
+          {currentView === 'store-dashboard' && <StoreDashboard onNavigate={setCurrentView} />}
+          {currentView === 'orders' && <OrderManagement />}
+          {currentView === 'inventory' && <InventoryManagement />}
+          {currentView === 'payments' && <PaymentHistory />}
+          {currentView === 'returns' && <RefundManagement />}
           {/* ========================================================
               VIEW 1: OVERVIEW
               ======================================================== */}

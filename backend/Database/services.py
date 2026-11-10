@@ -16,6 +16,7 @@ from backend.Database.models import (
     ProductVariant,
     ReturnRequest,
     Shipment,
+    ShipmentEvent,
 )
 
 
@@ -292,7 +293,7 @@ def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[Comm
             .selectinload(CommerceOrderItem.variant)
             .selectinload(ProductVariant.product)
             .selectinload(Product.images),
-            selectinload(CommerceOrder.shipment),
+            selectinload(CommerceOrder.shipment).selectinload(Shipment.events),
         )
         .where(CommerceOrder.user_id == user_id)
         .order_by(CommerceOrder.created_at.desc())
@@ -309,7 +310,7 @@ def get_order(session: Session, user_id: int, order_id: int) -> CommerceOrder | 
             .selectinload(CommerceOrderItem.variant)
             .selectinload(ProductVariant.product)
             .selectinload(Product.images),
-            selectinload(CommerceOrder.shipment),
+            selectinload(CommerceOrder.shipment).selectinload(Shipment.events),
         )
         .where(CommerceOrder.id == order_id, CommerceOrder.user_id == user_id)
     )

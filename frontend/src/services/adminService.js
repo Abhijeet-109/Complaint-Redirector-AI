@@ -1,10 +1,13 @@
 import { apiRequest } from './api';
 
 export const adminService = {
+  // Delivery & Shipment Options
   listShipmentOptions: (search = '') => apiRequest(`/api/admin/shipment-options?search=${encodeURIComponent(search)}`),
   createShipmentOption: (data) => apiRequest('/api/admin/shipment-options', { method: 'POST', body: JSON.stringify(data) }),
   updateShipmentOption: (id, data) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deactivateShipmentOption: (id) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'DELETE' }),
+  activateShipmentOption: (id, data) => apiRequest(`/api/admin/shipment-options/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, is_active: true }) }),
+
   // Users Management
   async getUsers() {
     return await apiRequest('/api/admin/users', { method: 'GET' });
@@ -76,6 +79,91 @@ export const adminService = {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
     return await apiRequest(`/chatbot/performance?${params}`, { method: 'GET' });
   },
+
+  // -------------------------------------------------------------------------
+  // Commerce & Store Administration APIs
+  // -------------------------------------------------------------------------
+
+  // Store Dashboard
+  getStoreDashboardKpis: () => apiRequest('/api/admin/commerce/dashboard/kpis'),
+  getRevenueChart: (period = 'month') => apiRequest(`/api/admin/commerce/dashboard/revenue-chart?period=${period}`),
+  getHotProducts: (period = 'week', limit = 5) => apiRequest(`/api/admin/commerce/dashboard/hot-products?period=${period}&limit=${limit}`),
+
+  // Orders Management
+  getAdminOrders: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
+    });
+    const qs = q.toString();
+    return apiRequest(`/api/admin/commerce/orders${qs ? '?' + qs : ''}`);
+  },
+  getAdminOrderDetail: (orderId) => apiRequest(`/api/admin/commerce/orders/${orderId}`),
+  updateOrderStatus: (orderId, status) =>
+    apiRequest(`/api/admin/commerce/orders/${orderId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+  updateShipment: (orderId, data) =>
+    apiRequest(`/api/admin/commerce/orders/${orderId}/shipment`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  getShipmentEvents: (orderId) => apiRequest(`/api/admin/commerce/orders/${orderId}/shipment/events`),
+
+  // Inventory Management
+  getInventory: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
+    });
+    const qs = q.toString();
+    return apiRequest(`/api/admin/commerce/inventory${qs ? '?' + qs : ''}`);
+  },
+  getCategoryStock: () => apiRequest('/api/admin/commerce/inventory/categories'),
+
+  // Payments History & Export
+  getPayments: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
+    });
+    const qs = q.toString();
+    return apiRequest(`/api/admin/commerce/payments${qs ? '?' + qs : ''}`);
+  },
+
+  // Returns & Refunds
+  getReturnRequests: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
+    });
+    const qs = q.toString();
+    return apiRequest(`/api/admin/commerce/returns${qs ? '?' + qs : ''}`);
+  },
+  updateReturnStatus: (returnId, status, restock = false) =>
+    apiRequest(`/api/admin/commerce/returns/${returnId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, restock }),
+    }),
+  getRefunds: (params = {}) => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
+    });
+    const qs = q.toString();
+    return apiRequest(`/api/admin/commerce/refunds${qs ? '?' + qs : ''}`);
+  },
+  processRazorpayRefund: (data) =>
+    apiRequest('/api/admin/commerce/refunds/razorpay', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  recordCODRefund: (data) =>
+    apiRequest('/api/admin/commerce/refunds/cod-manual', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };
 
 export default adminService;

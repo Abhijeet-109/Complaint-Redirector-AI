@@ -192,9 +192,28 @@ def set_payment_preference(payload: PaymentPreference, db: Session = Depends(get
 def _order_payload(order):
     result = serialize_order(order)
     result["created_at"] = order.created_at.isoformat() if order.created_at else None
-    result["shipment"] = ({"status": order.shipment.status,
-                           "tracking_reference": order.shipment.tracking_reference}
-                          if order.shipment else None)
+    if order.shipment:
+        result["shipment"] = {
+            "status": order.shipment.status,
+            "carrier": order.shipment.carrier,
+            "tracking_reference": order.shipment.tracking_reference,
+            "tracking_url": order.shipment.tracking_url,
+            "estimated_delivery_date": order.shipment.estimated_delivery_date.isoformat() if order.shipment.estimated_delivery_date else None,
+            "shipped_at": order.shipment.shipped_at.isoformat() if order.shipment.shipped_at else None,
+            "delivered_at": order.shipment.delivered_at.isoformat() if order.shipment.delivered_at else None,
+            "events": [
+                {
+                    "id": event.id,
+                    "previous_status": event.previous_status,
+                    "new_status": event.new_status,
+                    "note": event.note,
+                    "created_at": event.created_at.isoformat() if event.created_at else None,
+                }
+                for event in (order.shipment.events or [])
+            ],
+        }
+    else:
+        result["shipment"] = None
     for output, item in zip(result["items"], order.items):
         images = item.variant.product.images
         chosen = next((image for image in images if image.variant_id == item.variant_id), None)
