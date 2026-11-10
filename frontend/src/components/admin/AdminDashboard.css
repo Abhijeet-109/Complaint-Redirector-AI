@@ -1623,13 +1623,16 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  justify-content: space-between;
+  margin-bottom: 10px;
 }
 .sd-fulfilment-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 0;
+  flex: 1;
+  min-height: 36px;
+  padding: 6px 0;
   border-bottom: 1px solid #F5F0E8;
 }
 .sd-fulfilment-row:last-child {

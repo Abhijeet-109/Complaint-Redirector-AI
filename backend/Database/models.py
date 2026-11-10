@@ -592,10 +592,18 @@ class Refund(Base):
     processed_by = relationship("User", foreign_keys=[processed_by_id])
 
 
+
 class ReturnRequest(Base):
     __tablename__ = "return_requests"
     __table_args__ = (
-        CheckConstraint("quantity > 0", name="ck_return_requests_quantity_positive"),
+        CheckConstraint(
+            "quantity > 0",
+            name="ck_return_requests_quantity_positive",
+        ),
+        CheckConstraint(
+            "resolution_type IS NULL OR resolution_type IN ('refund', 'replacement')",
+            name="ck_return_requests_resolution_type",
+        ),
         ForeignKeyConstraint(
             ["order_item_id", "order_id"],
             ["commerce_order_items.id", "commerce_order_items.order_id"],
@@ -604,15 +612,307 @@ class ReturnRequest(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    order_id = Column(Integer, ForeignKey("commerce_orders.id"), nullable=False, index=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("commerce_orders.id"),
+        nullable=False,
+        index=True,
+    )
     order_item_id = Column(Integer, nullable=False, index=True)
     quantity = Column(Integer, nullable=False)
-    reason = Column(String(500), nullable=False)
-    status = Column(String(24), nullable=False, default="requested", index=True)
-    requested_at = Column(DateTime, nullable=False, server_default=func.now())
-    order = relationship("CommerceOrder")
-    order_item = relationship("CommerceOrderItem", overlaps="order")
 
+    # Legacy field retained for backward compatibility.
+    reason = Column(String(500), nullable=False)
+    status = Column(
+        String(24),
+        nullable=False,
+        default="requested",
+        index=True,
+    )
+
+    # New structured claim fields.
+    resolution_type = Column(String(20), nullable=True)
+    reason_code = Column(String(40), nullable=True)
+    description = Column(Text, nullable=True)
+
+    # Separate workflow status; nullable for legacy records.
+    workflow_status = Column(String(40), nullable=True, index=True)
+
+    assigned_to_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+    decision_by_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+    decision_note = Column(Text, nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+
+    requested_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    order = relationship("CommerceOrder")
+    order_item = relationship(
+        "CommerceOrderItem",
+        overlaps="order",
+    )
+    assigned_to = relationship(
+        "User",
+        foreign_keys=[assigned_to_id],
+    )
+    decision_by = relationship(
+        "User",
+        foreign_keys=[decision_by_id],
+    )
+
+
+class ReturnRequestEvent(Base):
+    """Immutable audit event for a return/replacement claim."""
+
+    __tablename__ = "return_request_events"
+    __table_args__ = (
+        Index(
+            "ix_return_request_events_request_created",
+            "return_request_id",
+            "created_at",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    return_request_id = Column(
+        Integer,
+        ForeignKey("return_requests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    event_type = Column(String(60), nullable=False)
+    previous_status = Column(String(40), nullable=True)
+    new_status = Column(String(40), nullable=True)
+
+    actor_user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+
+    note = Column(Text, nullable=True)
+    event_data = Column(JSON, nullable=False, default=dict)
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    return_request = relationship("ReturnRequest")
+    actor = relationship("User")
+
+
+class ReturnEvidence(Base):
+    """Private customer/handler evidence attached to a return claim."""
+
+    __tablename__ = "return_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "size_bytes > 0",
+            name="ck_return_evidence_size_positive",
+        ),
+        UniqueConstraint(
+            "storage_key",
+            name="uq_return_evidence_storage_key",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    return_request_id = Column(
+        Integer,
+        ForeignKey("return_requests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    storage_provider = Column(String(40), nullable=False)
+    storage_key = Column(String(500), nullable=False)
+    provider_file_id = Column(String(120), nullable=True)
+
+    original_filename = Column(String(255), nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    sha256 = Column(String(64), nullable=True)
+
+    uploaded_by_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    is_active = Column(Boolean, nullable=False, default=True)
+    uploaded_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    return_request = relationship("ReturnRequest")
+    uploaded_by = relationship("User")
+
+
+class ReturnHandoff(Base):
+    """Durable transfer of return work between departments."""
+
+    __tablename__ = "return_handoffs"
+    __table_args__ = (
+        CheckConstraint(
+            "handoff_type IN "
+            "('refund_pickup', 'refund_processing', 'replacement_fulfillment')",
+            name="ck_return_handoffs_type_valid",
+        ),
+        CheckConstraint(
+            "status IN "
+            "('pending', 'accepted', 'in_progress', 'completed', 'failed', 'cancelled')",
+            name="ck_return_handoffs_status_valid",
+        ),
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_return_handoffs_idempotency_key",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    return_request_id = Column(
+        Integer,
+        ForeignKey("return_requests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    source_department_id = Column(
+        Integer,
+        ForeignKey("departments.id"),
+        nullable=False,
+    )
+    destination_department_id = Column(
+        Integer,
+        ForeignKey("departments.id"),
+        nullable=False,
+    )
+
+    handoff_type = Column(String(40), nullable=False)
+    status = Column(
+        String(24),
+        nullable=False,
+        default="pending",
+        index=True,
+    )
+
+    idempotency_key = Column(String(120), nullable=False)
+    payload = Column(JSON, nullable=False, default=dict)
+    failure_reason = Column(Text, nullable=True)
+
+    created_by_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+    accepted_by_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    completed_at = Column(DateTime, nullable=True)
+
+    return_request = relationship("ReturnRequest")
+    source_department = relationship(
+        "Department",
+        foreign_keys=[source_department_id],
+    )
+    destination_department = relationship(
+        "Department",
+        foreign_keys=[destination_department_id],
+    )
+    created_by = relationship(
+        "User",
+        foreign_keys=[created_by_id],
+    )
+    accepted_by = relationship(
+        "User",
+        foreign_keys=[accepted_by_id],
+    )
+
+
+class ReturnInspection(Base):
+    """Records evidence review and physical return inspection outcomes."""
+
+    __tablename__ = "return_inspections"
+    __table_args__ = (
+        CheckConstraint(
+            "inspection_type IN ('evidence_review', 'physical_pickup')",
+            name="ck_return_inspections_type_valid",
+        ),
+        CheckConstraint(
+            "outcome IN ('passed', 'failed', 'needs_more_info')",
+            name="ck_return_inspections_outcome_valid",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    return_request_id = Column(
+        Integer,
+        ForeignKey("return_requests.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    handoff_id = Column(
+        Integer,
+        ForeignKey("return_handoffs.id"),
+        nullable=True,
+        index=True,
+    )
+
+    inspection_type = Column(String(30), nullable=False)
+    outcome = Column(String(24), nullable=False)
+    condition_code = Column(String(40), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    inspected_by_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+    inspected_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    return_request = relationship("ReturnRequest")
+    handoff = relationship("ReturnHandoff")
+    inspected_by = relationship("User")
 
 class UserAddress(Base):
     __tablename__ = "user_addresses"
