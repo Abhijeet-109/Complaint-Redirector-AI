@@ -769,7 +769,7 @@ class ReturnEvidence(Base):
     return_request = relationship("ReturnRequest")
     uploaded_by = relationship("User")
 
-
+# Creating Human in the loop with new branch 
 class ReturnHandoff(Base):
     """Durable transfer of return work between departments."""
 
