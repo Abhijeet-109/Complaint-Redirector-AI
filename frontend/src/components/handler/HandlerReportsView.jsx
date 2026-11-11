@@ -68,23 +68,9 @@ export function HandlerReportsView({
   const returnsPct = totalRequests > 0 ? Math.round((returnsCount / totalRequests) * 100) : 0;
   const replacementsPct = totalRequests > 0 ? Math.round((replacementsCount / totalRequests) * 100) : 0;
 
-  // Trend points
+  // Trend points — real backend data only, no fabricated fallback
   const rawTrend = reportsData?.trend || [];
-  const trendPoints = rawTrend.length > 0
-    ? rawTrend
-    : [
-        { label: 'Day 1', val: 0 },
-        { label: 'Day 3', val: 0 },
-        { label: 'Day 6', val: 0 },
-        { label: 'Day 9', val: 0 },
-        { label: 'Day 12', val: 0 },
-        { label: 'Day 15', val: 0 },
-        { label: 'Day 18', val: 0 },
-        { label: 'Day 21', val: 0 },
-        { label: 'Day 24', val: 0 },
-        { label: 'Day 27', val: 0 },
-        { label: 'Day 30', val: 0 },
-      ];
+  const trendPoints = rawTrend;
 
   const maxVal = Math.max(5, ...trendPoints.map((p) => p.val));
   const svgWidth = 520;
@@ -241,68 +227,72 @@ export function HandlerReportsView({
             </div>
           </div>
           <div className="hd-trend-chart-container">
-            <svg
-              viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-              className="hd-trend-svg"
-              preserveAspectRatio="none"
-            >
-              <defs>
-                <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0F3024" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#0F3024" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
+            {trendPoints.length === 0 ? (
+              <div className="hd-chart-empty-state">No trend data available for the selected period.</div>
+            ) : (
+              <svg
+                viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                className="hd-trend-svg"
+                preserveAspectRatio="none"
+              >
+                <defs>
+                  <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#0F3024" stopOpacity="0.25" />
+                    <stop offset="100%" stopColor="#0F3024" stopOpacity="0.0" />
+                  </linearGradient>
+                </defs>
 
-              {/* Grid Lines */}
-              <line x1="30" y1="20" x2={svgWidth - 20} y2="20" stroke="#E5E1D8" strokeDasharray="3 3" />
-              <line x1="30" y1={(svgHeight - 10) / 2} x2={svgWidth - 20} y2={(svgHeight - 10) / 2} stroke="#E5E1D8" strokeDasharray="3 3" />
-              <line x1="30" y1={svgHeight - 30} x2={svgWidth - 20} y2={svgHeight - 30} stroke="#E5E1D8" />
+                {/* Grid Lines */}
+                <line x1="30" y1="20" x2={svgWidth - 20} y2="20" stroke="#E5E1D8" strokeDasharray="3 3" />
+                <line x1="30" y1={(svgHeight - 10) / 2} x2={svgWidth - 20} y2={(svgHeight - 10) / 2} stroke="#E5E1D8" strokeDasharray="3 3" />
+                <line x1="30" y1={svgHeight - 30} x2={svgWidth - 20} y2={svgHeight - 30} stroke="#E5E1D8" />
 
-              {/* Y Axis labels */}
-              <text x="24" y="24" textAnchor="end" className="hd-chart-axis-text">{maxVal}</text>
-              <text x="24" y={(svgHeight - 10) / 2 + 4} textAnchor="end" className="hd-chart-axis-text">{Math.round(maxVal / 2)}</text>
-              <text x="24" y={svgHeight - 27} textAnchor="end" className="hd-chart-axis-text">0</text>
+                {/* Y Axis labels */}
+                <text x="24" y="24" textAnchor="end" className="hd-chart-axis-text">{maxVal}</text>
+                <text x="24" y={(svgHeight - 10) / 2 + 4} textAnchor="end" className="hd-chart-axis-text">{Math.round(maxVal / 2)}</text>
+                <text x="24" y={svgHeight - 27} textAnchor="end" className="hd-chart-axis-text">0</text>
 
-              {/* Area & Line */}
-              {areaD && (
-                <path d={areaD} fill="url(#trendGradient)" />
-              )}
-              {pathD && (
-                <path
-                  d={pathD}
-                  fill="none"
-                  stroke="#0F3024"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                />
-              )}
+                {/* Area & Line */}
+                {areaD && (
+                  <path d={areaD} fill="url(#trendGradient)" />
+                )}
+                {pathD && (
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke="#0F3024"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                  />
+                )}
 
-              {/* Data points */}
-              {coords.map((pt, i) => (
-                <circle
-                  key={i}
-                  cx={pt.x}
-                  cy={pt.y}
-                  r={totalRequests > 0 ? 3.5 : 2}
-                  fill="#0F3024"
-                  stroke="#FFFFFF"
-                  strokeWidth="1.5"
-                />
-              ))}
+                {/* Data points */}
+                {coords.map((pt, i) => (
+                  <circle
+                    key={i}
+                    cx={pt.x}
+                    cy={pt.y}
+                    r={totalRequests > 0 ? 3.5 : 2}
+                    fill="#0F3024"
+                    stroke="#FFFFFF"
+                    strokeWidth="1.5"
+                  />
+                ))}
 
-              {/* X Axis Labels */}
-              {coords.map((pt, i) => (
-                <text
-                  key={i}
-                  x={pt.x}
-                  y={svgHeight - 10}
-                  textAnchor="middle"
-                  className="hd-chart-axis-text"
-                >
-                  {pt.label}
-                </text>
-              ))}
-            </svg>
+                {/* X Axis Labels */}
+                {coords.map((pt, i) => (
+                  <text
+                    key={i}
+                    x={pt.x}
+                    y={svgHeight - 10}
+                    textAnchor="middle"
+                    className="hd-chart-axis-text"
+                  >
+                    {pt.label}
+                  </text>
+                ))}
+              </svg>
+            )}
           </div>
         </div>
 

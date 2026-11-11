@@ -550,21 +550,6 @@ def get_admin_complaints(
     return _handler_complaint_details(db, complaints)
 
 
-@router.get(
-    "/handler/complaints/{complaint_id}",
-    response_model=HandlerComplaintResponse,
-)
-def get_handler_complaint_by_id(
-    complaint_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_role("department_handler", "admin", "super_admin")
-    ),
-):
-    complaint = _handler_complaint(db, complaint_id, current_user)
-    return _handler_complaint_details(db, [complaint])[0]
-
-
 @router.get("/complaints/{complaint_id}/department-email")
 def get_complaint_department_email(
     complaint_id: int,

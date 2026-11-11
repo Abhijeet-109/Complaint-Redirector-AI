@@ -119,7 +119,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     return complaints.slice(0, 3).map((c) => ({
       id: c.complaint_id || `CMP-${c.id}`,
       rawId: c.id,
-      orderId: c.order_number || (c.order_id ? `FK-${c.order_id}` : '—'),
+      orderId: c.order_number || '—',
       status: c.status || 'Pending',
       date: c.create_at ? new Date(c.create_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—',
     }));
@@ -131,8 +131,8 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     return source.slice(0, 5).map((r) => ({
       id: r.id ? `TRN-${r.id}` : (r.claim_id ? `TRN-${r.claim_id}` : '—'),
       rawId: r.id || r.claim_id,
-      orderId: r.order_number || (r.order_id ? `FK-${r.order_id}` : '—'),
-      customer: r.customer_name || 'Customer',
+      orderId: r.order_number || '—',
+      customer: r.customer_name || '—',
       type: (r.resolution_type || '').toLowerCase() === 'replacement' ? 'Replacement' : 'Refund',
       status: r.workflow_status || 'Pending Review',
       updated: r.requested_at ? new Date(r.requested_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—',

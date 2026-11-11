@@ -213,8 +213,8 @@ export function HandlerTrackingView({
                   const reqId = h.request_id
                     ? (String(h.request_id).startsWith('TRN-') ? h.request_id : `TRN-${h.request_id}`)
                     : `TRN-${rawId}`;
-                  const orderId = h.order_number || (h.order_id ? `FK-${h.order_id}` : '—');
-                  const customer = h.customer_name || 'Customer';
+                  const orderId = h.order_number || '—';
+                  const customer = h.customer_name || '—';
                   const currentOwner = h.current_owner || 'Order & Delivery';
                   const handoffFrom = h.handoff_from || 'Returns & Replacement';
                   const lastUpdated = h.last_updated

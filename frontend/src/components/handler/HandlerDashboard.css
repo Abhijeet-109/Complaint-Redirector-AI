@@ -398,7 +398,7 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 20px 28px 36px;
+  padding: 16px 24px 32px;
   max-width: 1600px;
   width: 100%;
   box-sizing: border-box;
@@ -407,7 +407,7 @@
 .hd-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 /* Page Header */
@@ -568,6 +568,7 @@
   display: grid;
   grid-template-columns: 290px 1fr;
   gap: 16px;
+  align-items: start;
 }
 
 .hd-overview-dominant-card {
@@ -689,7 +690,7 @@
 .hd-overview-middle-grid {
   display: grid;
   grid-template-columns: 1fr 340px;
-  gap: 16px;
+  gap: 12px;
 }
 
 .hd-activity-metric {
@@ -749,8 +750,8 @@
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  padding: 0 10px;
+  gap: 8px;
+  padding: 0 4px;
 }
 
 .hd-activity-bar-col {
@@ -794,7 +795,7 @@
 .hd-type-card-body {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
   margin-top: 10px;
 }
 
@@ -835,12 +836,14 @@
   flex-direction: column;
   gap: 12px;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .hd-legend-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-size: 13px;
 }
 
@@ -855,18 +858,22 @@
   color: var(--hd-text-primary);
   font-weight: 500;
   flex: 1;
+  font-size: 12px;
 }
 
 .hd-legend-val {
   color: var(--hd-text-dark);
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 12px;
 }
 
 /* Bottom Grid */
 .hd-overview-bottom-grid {
   display: grid;
   grid-template-columns: 1fr 340px;
-  gap: 16px;
+  gap: 12px;
 }
 
 .hd-complaints-list {
@@ -1132,7 +1139,7 @@
 .hd-cell-subject {
   font-weight: 500;
   color: var(--hd-text-primary);
-  max-width: 200px;
+  max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1347,7 +1354,7 @@
 .hd-reports-bottom-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 12px;
 }
 
 .hd-type-progress-body {
@@ -1598,7 +1605,7 @@
 
 .hd-trend-chart-container {
   width: 100%;
-  height: 180px;
+  height: 150px;
   margin-top: 10px;
 }
 
@@ -1612,8 +1619,8 @@
 .hd-status-donut-container {
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  gap: 20px;
+  justify-content: flex-start;
+  gap: 12px;
   margin-top: 14px;
 }
 
@@ -2385,7 +2392,10 @@
 .hd-status-legend {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .hd-legend-dot {
@@ -2397,14 +2407,15 @@
 }
 
 .hd-legend-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--hd-text-primary);
   flex: 1;
+  min-width: 0;
 }
 
 .hd-legend-count {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--hd-text-dark);
   white-space: nowrap;

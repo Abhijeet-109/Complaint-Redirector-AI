@@ -204,39 +204,45 @@ export function HandlerReviewQueueView({
       {/* Table Container */}
       <div className="hd-card hd-table-card">
         <div className="hd-table-wrapper">
-          {filteredClaims.length === 0 ? (
-            <div className="hd-empty-state">
-              No review queue items match your filter criteria.
-            </div>
-          ) : (
-            <table className="hd-table">
-              <thead>
+          <table className="hd-table">
+            <thead>
+              <tr>
+                <th>REQUEST ID</th>
+                <th>ORDER ID</th>
+                <th>CUSTOMER</th>
+                <th>PRODUCT</th>
+                <th>TYPE</th>
+                <th>STATUS</th>
+                <th>
+                  <div className="hd-th-sortable">
+                    <span>SUBMITTED ON</span>
+                    <ArrowUpDown size={13} />
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
                 <tr>
-                  <th>REQUEST ID</th>
-                  <th>ORDER ID</th>
-                  <th>CUSTOMER</th>
-                  <th>PRODUCT</th>
-                  <th>TYPE</th>
-                  <th>STATUS</th>
-                  <th>
-                    <div className="hd-th-sortable">
-                      <span>SUBMITTED ON</span>
-                      <ArrowUpDown size={13} />
-                    </div>
-                  </th>
+                  <td colSpan={7} className="hd-table-empty">Loading review queue...</td>
                 </tr>
-              </thead>
-              <tbody>
-                {displayedClaims.map((claim) => (
+              ) : filteredClaims.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="hd-table-empty">
+                    No review queue items match your filter criteria.
+                  </td>
+                </tr>
+              ) : (
+                displayedClaims.map((claim) => (
                   <tr
                     key={claim.id}
                     className="hd-row-clickable"
                     onClick={() => onNavigate && onNavigate('handler-dashboard', `/handler/requests/${claim.id}`)}
                   >
-                    <td className="hd-cell-id">TRN-{1000 + claim.id}</td>
-                    <td className="hd-cell-subtle">{claim.order_number || `ORD-${claim.order_id}`}</td>
-                    <td className="hd-cell-bold">{claim.customer_name || 'Customer'}</td>
-                    <td className="hd-cell-bold">{claim.product_name || 'Product Item'}</td>
+                    <td className="hd-cell-id">TRN-{claim.id}</td>
+                    <td className="hd-cell-subtle">{claim.order_number || '—'}</td>
+                    <td className="hd-cell-bold">{claim.customer_name || '—'}</td>
+                    <td className="hd-cell-bold">{claim.product_name || '—'}</td>
                     <td className="hd-cell-subtle">
                       {claim.resolution_type === 'replacement' ? 'Replacement' : 'Refund'}
                     </td>
@@ -255,10 +261,10 @@ export function HandlerReviewQueueView({
                         : '—'}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* Server / Component Pagination with Rows-Per-Page */}

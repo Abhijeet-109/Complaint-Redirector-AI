@@ -180,14 +180,14 @@ export function HandlerComplaintsView({
           <table className="hd-table">
             <thead>
               <tr>
-                <th style={{ width: '120px' }}>COMPLAINT ID</th>
-                <th style={{ width: '120px' }}>REQUEST ID</th>
-                <th style={{ width: '140px' }}>ORDER ID</th>
-                <th style={{ width: '130px' }}>CUSTOMER</th>
+                <th style={{ width: '110px' }}>COMPLAINT ID</th>
+                <th style={{ width: '110px' }}>REQUEST ID</th>
+                <th style={{ width: '120px' }}>ORDER ID</th>
+                <th style={{ width: '120px' }}>CUSTOMER</th>
                 <th>SUBJECT</th>
-                <th style={{ width: '130px' }}>STATUS</th>
-                <th style={{ width: '170px' }}>RAISED ON</th>
-                <th style={{ width: '80px', textAlign: 'right' }}>ACTIONS</th>
+                <th style={{ width: '120px' }}>STATUS</th>
+                <th style={{ width: '160px' }}>RAISED ON</th>
+                <th style={{ width: '70px', textAlign: 'right' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -208,8 +208,8 @@ export function HandlerComplaintsView({
                   const cmpId = c.id || c.complaint_id;
                   const displayId = `CMP-${cmpId}`;
                   const reqId = c.request_id || c.claim_id ? `TRN-${c.request_id || c.claim_id}` : '—';
-                  const orderId = c.order_number || (c.order_id ? `FK-${c.order_id}` : '—');
-                  const customer = c.user_name || c.customer_name || 'Customer';
+                  const orderId = c.order_number || '—';
+                  const customer = c.user_name || c.customer_name || '—';
                   const subject = c.subject || c.complaint_text || 'Customer complaint';
                   const raisedOn = c.create_at
                     ? new Date(c.create_at).toLocaleString('en-US', {

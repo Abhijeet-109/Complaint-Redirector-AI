@@ -117,11 +117,14 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
       <div className="hd-detail-title-card">
         <div>
           <div className="hd-detail-id-row">
-            <h2 className="hd-detail-id">Handoff #{handoff.id} ({handoff.request_id})</h2>
+            <h2 className="hd-detail-id">
+              Handoff #{handoff.id}
+              {handoff.request_id != null ? ` (${String(handoff.request_id).startsWith('TRN-') ? handoff.request_id : `TRN-${handoff.request_id}`})` : ''}
+            </h2>
             <HandlerStatusBadge status={handoff.status} />
           </div>
-          <span className="hd-detail-meta">
-            Associated with {handoff.order_number} • Last updated{' '}
+            <span className="hd-detail-meta">
+              Associated with {handoff.order_number || '—'} • Last updated{' '}
             {handoff.last_updated
               ? new Date(handoff.last_updated).toLocaleString('en-US', {
                   month: 'short',
@@ -157,7 +160,7 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
               </div>
               <div className="hd-info-field">
                 <span className="hd-info-label">Customer</span>
-                <span className="hd-info-value">{handoff.customer_name}</span>
+                <span className="hd-info-value">{handoff.customer_name || '—'}</span>
               </div>
             </div>
           </div>

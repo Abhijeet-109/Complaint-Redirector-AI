@@ -37,15 +37,8 @@ export function HandlerOverviewView({
   const returnsPct = totalRequests > 0 ? Math.round((returnsCount / totalRequests) * 100) : 0;
   const replacementsPct = totalRequests > 0 ? Math.max(0, 100 - returnsPct) : 0;
 
-  // Real activity bars from backend
-  const activityData = stats?.activity && stats.activity.length > 0 ? stats.activity : [
-    { label: 'Jun', value: 0, height_pct: 0 },
-    { label: 'Jul', value: 0, height_pct: 0 },
-    { label: 'Aug', value: 0, height_pct: 0 },
-    { label: 'Sep', value: 0, height_pct: 0 },
-    { label: 'Oct', value: 0, height_pct: 0 },
-    { label: 'Nov', value: totalRequests, height_pct: totalRequests > 0 ? 80 : 0, is_current: true },
-  ];
+  // Real activity bars from backend only — no fabricated fallback
+  const activityData = stats?.activity || [];
 
   const handleTimeframeClick = (tf) => {
     setActivityTimeframe(tf);
@@ -215,20 +208,24 @@ export function HandlerOverviewView({
           </div>
 
           <div className="hd-activity-chart-container">
-            <div className="hd-activity-bars">
-              {activityData.map((m) => (
-                <div key={m.label} className="hd-activity-bar-col">
-                  <div className="hd-activity-bar-track">
-                    <div
-                      className={`hd-activity-bar-fill ${m.is_current ? 'current' : ''}`}
-                      style={{ height: `${m.height_pct || (m.value > 0 ? 30 : 4)}%` }}
-                      title={`${m.label}: ${m.value} requests`}
-                    />
+            {activityData.length === 0 ? (
+              <div className="hd-chart-empty-state">No activity data available for the selected period.</div>
+            ) : (
+              <div className="hd-activity-bars">
+                {activityData.map((m) => (
+                  <div key={m.label} className="hd-activity-bar-col">
+                    <div className="hd-activity-bar-track">
+                      <div
+                        className={`hd-activity-bar-fill ${m.is_current ? 'current' : ''}`}
+                        style={{ height: `${m.height_pct ?? 0}%` }}
+                        title={`${m.label}: ${m.value} requests`}
+                      />
+                    </div>
+                    <span className="hd-activity-bar-label">{m.label}</span>
                   </div>
-                  <span className="hd-activity-bar-label">{m.label}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

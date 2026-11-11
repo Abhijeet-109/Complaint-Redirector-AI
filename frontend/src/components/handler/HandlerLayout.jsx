@@ -7,7 +7,7 @@ export function HandlerLayout({
   children,
   currentPath = '/handler/dashboard',
   onNavigate,
-  queueCount = 12,
+  queueCount = 0,
   departmentName = 'Returns & Replacement',
 }) {
   const [collapsed, setCollapsed] = useState(false);

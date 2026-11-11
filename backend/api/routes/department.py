@@ -262,10 +262,10 @@ def list_tracking_handoffs_for_handler(
         customer = order.user if order else None
         items.append({
             "id": h.id,
-            "request_id": f"TRN-{1000 + (req.id if req else h.id)}",
+            "request_id": req.id if req else None,
             "claim_id": req.id if req else None,
-            "order_number": order.order_number if order else f"FK-ORD-{h.id}",
-            "customer_name": customer.name if customer else "Customer",
+            "order_number": order.order_number if order else None,
+            "customer_name": customer.name if customer else None,
             "current_owner": h.destination_department.name if h.destination_department else "Pending",
             "handoff_from": h.source_department.name if h.source_department else "Returns & Replacement",
             "status": h.status,
@@ -313,10 +313,10 @@ def get_tracking_handoff_details(
 
     return {
         "id": h.id,
-        "request_id": f"TRN-{1000 + (req.id if req else h.id)}",
+        "request_id": req.id if req else None,
         "claim_id": req.id if req else None,
-        "order_number": order.order_number if order else f"FK-ORD-{h.id}",
-        "customer_name": customer.name if customer else "Customer",
+        "order_number": order.order_number if order else None,
+        "customer_name": customer.name if customer else None,
         "customer_email": customer.email if customer else None,
         "current_owner": h.destination_department.name if h.destination_department else "Pending",
         "destination_department_id": h.destination_department_id,
@@ -368,7 +368,7 @@ def list_history_audit_for_handler(
         req = ev.return_request
         actor = ev.actor
         action_name = ev.event_type.replace("_", " ").title()
-        ref_id = f"TRN-{1000 + req.id}" if req else f"EVT-{ev.id}"
+        ref_id = f"TRN-{req.id}" if req else f"EVT-{ev.id}"
         details_text = ev.note or f"Status changed to {ev.new_status or ev.event_type}"
         performed_by_name = f"{actor.name} (R&R)" if actor and actor.name else "System"
 
