@@ -265,6 +265,10 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(self.client.post(f"/api/v1/departments/returns/{self.claim.id}/inspections", json={
             "inspection_type": "physical_pickup", "outcome": "passed", "notes": "Physical package checked",
         }).status_code, 403)
+        self.actor = self.handler
+        self.assertEqual(self.client.post(f"/api/v1/departments/returns/{self.claim.id}/inspections", json={
+            "inspection_type": "physical_pickup", "outcome": "passed", "notes": "Returns handler cannot inspect pickup",
+        }).status_code, 403)
 
         # Even a validly accepted handoff cannot authorize pickup inspection
         # unless it is specifically the Order & Delivery refund-pickup handoff.
@@ -279,7 +283,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         )
         self.db.add(misleading)
         self.db.commit()
-        self.actor = self.handler
+        self.actor = self.delivery_handler
         rejected_inspection = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/inspections", json={
             "inspection_type": "physical_pickup", "outcome": "passed", "notes": "Should not be authorized",
         })
@@ -288,6 +292,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.db.commit()
 
         handoff = self.db.scalar(select(ReturnHandoff).where(ReturnHandoff.return_request_id == self.claim.id))
+        self.actor = self.payments_handler
         accepted = self.client.patch(f"/api/v1/departments/return-handoffs/{handoff.id}/status",
                                      json={"status": "accepted", "note": "Work accepted"})
         self.assertEqual(accepted.status_code, 403)
@@ -295,7 +300,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         accepted = self.client.patch(f"/api/v1/departments/return-handoffs/{handoff.id}/status",
                                      json={"status": "accepted", "note": "Work accepted"})
         self.assertEqual(accepted.status_code, 200, accepted.text)
-        self.actor = self.handler
+        self.actor = self.delivery_handler
         physical = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/inspections", json={
             "inspection_type": "physical_pickup", "outcome": "passed", "notes": "Physical package checked",
         })
@@ -349,14 +354,16 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200, accepted.text)
         self.db.delete(self.other_department)
         self.db.commit()
-        self.actor = self.handler
+        self.actor = self.delivery_handler
         failed = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/inspections", json={
             "inspection_type": "physical_pickup", "outcome": "passed", "notes": "Item received",
         })
         self.assertEqual(failed.status_code, 404)
-        details = self.client.get(f"/api/v1/departments/returns/{self.claim.id}").json()
-        self.assertEqual(details["inspection_history"], [])
-        self.assertFalse(any(row["type"] == "refund_processing" for row in details["handoff_history"]))
+        from backend.Database.models import ReturnInspection
+        self.assertEqual(self.db.query(ReturnInspection).filter_by(return_request_id=self.claim.id).count(), 0)
+        self.assertEqual(self.db.query(ReturnHandoff).filter_by(
+            return_request_id=self.claim.id, handoff_type="refund_processing",
+        ).count(), 0)
 
 
 if __name__ == "__main__":

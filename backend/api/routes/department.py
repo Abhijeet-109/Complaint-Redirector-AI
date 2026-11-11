@@ -69,6 +69,16 @@ def _require_returns_handler(db: Session, actor):
         raise HTTPException(status_code=403, detail="You are not assigned to the Returns & Replacement department.")
 
 
+def _require_department_handler(db: Session, actor, department_name: str):
+    if actor.role != "department_handler":
+        return
+    department = db.scalar(select(Department).where(Department.name == department_name))
+    if department is None:
+        raise HTTPException(status_code=500, detail=f"{department_name} department is not configured.")
+    if actor.department_id != department.id:
+        raise HTTPException(status_code=403, detail=f"You are not assigned to the {department_name} department.")
+
+
 def _require_claim_access(db: Session, claim_id: int, actor):
     _require_returns_handler(db, actor)
     claim = get_return_claim(db, claim_id)
@@ -220,7 +230,13 @@ def request_return_information(claim_id: int, payload: ReturnDecisionInput,
 def create_return_inspection(claim_id: int, payload: ReturnInspectionInput,
                              db: Session = Depends(get_db),
                              actor=Depends(require_role("department_handler", "admin", "super_admin"))):
-    claim = _require_claim_access(db, claim_id, actor)
+    if payload.inspection_type == "evidence_review":
+        claim = _require_claim_access(db, claim_id, actor)
+    else:
+        _require_department_handler(db, actor, "Order & Delivery")
+        claim = get_return_claim(db, claim_id)
+        if claim is None:
+            raise HTTPException(status_code=404, detail="Return claim not found.")
     handoff_id = None
     if payload.inspection_type == "physical_pickup":
         handoff_id = db.scalar(select(ReturnHandoff.id).where(
