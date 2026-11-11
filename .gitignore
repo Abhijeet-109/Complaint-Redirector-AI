@@ -55,6 +55,7 @@ package-lock.json
 !/backend/Docs/
 !/backend/Docs/security_hardening_progress.md
 backend\uploads
+/backend/private_return_evidence/
 # Google Drive OAuth credentials and state
 /backend/data/
 /backend/chatbot/data/

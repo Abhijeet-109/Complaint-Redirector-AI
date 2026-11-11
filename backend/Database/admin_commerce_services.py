@@ -20,6 +20,7 @@ from backend.Database.models import (
     ProductVariant,
     Refund,
     ReturnRequest,
+    ReturnRequestEvent,
     Shipment,
     ShipmentEvent,
     User,
@@ -1416,7 +1417,31 @@ def update_return_status(
             inv.total_stock += rr.quantity
             inv.stock_status = "in_stock" if inv.available_stock > 0 else "out_of_stock"
 
+    previous_legacy_status = rr.status
+    previous_workflow_status = rr.workflow_status
     rr.status = new_status
+    if previous_workflow_status is not None:
+        # Keep the structured claim state aligned while preserving the admin's
+        # established legacy transition and optional restock behavior.
+        workflow_by_legacy = {
+            "approved": "approved",
+            "rejected": "rejected",
+            "item_received": "approved",
+            "inspected": "approved",
+            "completed": "completed",
+        }
+        rr.workflow_status = workflow_by_legacy.get(new_status, previous_workflow_status)
+        rr.updated_at = _utcnow()
+        db.add(ReturnRequestEvent(
+            return_request_id=rr.id,
+            event_type="legacy_status_changed",
+            previous_status=previous_workflow_status,
+            new_status=rr.workflow_status,
+            actor_user_id=changed_by.id,
+            note=f"Legacy return status changed from {previous_legacy_status} to {new_status}.",
+            event_data={"previous_legacy_status": previous_legacy_status,
+                        "new_legacy_status": new_status},
+        ))
     db.commit()
     db.refresh(rr)
     return {

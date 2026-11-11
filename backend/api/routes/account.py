@@ -2,7 +2,7 @@
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -13,8 +13,16 @@ from backend.Database.models import (
     Product, User, UserAddress, WishlistItem,
 )
 from backend.Database.services import get_order, list_orders
+from backend.Database.return_services import (
+    claim_details, create_return_claim, get_return_claim, record_customer_response,
+)
+from backend.Database.models import ReturnEvidence, ReturnRequestEvent
+from backend.Database.return_evidence_storage import (
+    MAX_EVIDENCE_BYTES, delete_evidence, save_evidence,
+)
 from backend.auth.dependencies import get_current_user, get_db
 from backend.auth.security import hash_password, verify_password
+from typing import Literal
 
 
 router = APIRouter(prefix="/api/account", tags=["Customer Account"])
@@ -65,6 +73,17 @@ class AddressInput(BaseModel):
 
 class PaymentPreference(BaseModel):
     preferred_payment_method: str | None = Field(default=None, pattern=r"^(cod|upi|netbanking)$")
+
+class ReturnClaimCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    order_id: int = Field(gt=0)
+    order_item_id: int = Field(gt=0)
+    quantity: int = Field(gt=0)
+
+    resolution_type: Literal["refund", "replacement"]
+    reason_code: str = Field(min_length=1, max_length=40)
+    description: str | None = Field(default=None, max_length=2000)
 
 
 def _address_json(row: UserAddress):
@@ -234,6 +253,201 @@ def customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(ge
         raise HTTPException(404, "Order not found")
     return _order_payload(order)
 
+@router.post("/returns", status_code=status.HTTP_201_CREATED)
+def submit_return_claim(
+    payload: ReturnClaimCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    try:
+        claim = create_return_claim(
+            db,
+            user_id=user.id,
+            order_id=payload.order_id,
+            order_item_id=payload.order_item_id,
+            quantity=payload.quantity,
+            resolution_type=payload.resolution_type,
+            reason_code=payload.reason_code,
+            description=payload.description,
+        )
+
+        db.commit()
+        db.refresh(claim)
+
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except RuntimeError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The return request conflicts with existing data.",
+        ) from exc
+
+    return {
+        "message": "Return request submitted successfully.",
+        "return_request": {
+            "id": claim.id,
+            "order_id": claim.order_id,
+            "order_item_id": claim.order_item_id,
+            "quantity": claim.quantity,
+            "resolution_type": claim.resolution_type,
+            "reason_code": claim.reason_code,
+            "description": claim.description,
+            "status": claim.status,
+            "workflow_status": claim.workflow_status,
+            "requested_at": (
+                claim.requested_at.isoformat()
+                if claim.requested_at
+                else None
+            ),
+        },
+    }
+
+
+def _owned_return_claim(db: Session, claim_id: int, user_id: int):
+    claim = get_return_claim(db, claim_id)
+    if claim is None or claim.order is None or claim.order.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Return claim not found.")
+    return claim
+
+
+@router.get("/returns/{claim_id}")
+def customer_return_claim(claim_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    return claim_details(db, claim)
+
+
+def _save_claim_evidence(db: Session, claim_id: int, actor_id: int, files: list[UploadFile]):
+    if not files or len(files) > 5:
+        raise HTTPException(status_code=400, detail="Upload between 1 and 5 evidence images.")
+    created = []
+    try:
+        for upload in files:
+            data = upload.file.read(MAX_EVIDENCE_BYTES + 1)
+            key, mime_type, digest = save_evidence(data, upload.filename or "", upload.content_type or "")
+            row = ReturnEvidence(
+                return_request_id=claim_id,
+                storage_provider="local_private",
+                storage_key=key,
+                original_filename=(upload.filename or "evidence")[:255],
+                mime_type=mime_type,
+                size_bytes=len(data),
+                sha256=digest,
+                uploaded_by_id=actor_id,
+                is_active=True,
+            )
+            db.add(row)
+            created.append((row, key))
+            db.flush()
+            db.add(ReturnRequestEvent(
+                return_request_id=claim_id,
+                event_type="evidence_uploaded",
+                actor_user_id=actor_id,
+                event_data={"evidence_id": row.id, "content_type": mime_type, "size_bytes": len(data), "sha256": digest},
+            ))
+        return [row for row, _key in created]
+    except Exception:
+        for _row, key in created:
+            delete_evidence(key)
+        raise
+
+
+@router.post("/returns/{claim_id}/evidence", status_code=status.HTTP_201_CREATED)
+def upload_return_evidence(
+    claim_id: int,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    if claim.workflow_status in {"rejected", "completed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Evidence cannot be added to a closed claim.")
+    try:
+        rows = _save_claim_evidence(db, claim.id, user.id, files)
+        db.commit()
+        return {"items": [{"id": row.id, "filename": row.original_filename,
+                           "content_type": row.mime_type, "size_bytes": row.size_bytes,
+                           "uploaded_at": row.uploaded_at.isoformat() if row.uploaded_at else None}
+                          for row in rows]}
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        for row in locals().get("rows", []):
+            delete_evidence(row.storage_key)
+        raise HTTPException(status_code=500, detail="Evidence could not be saved.") from exc
+
+
+@router.get("/returns/{claim_id}/evidence/{evidence_id}")
+def get_return_evidence(claim_id: int, evidence_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    evidence = db.scalar(select(ReturnEvidence).where(
+        ReturnEvidence.id == evidence_id,
+        ReturnEvidence.return_request_id == claim.id,
+        ReturnEvidence.is_active.is_(True),
+    ))
+    if evidence is None:
+        raise HTTPException(status_code=404, detail="Evidence not found.")
+    from backend.Database.return_evidence_storage import read_evidence
+    from fastapi.responses import FileResponse
+    path = read_evidence(evidence.storage_key)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
+    return FileResponse(path, media_type=evidence.mime_type,
+                        filename=evidence.original_filename,
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.post("/returns/{claim_id}/respond")
+def respond_to_return_information(
+    claim_id: int,
+    message: str | None = Form(default=None, max_length=2000),
+    files: list[UploadFile] | None = File(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    if claim.workflow_status != "information_requested":
+        raise HTTPException(status_code=409, detail="This claim is not waiting for customer information.")
+    try:
+        saved = _save_claim_evidence(db, claim.id, user.id, files or []) if files else []
+        record_customer_response(db, claim.id, actor_id=user.id, message=message, has_evidence=bool(saved))
+        db.commit()
+        return {"workflow_status": claim.workflow_status,
+                "evidence_ids": [row.id for row in saved]}
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        for row in locals().get("saved", []):
+            delete_evidence(row.storage_key)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        for row in locals().get("saved", []):
+            delete_evidence(row.storage_key)
+        raise HTTPException(status_code=500, detail="Customer response could not be saved.") from exc
 
 @router.get("/wishlist")
 def customer_wishlist(db: Session = Depends(get_db), user=Depends(get_current_user)):
