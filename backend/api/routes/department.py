@@ -225,10 +225,17 @@ def create_return_inspection(claim_id: int, payload: ReturnInspectionInput,
     if payload.inspection_type == "physical_pickup":
         handoff_id = db.scalar(select(ReturnHandoff.id).where(
             ReturnHandoff.return_request_id == claim.id,
+            ReturnHandoff.handoff_type == "refund_pickup",
+            ReturnHandoff.source_department_id == select(Department.id).where(
+                Department.name == "Returns & Replacement"
+            ).scalar_subquery(),
+            ReturnHandoff.destination_department_id == select(Department.id).where(
+                Department.name == "Order & Delivery"
+            ).scalar_subquery(),
             ReturnHandoff.status.in_(("accepted", "in_progress", "completed")),
         ).order_by(ReturnHandoff.created_at.desc()).limit(1))
         if handoff_id is None:
-            raise HTTPException(status_code=409, detail="Physical inspection requires an accepted downstream handoff.")
+            raise HTTPException(status_code=409, detail="Physical inspection requires an accepted Order & Delivery reverse-pickup handoff.")
     row = _commit_claim_operation(db, lambda: record_inspection(
         db, claim.id, actor_id=actor.id, inspection_type=payload.inspection_type,
         outcome=payload.outcome, notes=payload.notes, condition_code=payload.condition_code,

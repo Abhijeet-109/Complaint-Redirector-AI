@@ -397,6 +397,51 @@ def _department_by_name(session: Session, name: str) -> Department:
     return department
 
 
+def _create_handoff(
+    session: Session,
+    claim: ReturnRequest,
+    *,
+    source: Department,
+    destination: Department,
+    handoff_type: str,
+    actor_id: int,
+    idempotency_key: str,
+    payload: dict,
+) -> ReturnHandoff:
+    handoff = session.scalar(
+        select(ReturnHandoff).where(ReturnHandoff.idempotency_key == idempotency_key)
+    )
+    if handoff is not None:
+        return handoff
+    handoff = ReturnHandoff(
+        return_request_id=claim.id,
+        source_department_id=source.id,
+        destination_department_id=destination.id,
+        handoff_type=handoff_type,
+        status="pending",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        created_by_id=actor_id,
+    )
+    session.add(handoff)
+    session.flush()
+    _event(
+        session,
+        claim,
+        "department_handoff_created",
+        actor_id,
+        previous=claim.workflow_status,
+        new=claim.workflow_status,
+        data={
+            "handoff_id": handoff.id,
+            "source_department_id": source.id,
+            "destination_department_id": destination.id,
+            "handoff_type": handoff_type,
+        },
+    )
+    return handoff
+
+
 def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, decision: str, note: str):
     claim = get_return_claim(session, claim_id, lock=True)
     if claim is None:
@@ -421,30 +466,21 @@ def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, deci
 
     if decision == "approved":
         source = _department_by_name(session, "Returns & Replacement")
-        target_name = "Payments & Refunds" if claim.resolution_type == "refund" else "Order & Delivery"
+        target_name = "Order & Delivery"
         target = _department_by_name(session, target_name)
-        handoff_type = "refund_processing" if claim.resolution_type == "refund" else "replacement_fulfillment"
-        key = f"return-claim:{claim.id}:{handoff_type}:v1"
-        handoff = session.scalar(select(ReturnHandoff).where(ReturnHandoff.idempotency_key == key))
-        if handoff is None:
-            handoff = ReturnHandoff(
-                return_request_id=claim.id,
-                source_department_id=source.id,
-                destination_department_id=target.id,
-                handoff_type=handoff_type,
-                status="pending",
-                idempotency_key=key,
-                payload={"claim_id": claim.id, "order_id": claim.order_id,
-                         "order_item_id": claim.order_item_id, "quantity": claim.quantity,
-                         "resolution_type": claim.resolution_type},
-                created_by_id=actor_id,
-            )
-            session.add(handoff)
-            session.flush()
-            _event(session, claim, "department_handoff_created", actor_id,
-                   previous=decision, new=decision,
-                   data={"handoff_id": handoff.id, "destination_department_id": target.id,
-                         "handoff_type": handoff_type})
+        handoff_type = "refund_pickup" if claim.resolution_type == "refund" else "replacement_fulfillment"
+        _create_handoff(
+            session,
+            claim,
+            source=source,
+            destination=target,
+            handoff_type=handoff_type,
+            actor_id=actor_id,
+            idempotency_key=f"return-claim:{claim.id}:{handoff_type}:v1",
+            payload={"claim_id": claim.id, "order_id": claim.order_id,
+                     "order_item_id": claim.order_item_id, "quantity": claim.quantity,
+                     "resolution_type": claim.resolution_type},
+        )
     return claim
 
 
@@ -485,6 +521,27 @@ def record_inspection(session: Session, claim_id: int, *, actor_id: int, inspect
         raise ValueError("Invalid inspection outcome.")
     if not notes.strip():
         raise ValueError("Inspection notes are required.")
+    if inspection_type == "physical_pickup":
+        if handoff_id is None:
+            raise ValueError("Physical pickup inspection requires a valid reverse-pickup handoff.")
+        pickup = session.scalar(
+            select(ReturnHandoff)
+            .where(
+                ReturnHandoff.id == handoff_id,
+                ReturnHandoff.return_request_id == claim.id,
+                ReturnHandoff.handoff_type == "refund_pickup",
+                ReturnHandoff.status.in_(("accepted", "in_progress", "completed")),
+            )
+            .with_for_update()
+        )
+        delivery = _department_by_name(session, "Order & Delivery")
+        returns = _department_by_name(session, "Returns & Replacement")
+        if (
+            pickup is None
+            or pickup.destination_department_id != delivery.id
+            or pickup.source_department_id != returns.id
+        ):
+            raise ValueError("Physical pickup inspection requires an active Order & Delivery reverse-pickup handoff.")
     row = ReturnInspection(
         return_request_id=claim.id, inspection_type=inspection_type,
         outcome=outcome, condition_code=condition_code, notes=notes.strip(),
@@ -497,4 +554,24 @@ def record_inspection(session: Session, claim_id: int, *, actor_id: int, inspect
            note=notes.strip(), data={"inspection_id": row.id, "inspection_type": inspection_type,
                                      "outcome": outcome, "condition_code": condition_code,
                                      "handoff_id": handoff_id})
+    if (
+        inspection_type == "physical_pickup"
+        and outcome == "passed"
+        and claim.resolution_type == "refund"
+    ):
+        payments = _department_by_name(session, "Payments & Refunds")
+        delivery = _department_by_name(session, "Order & Delivery")
+        _create_handoff(
+            session,
+            claim,
+            source=delivery,
+            destination=payments,
+            handoff_type="refund_processing",
+            actor_id=actor_id,
+            idempotency_key=f"return-claim:{claim.id}:refund_processing:v1",
+            payload={"claim_id": claim.id, "order_id": claim.order_id,
+                     "order_item_id": claim.order_item_id, "quantity": claim.quantity,
+                     "resolution_type": claim.resolution_type, "pickup_handoff_id": handoff_id,
+                     "inspection_id": row.id},
+        )
     return row
