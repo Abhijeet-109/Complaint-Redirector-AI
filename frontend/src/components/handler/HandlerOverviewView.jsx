@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Eye,
+  EyeOff,
   ClipboardCheck,
   FileText,
   ArrowLeftRight,
@@ -19,32 +20,41 @@ export function HandlerOverviewView({
   recentRequests = [],
   recentComplaints = [],
   onNavigate,
+  onPeriodChange,
 }) {
   const [activityTimeframe, setActivityTimeframe] = useState('Month');
+  const [showTotalRequests, setShowTotalRequests] = useState(true);
 
-  // Real or fallback counts
-  const totalRequests = stats?.total_requests ?? 48;
-  const pendingReview = stats?.pending_review ?? 12;
-  const inProcess = stats?.in_process ?? 18;
-  const resolved = stats?.resolved ?? 18;
-  const complaintsCount = stats?.complaints ?? 6;
+  // Real backend counts — default to genuine 0, no fake numbers!
+  const totalRequests = stats?.total_requests ?? 0;
+  const pendingReview = stats?.pending_review ?? 0;
+  const inProcess = stats?.in_process ?? 0;
+  const resolved = stats?.resolved ?? 0;
+  const complaintsCount = stats?.complaints ?? 0;
 
-  const returnsCount = stats?.returns_count ?? 28;
-  const replacementsCount = stats?.replacements_count ?? 20;
-  const returnsPct = totalRequests > 0 ? Math.round((returnsCount / totalRequests) * 100) : 58;
-  const replacementsPct = 100 - returnsPct;
+  const returnsCount = stats?.returns_count ?? 0;
+  const replacementsCount = stats?.replacements_count ?? 0;
+  const returnsPct = totalRequests > 0 ? Math.round((returnsCount / totalRequests) * 100) : 0;
+  const replacementsPct = totalRequests > 0 ? Math.max(0, 100 - returnsPct) : 0;
 
-  // Monthly activity bars
-  const monthsData = [
-    { label: 'Jun', value: 8, heightPct: 15 },
-    { label: 'Jul', value: 12, heightPct: 22 },
-    { label: 'Aug', value: 20, heightPct: 35 },
-    { label: 'Sep', value: 24, heightPct: 40 },
-    { label: 'Oct', value: 36, heightPct: 60 },
-    { label: 'Nov', value: 48, heightPct: 85, isCurrent: true },
+  // Real activity bars from backend
+  const activityData = stats?.activity && stats.activity.length > 0 ? stats.activity : [
+    { label: 'Jun', value: 0, height_pct: 0 },
+    { label: 'Jul', value: 0, height_pct: 0 },
+    { label: 'Aug', value: 0, height_pct: 0 },
+    { label: 'Sep', value: 0, height_pct: 0 },
+    { label: 'Oct', value: 0, height_pct: 0 },
+    { label: 'Nov', value: totalRequests, height_pct: totalRequests > 0 ? 80 : 0, is_current: true },
   ];
 
-  // Quick actions without Settings
+  const handleTimeframeClick = (tf) => {
+    setActivityTimeframe(tf);
+    if (onPeriodChange) {
+      onPeriodChange(tf.toLowerCase());
+    }
+  };
+
+  // 6 Approved Quick Actions (No Settings!)
   const quickActions = [
     {
       label: 'Review Queue',
@@ -78,21 +88,6 @@ export function HandlerOverviewView({
     },
   ];
 
-  // Default display requests matching screenshot if backend is empty
-  const displayRequests = recentRequests.length > 0 ? recentRequests.slice(0, 5) : [
-    { id: 'TRN-1032', orderId: 'FK-20261109-8896', customer: 'Abhijeet', type: 'Refund', status: 'Pending Review', updated: 'Nov 10, 2026' },
-    { id: 'TRN-1031', orderId: 'FK-20261108-7741', customer: 'Rahul', type: 'Replacement', status: 'In Process', updated: 'Nov 10, 2026' },
-    { id: 'TRN-1030', orderId: 'FK-20261107-6622', customer: 'Priya', type: 'Refund', status: 'Complaint Raised', updated: 'Nov 9, 2026' },
-    { id: 'TRN-1029', orderId: 'FK-20261106-6510', customer: 'Sneha', type: 'Refund', status: 'Resolved', updated: 'Nov 8, 2026' },
-    { id: 'TRN-1028', orderId: 'FK-20261106-5509', customer: 'Karan', type: 'Replacement', status: 'In Process', updated: 'Nov 8, 2026' },
-  ];
-
-  // Default display complaints matching screenshot if backend is empty
-  const displayComplaints = recentComplaints.length > 0 ? recentComplaints.slice(0, 3) : [
-    { id: 'CMP-1006', orderId: 'FK-20261107-6622', status: 'Pending', date: 'Nov 9, 2026' },
-    { id: 'CMP-1005', orderId: 'FK-20261106-5410', status: 'In Progress', date: 'Nov 8, 2026' },
-  ];
-
   return (
     <div className="hd-page hd-overview-page">
       {/* Page Header */}
@@ -109,11 +104,32 @@ export function HandlerOverviewView({
         <div className="hd-overview-dominant-card">
           <div className="hd-dominant-header">
             <span className="hd-dominant-label">TOTAL REQUESTS</span>
-            <Eye size={18} strokeWidth={1.8} className="hd-dominant-icon" />
+            <button
+              type="button"
+              className="hd-eye-toggle-btn"
+              onClick={() => setShowTotalRequests(!showTotalRequests)}
+              title={showTotalRequests ? "Hide numerical value" : "Show numerical value"}
+            >
+              {showTotalRequests ? (
+                <Eye size={18} strokeWidth={1.8} className="hd-dominant-icon" />
+              ) : (
+                <EyeOff size={18} strokeWidth={1.8} className="hd-dominant-icon" />
+              )}
+            </button>
           </div>
-          <div className="hd-dominant-value">{totalRequests}</div>
+
+          <div className="hd-dominant-value">
+            {showTotalRequests ? totalRequests : '••••'}
+          </div>
+
           <div className="hd-dominant-trend">
-            <span className="hd-trend-arrow">↑</span> 12% vs last 30 days
+            {totalRequests > 0 ? (
+              <>
+                <span className="hd-trend-arrow">↑</span> Active claims in system
+              </>
+            ) : (
+              <span className="hd-trend-neutral">No active claims</span>
+            )}
           </div>
 
           <div className="hd-dominant-divider" />
@@ -190,7 +206,7 @@ export function HandlerOverviewView({
                   key={t}
                   type="button"
                   className={`hd-timeframe-btn ${activityTimeframe === t ? 'active' : ''}`}
-                  onClick={() => setActivityTimeframe(t)}
+                  onClick={() => handleTimeframeClick(t)}
                 >
                   {t}
                 </button>
@@ -200,12 +216,12 @@ export function HandlerOverviewView({
 
           <div className="hd-activity-chart-container">
             <div className="hd-activity-bars">
-              {monthsData.map((m) => (
+              {activityData.map((m) => (
                 <div key={m.label} className="hd-activity-bar-col">
                   <div className="hd-activity-bar-track">
                     <div
-                      className={`hd-activity-bar-fill ${m.isCurrent ? 'current' : ''}`}
-                      style={{ height: `${m.heightPct}%` }}
+                      className={`hd-activity-bar-fill ${m.is_current ? 'current' : ''}`}
+                      style={{ height: `${m.height_pct || (m.value > 0 ? 30 : 4)}%` }}
                       title={`${m.label}: ${m.value} requests`}
                     />
                   </div>
@@ -221,40 +237,44 @@ export function HandlerOverviewView({
           <h3 className="hd-card-title">Request by Type</h3>
           <div className="hd-type-card-body">
             <div className="hd-donut-container">
-              <svg width="150" height="150" viewBox="0 0 150 150" className="hd-donut-svg">
+              <svg width="130" height="130" viewBox="0 0 130 130" className="hd-donut-svg">
                 {/* Background Ring */}
                 <circle
-                  cx="75"
-                  cy="75"
-                  r="56"
+                  cx="65"
+                  cy="65"
+                  r="48"
                   fill="transparent"
                   stroke="#E8E2D5"
-                  strokeWidth="20"
+                  strokeWidth="18"
                 />
-                {/* Returns Segment (58%) */}
-                <circle
-                  cx="75"
-                  cy="75"
-                  r="56"
-                  fill="transparent"
-                  stroke="#13513C"
-                  strokeWidth="20"
-                  strokeDasharray={`${(returnsPct / 100) * 351.8} 351.8`}
-                  strokeDashoffset="0"
-                  transform="rotate(-90 75 75)"
-                />
-                {/* Replacements Segment (42%) */}
-                <circle
-                  cx="75"
-                  cy="75"
-                  r="56"
-                  fill="transparent"
-                  stroke="#D3C7AB"
-                  strokeWidth="20"
-                  strokeDasharray={`${(replacementsPct / 100) * 351.8} 351.8`}
-                  strokeDashoffset={`-${(returnsPct / 100) * 351.8}`}
-                  transform="rotate(-90 75 75)"
-                />
+                {totalRequests > 0 && (
+                  <>
+                    {/* Returns Segment */}
+                    <circle
+                      cx="65"
+                      cy="65"
+                      r="48"
+                      fill="transparent"
+                      stroke="#13513C"
+                      strokeWidth="18"
+                      strokeDasharray={`${(returnsPct / 100) * 301.6} 301.6`}
+                      strokeDashoffset="0"
+                      transform="rotate(-90 65 65)"
+                    />
+                    {/* Replacements Segment */}
+                    <circle
+                      cx="65"
+                      cy="65"
+                      r="48"
+                      fill="transparent"
+                      stroke="#D3C7AB"
+                      strokeWidth="18"
+                      strokeDasharray={`${(replacementsPct / 100) * 301.6} 301.6`}
+                      strokeDashoffset={`-${(returnsPct / 100) * 301.6}`}
+                      transform="rotate(-90 65 65)"
+                    />
+                  </>
+                )}
               </svg>
               <div className="hd-donut-center">
                 <span className="hd-donut-total">{totalRequests}</span>
@@ -294,30 +314,40 @@ export function HandlerOverviewView({
           </div>
 
           <div className="hd-table-wrapper">
-            <table className="hd-table">
-              <thead>
-                <tr>
-                  <th>REQUEST ID</th>
-                  <th>ORDER ID</th>
-                  <th>CUSTOMER</th>
-                  <th>TYPE</th>
-                  <th>STATUS</th>
-                  <th>UPDATED</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayRequests.map((r) => (
-                  <tr key={r.id}>
-                    <td className="hd-cell-id">{r.id}</td>
-                    <td className="hd-cell-subtle">{r.orderId}</td>
-                    <td className="hd-cell-bold">{r.customer}</td>
-                    <td className="hd-cell-subtle">{r.type}</td>
-                    <td><HandlerStatusBadge status={r.status} /></td>
-                    <td className="hd-cell-subtle">{r.updated}</td>
+            {recentRequests.length === 0 ? (
+              <div className="hd-empty-state">
+                No recent requests found in your department.
+              </div>
+            ) : (
+              <table className="hd-table">
+                <thead>
+                  <tr>
+                    <th>REQUEST ID</th>
+                    <th>ORDER ID</th>
+                    <th>CUSTOMER</th>
+                    <th>TYPE</th>
+                    <th>STATUS</th>
+                    <th>UPDATED</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recentRequests.map((r) => (
+                    <tr
+                      key={r.id}
+                      className="hd-row-clickable"
+                      onClick={() => onNavigate && onNavigate('handler-dashboard', `/handler/requests/${r.claimId || r.id}`)}
+                    >
+                      <td className="hd-cell-id">{r.id}</td>
+                      <td className="hd-cell-subtle">{r.orderId}</td>
+                      <td className="hd-cell-bold">{r.customer}</td>
+                      <td className="hd-cell-subtle">{r.type}</td>
+                      <td><HandlerStatusBadge status={r.status} /></td>
+                      <td className="hd-cell-subtle">{r.updated}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
@@ -335,23 +365,33 @@ export function HandlerOverviewView({
           </div>
 
           <div className="hd-complaints-list">
-            {displayComplaints.map((c) => (
-              <div key={c.id} className="hd-complaint-item">
-                <div className="hd-complaint-icon-wrap">
-                  <MessageSquare size={16} strokeWidth={1.8} />
-                </div>
-                <div className="hd-complaint-info">
-                  <div className="hd-complaint-id-row">
-                    <span className="hd-complaint-id">{c.id}</span>
-                  </div>
-                  <div className="hd-complaint-order">{c.orderId}</div>
-                </div>
-                <div className="hd-complaint-right">
-                  <HandlerStatusBadge status={c.status} />
-                  <span className="hd-complaint-date">{c.date}</span>
-                </div>
+            {recentComplaints.length === 0 ? (
+              <div className="hd-empty-state">
+                No recent complaints assigned to your department.
               </div>
-            ))}
+            ) : (
+              recentComplaints.map((c) => (
+                <div
+                  key={c.id}
+                  className="hd-complaint-item hd-row-clickable"
+                  onClick={() => onNavigate && onNavigate('handler-dashboard', `/handler/complaints/${c.rawId || c.id}`)}
+                >
+                  <div className="hd-complaint-icon-wrap">
+                    <MessageSquare size={16} strokeWidth={1.8} />
+                  </div>
+                  <div className="hd-complaint-info">
+                    <div className="hd-complaint-id-row">
+                      <span className="hd-complaint-id">{c.id}</span>
+                    </div>
+                    <div className="hd-complaint-order">{c.orderId}</div>
+                  </div>
+                  <div className="hd-complaint-right">
+                    <HandlerStatusBadge status={c.status} />
+                    <span className="hd-complaint-date">{c.date}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -360,4 +400,3 @@ export function HandlerOverviewView({
 }
 
 export default HandlerOverviewView;
-

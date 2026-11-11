@@ -116,16 +116,20 @@ def _handler_complaint(
     complaint_id: int,
     current_user: User
 ) -> Complaint:
-    if current_user.department_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Department handler is not assigned to a department"
-        )
-
-    complaint = db.query(Complaint).filter(
-        Complaint.id == complaint_id,
-        Complaint.department_id == current_user.department_id
-    ).first()
+    if current_user.role == "department_handler":
+        if current_user.department_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Department handler is not assigned to a department"
+            )
+        complaint = db.query(Complaint).filter(
+            Complaint.id == complaint_id,
+            Complaint.department_id == current_user.department_id
+        ).first()
+    else:
+        complaint = db.query(Complaint).filter(
+            Complaint.id == complaint_id
+        ).first()
 
     if complaint is None:
         raise HTTPException(
@@ -248,6 +252,21 @@ def get_handler_complaints(
     ).all()
 
     return _handler_complaint_details(db, complaints)
+
+
+@router.get(
+    "/handler/complaints/{complaint_id}",
+    response_model=HandlerComplaintResponse,
+)
+def get_handler_complaint_by_id(
+    complaint_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("department_handler", "admin", "super_admin")
+    ),
+):
+    complaint = _handler_complaint(db, complaint_id, current_user)
+    return _handler_complaint_details(db, [complaint])[0]
 
 
 @router.get(
@@ -529,6 +548,21 @@ def get_admin_complaints(
         Complaint.create_at.desc(), Complaint.id.desc()
     ).all()
     return _handler_complaint_details(db, complaints)
+
+
+@router.get(
+    "/handler/complaints/{complaint_id}",
+    response_model=HandlerComplaintResponse,
+)
+def get_handler_complaint_by_id(
+    complaint_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_role("department_handler", "admin", "super_admin")
+    ),
+):
+    complaint = _handler_complaint(db, complaint_id, current_user)
+    return _handler_complaint_details(db, [complaint])[0]
 
 
 @router.get("/complaints/{complaint_id}/department-email")

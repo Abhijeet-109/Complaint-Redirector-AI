@@ -19,7 +19,7 @@ export function HandlerSidebar({
   onNavigate,
   collapsed = false,
   setCollapsed,
-  queueCount = 12,
+  queueCount = 0,
 }) {
   const { logout } = useAuth();
 
@@ -35,37 +35,44 @@ export function HandlerSidebar({
       label: 'Dashboard',
       path: '/handler/dashboard',
       icon: LayoutDashboard,
+      activeMatch: (p) => p === '/handler/dashboard' || p === '/handler' || p === '/handler-dashboard',
     },
     {
       label: 'Review Queue',
       path: '/handler/review-queue',
       icon: ClipboardCheck,
-      badge: queueCount,
+      badge: queueCount > 0 ? queueCount : null,
+      activeMatch: (p) => p.startsWith('/handler/review-queue'),
     },
     {
       label: 'Requests',
       path: '/handler/requests',
       icon: FileText,
+      activeMatch: (p) => p.startsWith('/handler/requests'),
     },
     {
       label: 'Complaints',
       path: '/handler/complaints',
       icon: MessageCircle,
+      activeMatch: (p) => p.startsWith('/handler/complaints'),
     },
     {
       label: 'Tracking & Handoffs',
       path: '/handler/tracking',
       icon: ArrowLeftRight,
+      activeMatch: (p) => p.startsWith('/handler/tracking'),
     },
     {
       label: 'History & Audit',
       path: '/handler/history',
       icon: History,
+      activeMatch: (p) => p.startsWith('/handler/history'),
     },
     {
       label: 'Reports',
       path: '/handler/reports',
       icon: ChartNoAxesColumn,
+      activeMatch: (p) => p.startsWith('/handler/reports'),
     },
   ];
 
@@ -77,10 +84,10 @@ export function HandlerSidebar({
 
   return (
     <aside className={`hd-sidebar ${collapsed ? 'hd-sidebar-collapsed' : ''}`}>
-      {/* Brand & Toggle Header Row */}
-      <div className="hd-sidebar-header">
+      {/* Brand & Toggle Header Row — Exactly matching Admin Dashboard layout */}
+      <div className={`ad-sidebar-header-row ${collapsed ? 'collapsed' : ''}`}>
         <div
-          className="hd-sidebar-brand"
+          className="ad-sidebar-brand"
           onClick={() => onNavigate && onNavigate('home')}
           title="Return to Flatkart Store"
           role="button"
@@ -88,21 +95,22 @@ export function HandlerSidebar({
         >
           <ShoppingCart size={22} strokeWidth={2.4} color="#FFFFFF" style={{ flexShrink: 0 }} />
           {!collapsed && (
-            <div className="hd-sidebar-brand-info">
-              <span className="hd-sidebar-brand-name">FLATKART</span>
-              <span className="hd-sidebar-brand-badge">DEPT HANDLER</span>
+            <div className="ad-sidebar-brand-info">
+              <span className="ad-sidebar-brand-name">FLATKART</span>
+              <span className="ad-sidebar-brand-badge">DEPT HANDLER</span>
             </div>
           )}
         </div>
 
+        {/* Toggle Button — placed below logo when collapsed */}
         <button
           type="button"
-          className="hd-sidebar-toggle"
+          className={`ad-sidebar-toggle ${collapsed ? 'collapsed' : 'expanded'}`}
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <ChevronRight size={14} color="#FFFFFF" /> : <ChevronLeft size={14} color="#FFFFFF" />}
+          {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
       </div>
 
@@ -117,7 +125,7 @@ export function HandlerSidebar({
       <nav className="hd-sidebar-nav">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = currentPath === item.path || (item.path === '/handler/dashboard' && (currentPath === '/handler' || currentPath === '/handler-dashboard'));
+          const isActive = item.activeMatch(currentPath);
 
           return (
             <button
@@ -129,7 +137,7 @@ export function HandlerSidebar({
             >
               <Icon size={18} strokeWidth={1.8} style={{ flexShrink: 0 }} />
               {!collapsed && <span className="hd-sidebar-label">{item.label}</span>}
-              {!collapsed && item.badge !== undefined && item.badge !== null && item.badge > 0 && (
+              {!collapsed && item.badge !== null && item.badge !== undefined && item.badge > 0 && (
                 <span className="hd-sidebar-badge">{item.badge}</span>
               )}
             </button>
@@ -137,13 +145,13 @@ export function HandlerSidebar({
         })}
       </nav>
 
-      {/* Sidebar Footer with Logout */}
-      <div className="hd-sidebar-footer">
+      {/* Reusing Admin Dashboard Signout / Logout Structure & Styling */}
+      <div className="ad-sidebar-footer">
         <button
           type="button"
-          className="hd-sidebar-logout"
+          className="ad-sidebar-signout"
           onClick={handleSignOut}
-          title={collapsed ? 'Logout' : undefined}
+          title="Logout"
         >
           <LogOut size={17} style={{ flexShrink: 0 }} />
           {!collapsed && <span>Logout</span>}
@@ -154,4 +162,3 @@ export function HandlerSidebar({
 }
 
 export default HandlerSidebar;
-

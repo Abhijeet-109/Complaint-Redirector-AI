@@ -5,19 +5,18 @@ import {
   ArrowLeftRight,
   FileText,
   Search,
-  Filter,
-  ChevronLeft,
-  ChevronRight,
-  ArrowUpDown,
+  RotateCcw,
   MessageCircle,
   CheckCircle2,
   Package,
 } from 'lucide-react';
 import { HandlerKPICard } from './HandlerKPICard';
 import { HandlerStatusBadge } from './HandlerStatusBadge';
+import { HandlerPagination } from './HandlerPagination';
 
 export function HandlerHistoryView({
   auditLogs = [],
+  kpiCounts,
   loading = false,
 }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,54 +24,67 @@ export function HandlerHistoryView({
   const [selectedModule, setSelectedModule] = useState('all');
   const [selectedTimeframe, setSelectedTimeframe] = useState('30days');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 5;
+  const [pageSize, setPageSize] = useState(5);
 
-  const totalActivities = auditLogs.length > 0 ? auditLogs.length : 128;
-  const requestUpdates = 56;
-  const handoffsCount = 28;
-  const auditLogsCount = 44;
+  // Genuine KPI calculations
+  const totalActivities = kpiCounts?.total_activities ?? auditLogs.length;
+  const requestUpdates = kpiCounts?.request_updates ?? auditLogs.filter(
+    (l) => (l.action || '').toLowerCase().includes('request')
+  ).length;
+  const handoffsCount = kpiCounts?.handoffs ?? auditLogs.filter(
+    (l) => (l.action || '').toLowerCase().includes('handoff')
+  ).length;
+  const auditLogsCount = kpiCounts?.audit_logs ?? auditLogs.filter(
+    (l) =>
+      (l.action || '').toLowerCase().includes('status') ||
+      (l.action || '').toLowerCase().includes('audit')
+  ).length;
 
-  const initialLogs = useMemo(() => {
-    if (auditLogs && auditLogs.length > 0) {
-      return auditLogs.map((log, idx) => ({
-        id: log.id || idx,
-        timestamp: log.timestamp ? new Date(log.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Nov 10, 2026, 11:24 AM',
-        action: log.action || 'Request Updated',
-        referenceId: log.reference_id || `TRN-${1032 - idx}`,
-        details: log.details || 'Status updated',
-        performedBy: log.performed_by || 'Abhijeet (R&R)',
-        newStatus: log.new_status,
-      }));
-    }
-    return [
-      { id: 1, timestamp: 'Nov 10, 2026, 11:24 AM', action: 'Request Updated', iconType: 'clipboard', referenceId: 'TRN-1032', detailsPrefix: 'Status changed to', statusBadge: 'Pending Review', performedBy: 'Abhijeet (R&R)' },
-      { id: 2, timestamp: 'Nov 10, 2026, 10:16 AM', action: 'Handoff Initiated', iconType: 'handoff', referenceId: 'TRN-1031', details: 'Handoff to Order & Delivery', performedBy: 'Rahul (R&R)' },
-      { id: 3, timestamp: 'Nov 9, 2026, 5:42 PM', action: 'Complaint Created', iconType: 'complaint', referenceId: 'CMP-1006', details: 'New complaint registered', performedBy: 'System' },
-      { id: 4, timestamp: 'Nov 8, 2026, 4:20 PM', action: 'Status Updated', iconType: 'status', referenceId: 'TRN-1029', detailsPrefix: 'Status changed to', statusBadge: 'In Progress', performedBy: 'Sneha (R&R)' },
-      { id: 5, timestamp: 'Nov 8, 2026, 2:11 PM', action: 'Request Resolved', iconType: 'resolved', referenceId: 'TRN-1028', detailsPrefix: 'Request marked as', statusBadge: 'Resolved', performedBy: 'Karan (R&R)' },
-    ];
-  }, [auditLogs]);
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setSelectedAction('all');
+    setSelectedModule('all');
+    setSelectedTimeframe('30days');
+    setCurrentPage(1);
+  };
 
   const filtered = useMemo(() => {
-    return initialLogs.filter((item) => {
-      if (selectedAction !== 'all' && !item.action.toLowerCase().includes(selectedAction.toLowerCase())) return false;
+    return auditLogs.filter((item) => {
+      const actStr = (item.action || '').toLowerCase();
+      const refStr = (item.reference_id || item.entity_id || '').toLowerCase();
+      const modStr = (item.module || '').toLowerCase();
+
+      if (selectedAction !== 'all') {
+        if (!actStr.includes(selectedAction.toLowerCase())) return false;
+      }
+
+      if (selectedModule !== 'all') {
+        if (selectedModule === 'returns' && !refStr.includes('trn') && !actStr.includes('request')) return false;
+        if (selectedModule === 'complaints' && !refStr.includes('cmp') && !actStr.includes('complaint')) return false;
+        if (selectedModule === 'handoffs' && !actStr.includes('handoff')) return false;
+      }
+
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
+        const idStr = String(item.id || '');
+        const detailsStr = String(item.details || '');
+        const actorStr = String(item.performed_by || item.actor_email || '');
         return (
-          item.referenceId.toLowerCase().includes(q) ||
-          item.action.toLowerCase().includes(q) ||
-          (item.details && item.details.toLowerCase().includes(q)) ||
-          item.performedBy.toLowerCase().includes(q)
+          idStr.toLowerCase().includes(q) ||
+          refStr.includes(q) ||
+          actStr.includes(q) ||
+          detailsStr.toLowerCase().includes(q) ||
+          actorStr.toLowerCase().includes(q)
         );
       }
       return true;
     });
-  }, [initialLogs, selectedAction, searchTerm]);
+  }, [auditLogs, selectedAction, selectedModule, searchTerm]);
 
   const displayed = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  const renderActionIcon = (log) => {
-    const act = (log.action || '').toLowerCase();
+  const renderActionIcon = (actionText) => {
+    const act = (actionText || '').toLowerCase();
     if (act.includes('handoff')) return <ArrowLeftRight size={16} strokeWidth={1.8} />;
     if (act.includes('complaint')) return <MessageCircle size={16} strokeWidth={1.8} />;
     if (act.includes('status')) return <CheckCircle2 size={16} strokeWidth={1.8} />;
@@ -144,7 +156,7 @@ export function HandlerHistoryView({
           <select
             className="hd-select"
             value={selectedModule}
-            onChange={(e) => setSelectedModule(e.target.value)}
+            onChange={(e) => { setSelectedModule(e.target.value); setCurrentPage(1); }}
           >
             <option value="all">All Modules</option>
             <option value="returns">Returns</option>
@@ -155,15 +167,20 @@ export function HandlerHistoryView({
           <select
             className="hd-select"
             value={selectedTimeframe}
-            onChange={(e) => setSelectedTimeframe(e.target.value)}
+            onChange={(e) => { setSelectedTimeframe(e.target.value); setCurrentPage(1); }}
           >
             <option value="30days">Last 30 Days</option>
             <option value="7days">Last 7 Days</option>
             <option value="90days">Last 90 Days</option>
           </select>
 
-          <button type="button" className="hd-icon-btn" title="More Filters">
-            <Filter size={16} strokeWidth={1.8} />
+          <button
+            type="button"
+            className="hd-icon-btn hd-filter-reset-btn"
+            title="Reset all filters"
+            onClick={handleResetFilters}
+          >
+            <RotateCcw size={16} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -174,80 +191,89 @@ export function HandlerHistoryView({
           <table className="hd-table">
             <thead>
               <tr>
-                <th>
-                  <div className="hd-th-sortable">
-                    <span>TIMESTAMP</span>
-                    <ArrowUpDown size={13} />
-                  </div>
-                </th>
-                <th>ACTION</th>
-                <th>REFERENCE ID</th>
+                <th style={{ width: '180px' }}>TIMESTAMP</th>
+                <th style={{ width: '180px' }}>ACTION</th>
+                <th style={{ width: '130px' }}>REFERENCE ID</th>
                 <th>DETAILS</th>
-                <th>PERFORMED BY</th>
+                <th style={{ width: '160px' }}>PERFORMED BY</th>
               </tr>
             </thead>
             <tbody>
-              {displayed.map((log) => (
-                <tr key={log.id}>
-                  <td className="hd-cell-subtle">{log.timestamp}</td>
-                  <td>
-                    <div className="hd-action-cell">
-                      <span className="hd-action-icon">{renderActionIcon(log)}</span>
-                      <span className="hd-action-name">{log.action}</span>
-                    </div>
+              {loading ? (
+                <tr>
+                  <td colSpan="5" className="hd-table-empty">
+                    Loading audit history...
                   </td>
-                  <td className="hd-cell-id">{log.referenceId}</td>
-                  <td>
-                    <div className="hd-details-cell">
-                      {log.statusBadge || log.newStatus ? (
-                        <>
-                          <span className="hd-cell-subtle">{log.detailsPrefix || 'Status changed to'}</span>
-                          <HandlerStatusBadge status={log.statusBadge || log.newStatus} />
-                        </>
-                      ) : (
-                        <span className="hd-cell-subtle">{log.details}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="hd-cell-bold">{log.performedBy}</td>
                 </tr>
-              ))}
+              ) : displayed.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="hd-table-empty">
+                    No history records found matching the current criteria.
+                  </td>
+                </tr>
+              ) : (
+                displayed.map((log, idx) => {
+                  const logId = log.id || idx;
+                  const timestampStr = log.timestamp
+                    ? new Date(log.timestamp).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })
+                    : '—';
+                  const actionStr = log.action || 'Request Updated';
+                  const refId = log.reference_id || (log.entity_id ? `TRN-${log.entity_id}` : '—');
+                  const performedBy = log.performed_by || log.actor_name || 'System';
+
+                  return (
+                    <tr key={logId}>
+                      <td className="hd-cell-timestamp">{timestampStr}</td>
+                      <td>
+                        <div className="hd-history-action-cell">
+                          <span className="hd-history-action-icon">
+                            {renderActionIcon(actionStr)}
+                          </span>
+                          <span className="hd-history-action-name">{actionStr}</span>
+                        </div>
+                      </td>
+                      <td className="hd-cell-id">{refId}</td>
+                      <td>
+                        <div className="hd-history-details-cell">
+                          {log.new_status ? (
+                            <>
+                              <span className="hd-cell-subtle">Status changed to </span>
+                              <HandlerStatusBadge status={log.new_status} />
+                            </>
+                          ) : (
+                            <span className="hd-cell-subtle">{log.details || 'Action completed'}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="hd-cell-subtle">{performedBy}</td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
 
         {/* Pagination Footer */}
-        <div className="hd-pagination-row">
-          <span className="hd-pagination-info">
-            Showing 1-{displayed.length} of {totalActivities}
-          </span>
-          <div className="hd-pagination-controls">
-            <button
-              type="button"
-              className="hd-page-nav-btn"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button type="button" className="hd-page-num-btn active">1</button>
-            <button type="button" className="hd-page-num-btn">2</button>
-            <button type="button" className="hd-page-num-btn">3</button>
-            <span className="hd-pagination-ellipsis">...</span>
-            <button type="button" className="hd-page-num-btn">26</button>
-            <button
-              type="button"
-              className="hd-page-nav-btn"
-              onClick={() => setCurrentPage(p => p + 1)}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
+        <HandlerPagination
+          currentPage={currentPage}
+          totalItems={filtered.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(newSize) => {
+            setPageSize(newSize);
+            setCurrentPage(1);
+          }}
+        />
       </div>
     </div>
   );
 }
 
 export default HandlerHistoryView;
-

@@ -1,57 +1,98 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Layers,
   Package,
   ArrowLeftRight,
   MessageCircle,
-  FileDown,
-  FileText,
   Download,
 } from 'lucide-react';
 import { HandlerKPICard } from './HandlerKPICard';
+import { handlerService } from '../../services/handlerService';
 
 export function HandlerReportsView({
-  reportsData,
-  loading = false,
+  reportsData: initialData,
+  loading: initialLoading = false,
 }) {
   const [selectedTimeframe, setSelectedTimeframe] = useState('30days');
   const [selectedType, setSelectedType] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [reportsData, setReportsData] = useState(initialData || null);
+  const [loading, setLoading] = useState(initialLoading);
 
-  const totalRequests = reportsData?.total_requests ?? 48;
-  const returnsCount = reportsData?.returns_count ?? 26;
-  const replacementsCount = reportsData?.replacements_count ?? 22;
-  const complaintsCount = reportsData?.complaints ?? 6;
+  const daysMap = {
+    '7days': 7,
+    '30days': 30,
+    '90days': 90,
+  };
 
-  const resolvedCount = reportsData?.resolved ?? 24;
-  const pendingCount = reportsData?.pending ?? 12;
-  const inProgressCount = reportsData?.in_progress ?? 12;
+  useEffect(() => {
+    let isMounted = true;
+    const fetchFilteredStats = async () => {
+      setLoading(true);
+      try {
+        const days = daysMap[selectedTimeframe] || 30;
+        const res = await handlerService.getReportsStats({
+          days,
+          request_type: selectedType,
+          status: selectedStatus,
+        });
+        if (isMounted && res) {
+          setReportsData(res);
+        }
+      } catch (err) {
+        console.error('Failed to fetch reports stats:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
 
-  // Trend data points matching screenshot (approx values across 11 points)
-  // X: Oct 12, Oct 15, Oct 18, Oct 21, Oct 24, Oct 27, Oct 30, Nov 2, Nov 5, Nov 8, Nov 10
-  // Y: 2, 5, 4, 7, 5, 8, 11, 9, 10, 12, 17
-  const trendPoints = [
-    { label: 'Oct 12', val: 3 },
-    { label: 'Oct 15', val: 5 },
-    { label: 'Oct 18', val: 4 },
-    { label: 'Oct 21', val: 7 },
-    { label: 'Oct 24', val: 5 },
-    { label: 'Oct 27', val: 8 },
-    { label: 'Oct 30', val: 11 },
-    { label: 'Nov 2', val: 9 },
-    { label: 'Nov 5', val: 10 },
-    { label: 'Nov 8', val: 12 },
-    { label: 'Nov 10', val: 17 },
-  ];
+    fetchFilteredStats();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedTimeframe, selectedType, selectedStatus]);
 
-  // Map to SVG coordinates (width: 500, height: 180, margin: top 10, bottom 30, left 30, right 20)
-  const svgWidth = 500;
-  const svgHeight = 150;
-  const maxY = 20;
+  const totalRequests = reportsData?.total_requests ?? 0;
+  const returnsCount = reportsData?.returns_count ?? 0;
+  const replacementsCount = reportsData?.replacements_count ?? 0;
+  const complaintsCount = reportsData?.complaints ?? 0;
+
+  const resolvedCount = reportsData?.resolved ?? 0;
+  const pendingCount = reportsData?.pending ?? 0;
+  const inProgressCount = reportsData?.in_progress ?? 0;
+
+  const resolvedPct = totalRequests > 0 ? Math.round((resolvedCount / totalRequests) * 100) : 0;
+  const pendingPct = totalRequests > 0 ? Math.round((pendingCount / totalRequests) * 100) : 0;
+  const inProgressPct = totalRequests > 0 ? Math.round((inProgressCount / totalRequests) * 100) : 0;
+
+  const returnsPct = totalRequests > 0 ? Math.round((returnsCount / totalRequests) * 100) : 0;
+  const replacementsPct = totalRequests > 0 ? Math.round((replacementsCount / totalRequests) * 100) : 0;
+
+  // Trend points
+  const rawTrend = reportsData?.trend || [];
+  const trendPoints = rawTrend.length > 0
+    ? rawTrend
+    : [
+        { label: 'Day 1', val: 0 },
+        { label: 'Day 3', val: 0 },
+        { label: 'Day 6', val: 0 },
+        { label: 'Day 9', val: 0 },
+        { label: 'Day 12', val: 0 },
+        { label: 'Day 15', val: 0 },
+        { label: 'Day 18', val: 0 },
+        { label: 'Day 21', val: 0 },
+        { label: 'Day 24', val: 0 },
+        { label: 'Day 27', val: 0 },
+        { label: 'Day 30', val: 0 },
+      ];
+
+  const maxVal = Math.max(5, ...trendPoints.map((p) => p.val));
+  const svgWidth = 520;
+  const svgHeight = 160;
 
   const coords = trendPoints.map((pt, i) => {
-    const x = 30 + (i / (trendPoints.length - 1)) * (svgWidth - 50);
-    const y = svgHeight - 25 - (pt.val / maxY) * (svgHeight - 40);
+    const x = 35 + (i / Math.max(1, trendPoints.length - 1)) * (svgWidth - 65);
+    const y = svgHeight - 30 - (pt.val / maxVal) * (svgHeight - 55);
     return { x, y, label: pt.label, val: pt.val };
   });
 
@@ -65,28 +106,45 @@ export function HandlerReportsView({
     return `${acc} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
   }, '');
 
-  const areaD = `${pathD} L ${coords[coords.length - 1].x} ${svgHeight - 25} L ${coords[0].x} ${svgHeight - 25} Z`;
+  const areaD = coords.length > 0
+    ? `${pathD} L ${coords[coords.length - 1].x} ${svgHeight - 30} L ${coords[0].x} ${svgHeight - 30} Z`
+    : '';
 
-  const recentReports = [
-    { id: 1, name: 'Requests Summary (Last 30 Days)', type: 'Summary', date: 'Nov 10, 2026, 11:20 AM' },
-    { id: 2, name: 'Complaints Report', type: 'Complaints', date: 'Nov 9, 2026, 4:35 PM' },
-    { id: 3, name: 'Handoffs & Tracking Report', type: 'Handoffs', date: 'Nov 8, 2026, 2:10 PM' },
-  ];
+  // Donut chart math
+  const donutRadius = 42;
+  const donutCircumference = 2 * Math.PI * donutRadius;
+  const resolvedOffset = 0;
+  const resolvedDash = (resolvedPct / 100) * donutCircumference;
+  const pendingDash = (pendingPct / 100) * donutCircumference;
+  const inProgressDash = (inProgressPct / 100) * donutCircumference;
 
   const handleExport = () => {
-    const csvContent = "data:text/csv;charset=utf-8,"
-      + "Metric,Value\n"
-      + `Total Requests,${totalRequests}\n`
-      + `Returns,${returnsCount}\n`
-      + `Replacements,${replacementsCount}\n`
-      + `Complaints,${complaintsCount}\n`
-      + `Resolved,${resolvedCount}\n`
-      + `Pending,${pendingCount}\n`
-      + `In Progress,${inProgressCount}\n`;
+    const days = daysMap[selectedTimeframe] || 30;
+    const rows = [
+      ['Metric', 'Value'],
+      ['Total Requests', totalRequests],
+      ['Returns', returnsCount],
+      ['Replacements', replacementsCount],
+      ['Complaints', complaintsCount],
+      ['Resolved', resolvedCount],
+      ['Pending', pendingCount],
+      ['In Progress', inProgressCount],
+      ['Timeframe Days', days],
+      ['Selected Type', selectedType],
+      ['Selected Status', selectedStatus],
+    ];
+
+    if (rawTrend.length > 0) {
+      rows.push([]);
+      rows.push(['Date Interval', 'Requests']);
+      rawTrend.forEach((t) => rows.push([t.label, t.val]));
+    }
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
     const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Flatkart_RR_Report_${new Date().toISOString().slice(0, 10)}.csv`);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Flatkart_RR_Report_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -165,22 +223,24 @@ export function HandlerReportsView({
           type="button"
           className="hd-export-btn"
           onClick={handleExport}
+          title="Export report dataset as CSV"
         >
-          <FileDown size={16} strokeWidth={2} />
+          <Download size={16} />
           <span>Export Report</span>
         </button>
       </div>
 
-      {/* Middle Grid: Request Trend + Requests by Status */}
-      <div className="hd-reports-middle-grid">
+      {/* Charts Row */}
+      <div className="hd-reports-charts-grid">
         {/* Request Trend Card */}
-        <div className="hd-card hd-trend-card">
-          <div className="hd-card-header-block">
-            <h3 className="hd-card-title">Request Trend</h3>
-            <span className="hd-card-desc">Total return and replacement requests over time.</span>
+        <div className="hd-card hd-reports-chart-card">
+          <div className="hd-card-header">
+            <div>
+              <h3 className="hd-card-title">Request Trend</h3>
+              <p className="hd-card-desc">Total return and replacement requests over time.</p>
+            </div>
           </div>
-
-          <div className="hd-trend-chart-box">
+          <div className="hd-trend-chart-container">
             <svg
               viewBox={`0 0 ${svgWidth} ${svgHeight}`}
               className="hd-trend-svg"
@@ -188,158 +248,145 @@ export function HandlerReportsView({
             >
               <defs>
                 <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#13513C" stopOpacity="0.25" />
-                  <stop offset="100%" stopColor="#13513C" stopOpacity="0.0" />
+                  <stop offset="0%" stopColor="#0F3024" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="#0F3024" stopOpacity="0.0" />
                 </linearGradient>
               </defs>
 
-              {/* Grid Horizontal Guidelines */}
-              {[0, 4, 8, 12, 16, 20].map((v) => {
-                const y = svgHeight - 25 - (v / maxY) * (svgHeight - 40);
-                return (
-                  <g key={v}>
-                    <line
-                      x1="30"
-                      y1={y}
-                      x2={svgWidth - 20}
-                      y2={y}
-                      stroke="#EFEBE4"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x="18"
-                      y={y + 3}
-                      fill="#8C9B94"
-                      fontSize="9"
-                      fontFamily="Inter, sans-serif"
-                      textAnchor="middle"
-                    >
-                      {v}
-                    </text>
-                  </g>
-                );
-              })}
+              {/* Grid Lines */}
+              <line x1="30" y1="20" x2={svgWidth - 20} y2="20" stroke="#E5E1D8" strokeDasharray="3 3" />
+              <line x1="30" y1={(svgHeight - 10) / 2} x2={svgWidth - 20} y2={(svgHeight - 10) / 2} stroke="#E5E1D8" strokeDasharray="3 3" />
+              <line x1="30" y1={svgHeight - 30} x2={svgWidth - 20} y2={svgHeight - 30} stroke="#E5E1D8" />
 
-              {/* Area Gradient Fill */}
-              <path d={areaD} fill="url(#trendGradient)" />
+              {/* Y Axis labels */}
+              <text x="24" y="24" textAnchor="end" className="hd-chart-axis-text">{maxVal}</text>
+              <text x="24" y={(svgHeight - 10) / 2 + 4} textAnchor="end" className="hd-chart-axis-text">{Math.round(maxVal / 2)}</text>
+              <text x="24" y={svgHeight - 27} textAnchor="end" className="hd-chart-axis-text">0</text>
 
-              {/* Line Curve */}
-              <path
-                d={pathD}
-                fill="none"
-                stroke="#13513C"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-              />
+              {/* Area & Line */}
+              {areaD && (
+                <path d={areaD} fill="url(#trendGradient)" />
+              )}
+              {pathD && (
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke="#0F3024"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                />
+              )}
 
-              {/* Data Point Dots */}
-              {coords.map((c, i) => (
+              {/* Data points */}
+              {coords.map((pt, i) => (
                 <circle
                   key={i}
-                  cx={c.x}
-                  cy={c.y}
-                  r="3.5"
-                  fill="#13513C"
+                  cx={pt.x}
+                  cy={pt.y}
+                  r={totalRequests > 0 ? 3.5 : 2}
+                  fill="#0F3024"
                   stroke="#FFFFFF"
                   strokeWidth="1.5"
                 />
               ))}
 
-              {/* X-axis Labels */}
-              {coords.map((c, i) => (
+              {/* X Axis Labels */}
+              {coords.map((pt, i) => (
                 <text
                   key={i}
-                  x={c.x}
-                  y={svgHeight - 8}
-                  fill="#758A81"
-                  fontSize="8.5"
-                  fontFamily="Inter, sans-serif"
+                  x={pt.x}
+                  y={svgHeight - 10}
                   textAnchor="middle"
+                  className="hd-chart-axis-text"
                 >
-                  {c.label}
+                  {pt.label}
                 </text>
               ))}
             </svg>
           </div>
         </div>
 
-        {/* Requests by Status Donut Card */}
-        <div className="hd-card hd-status-donut-card">
-          <div className="hd-card-header-block">
-            <h3 className="hd-card-title">Requests by Status</h3>
-            <span className="hd-card-desc">Current distribution of all requests.</span>
+        {/* Requests by Status Card */}
+        <div className="hd-card hd-reports-chart-card">
+          <div className="hd-card-header">
+            <div>
+              <h3 className="hd-card-title">Requests by Status</h3>
+              <p className="hd-card-desc">Current distribution of all requests.</p>
+            </div>
           </div>
-
-          <div className="hd-status-donut-body">
-            <div className="hd-donut-container">
-              <svg width="150" height="150" viewBox="0 0 150 150" className="hd-donut-svg">
-                {/* Background Ring */}
+          <div className="hd-status-donut-container">
+            <div className="hd-donut-wrapper">
+              <svg viewBox="0 0 100 100" className="hd-donut-svg">
                 <circle
-                  cx="75"
-                  cy="75"
-                  r="56"
-                  fill="transparent"
-                  stroke="#E8E2D5"
-                  strokeWidth="20"
+                  cx="50"
+                  cy="50"
+                  r={donutRadius}
+                  fill="none"
+                  stroke="#EFECE6"
+                  strokeWidth="14"
                 />
-                {/* Resolved (50%) -> Green */}
-                <circle
-                  cx="75"
-                  cy="75"
-                  r="56"
-                  fill="transparent"
-                  stroke="#13513C"
-                  strokeWidth="20"
-                  strokeDasharray={`${0.5 * 351.8} 351.8`}
-                  strokeDashoffset="0"
-                  transform="rotate(-90 75 75)"
-                />
-                {/* Pending (25%) -> Sage Green */}
-                <circle
-                  cx="75"
-                  cy="75"
-                  r="56"
-                  fill="transparent"
-                  stroke="#9CB3A3"
-                  strokeWidth="20"
-                  strokeDasharray={`${0.25 * 351.8} 351.8`}
-                  strokeDashoffset={`-${0.5 * 351.8}`}
-                  transform="rotate(-90 75 75)"
-                />
-                {/* In Progress (25%) -> Light warm grey */}
-                <circle
-                  cx="75"
-                  cy="75"
-                  r="56"
-                  fill="transparent"
-                  stroke="#D5D8D3"
-                  strokeWidth="20"
-                  strokeDasharray={`${0.25 * 351.8} 351.8`}
-                  strokeDashoffset={`-${0.75 * 351.8}`}
-                  transform="rotate(-90 75 75)"
-                />
+                {totalRequests > 0 ? (
+                  <>
+                    {/* Resolved */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={donutRadius}
+                      fill="none"
+                      stroke="#0F3024"
+                      strokeWidth="14"
+                      strokeDasharray={`${resolvedDash} ${donutCircumference}`}
+                      strokeDashoffset={-resolvedOffset}
+                      strokeLinecap="round"
+                    />
+                    {/* Pending */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={donutRadius}
+                      fill="none"
+                      stroke="#7D988B"
+                      strokeWidth="14"
+                      strokeDasharray={`${pendingDash} ${donutCircumference}`}
+                      strokeDashoffset={-(resolvedDash)}
+                      strokeLinecap="round"
+                    />
+                    {/* In Progress */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={donutRadius}
+                      fill="none"
+                      stroke="#C8D4CD"
+                      strokeWidth="14"
+                      strokeDasharray={`${inProgressDash} ${donutCircumference}`}
+                      strokeDashoffset={-(resolvedDash + pendingDash)}
+                      strokeLinecap="round"
+                    />
+                  </>
+                ) : null}
               </svg>
               <div className="hd-donut-center">
-                <span className="hd-donut-total">{totalRequests}</span>
+                <span className="hd-donut-value">{totalRequests}</span>
                 <span className="hd-donut-label">Total</span>
               </div>
             </div>
 
-            <div className="hd-donut-legend hd-status-legend">
+            <div className="hd-status-legend">
               <div className="hd-legend-item">
-                <span className="hd-legend-color" style={{ backgroundColor: '#13513C' }} />
-                <span className="hd-legend-name">Resolved</span>
-                <span className="hd-legend-val">{resolvedCount} (50%)</span>
+                <span className="hd-legend-dot" style={{ backgroundColor: '#0F3024' }} />
+                <span className="hd-legend-label">Resolved</span>
+                <span className="hd-legend-count">{resolvedCount} ({resolvedPct}%)</span>
               </div>
               <div className="hd-legend-item">
-                <span className="hd-legend-color" style={{ backgroundColor: '#9CB3A3' }} />
-                <span className="hd-legend-name">Pending</span>
-                <span className="hd-legend-val">{pendingCount} (25%)</span>
+                <span className="hd-legend-dot" style={{ backgroundColor: '#7D988B' }} />
+                <span className="hd-legend-label">Pending</span>
+                <span className="hd-legend-count">{pendingCount} ({pendingPct}%)</span>
               </div>
               <div className="hd-legend-item">
-                <span className="hd-legend-color" style={{ backgroundColor: '#D5D8D3' }} />
-                <span className="hd-legend-name">In Progress</span>
-                <span className="hd-legend-val">{inProgressCount} (25%)</span>
+                <span className="hd-legend-dot" style={{ backgroundColor: '#C8D4CD' }} />
+                <span className="hd-legend-label">In Progress</span>
+                <span className="hd-legend-count">{inProgressCount} ({inProgressPct}%)</span>
               </div>
             </div>
           </div>
@@ -348,83 +395,81 @@ export function HandlerReportsView({
 
       {/* Bottom Grid: Request by Type + Recent Reports */}
       <div className="hd-reports-bottom-grid">
-        {/* Request by Type Bars Card */}
-        <div className="hd-card hd-type-progress-card">
-          <div className="hd-card-header-block">
-            <h3 className="hd-card-title">Request by Type</h3>
-            <span className="hd-card-desc">Returns vs replacements distribution.</span>
+        {/* Request by Type */}
+        <div className="hd-card hd-type-compact-card">
+          <div className="hd-card-header">
+            <div>
+              <h3 className="hd-card-title">Request by Type</h3>
+              <p className="hd-card-desc">Returns vs replacements distribution.</p>
+            </div>
           </div>
-
-          <div className="hd-type-progress-body">
-            <div className="hd-progress-row">
-              <span className="hd-progress-label">Returns</span>
-              <div className="hd-progress-track">
+          <div className="hd-type-compact-body">
+            <div className="hd-type-bar-row">
+              <span className="hd-type-bar-label">Returns</span>
+              <div className="hd-type-track">
                 <div
-                  className="hd-progress-bar"
-                  style={{ width: '54%', backgroundColor: '#13513C' }}
+                  className="hd-type-fill"
+                  style={{ width: `${returnsPct}%`, backgroundColor: '#0F3024' }}
                 />
               </div>
-              <span className="hd-progress-val">26 (54%)</span>
+              <span className="hd-type-bar-val">{returnsCount} ({returnsPct}%)</span>
             </div>
 
-            <div className="hd-progress-row">
-              <span className="hd-progress-label">Replacements</span>
-              <div className="hd-progress-track">
+            <div className="hd-type-bar-row">
+              <span className="hd-type-bar-label">Replacements</span>
+              <div className="hd-type-track">
                 <div
-                  className="hd-progress-bar"
-                  style={{ width: '46%', backgroundColor: '#13513C' }}
+                  className="hd-type-fill"
+                  style={{ width: `${replacementsPct}%`, backgroundColor: '#1A4D3A' }}
                 />
               </div>
-              <span className="hd-progress-val">22 (46%)</span>
+              <span className="hd-type-bar-val">{replacementsCount} ({replacementsPct}%)</span>
             </div>
           </div>
         </div>
 
-        {/* Recent Reports Table Card */}
-        <div className="hd-card hd-recent-reports-card">
-          <div className="hd-card-header-block">
-            <h3 className="hd-card-title">Recent Reports</h3>
-            <span className="hd-card-desc">Recently generated and downloaded reports.</span>
+        {/* Recent Reports */}
+        <div className="hd-card hd-type-compact-card">
+          <div className="hd-card-header">
+            <div>
+              <h3 className="hd-card-title">Recent Reports</h3>
+              <p className="hd-card-desc">Recently generated and downloaded reports.</p>
+            </div>
           </div>
-
-          <div className="hd-table-wrapper">
-            <table className="hd-table hd-reports-table">
-              <thead>
-                <tr>
-                  <th>REPORT NAME</th>
-                  <th>TYPE</th>
-                  <th>GENERATED ON</th>
-                  <th style={{ textAlign: 'right' }}>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentReports.map((rep) => (
-                  <tr key={rep.id}>
-                    <td>
-                      <div className="hd-report-name-cell">
-                        <FileText size={16} strokeWidth={1.8} className="hd-report-file-icon" />
-                        <span className="hd-report-name">{rep.name}</span>
-                      </div>
+          <table className="hd-table hd-reports-table">
+            <thead>
+              <tr>
+                <th>REPORT NAME</th>
+                <th>TYPE</th>
+                <th>GENERATED ON</th>
+                <th>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {totalRequests > 0 ? (
+                <>
+                  <tr>
+                    <td className="hd-report-name-cell">
+                      <span className="hd-report-name">Requests Summary (Last 30 Days)</span>
+                    </td>
+                    <td><span className="hd-report-type-badge">Summary</span></td>
+                    <td className="hd-cell-timestamp">
+                      {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
                     <td>
-                      <span className="hd-report-type-badge">{rep.type}</span>
-                    </td>
-                    <td className="hd-cell-subtle">{rep.date}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        className="hd-table-action-btn"
-                        title="Download report"
-                        onClick={handleExport}
-                      >
+                      <button type="button" className="hd-table-action-btn" title="Download" onClick={handleExport}>
                         <Download size={15} />
                       </button>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </>
+              ) : (
+                <tr>
+                  <td colSpan={4} className="hd-table-empty">No reports generated yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -432,4 +477,3 @@ export function HandlerReportsView({
 }
 
 export default HandlerReportsView;
-

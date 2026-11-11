@@ -1,8 +1,9 @@
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select
+from sqlalchemy import select, func, and_
 
 from backend.Database.models import (
     Department,
@@ -128,17 +129,17 @@ def list_return_claims_for_handler(
             ),
         )
 
-    if workflow_status:
+    if workflow_status and workflow_status != "all":
         query = query.filter(
             ReturnRequest.workflow_status == workflow_status
         )
 
-    if resolution_type:
+    if resolution_type and resolution_type != "all":
         query = query.filter(
             ReturnRequest.resolution_type == resolution_type
         )
 
-    if search:
+    if search and search.strip():
         search_term = f"%{search.strip()}%"
         query = query.join(ReturnRequest.order, isouter=True).join(CommerceOrder.user, isouter=True).filter(
             (CommerceOrder.order_number.ilike(search_term)) |
@@ -154,7 +155,6 @@ def list_return_claims_for_handler(
     ).offset(offset).limit(limit).all()
 
     items = []
-
     for claim in claims:
         order = claim.order
         customer = order.user if order else None
@@ -170,6 +170,7 @@ def list_return_claims_for_handler(
             "sku": order_item.sku if order_item else None,
             "quantity": claim.quantity,
             "customer_name": customer.name if customer else None,
+            "customer_email": customer.email if customer else None,
             "resolution_type": claim.resolution_type,
             "reason_code": claim.reason_code,
             "description": claim.description,
@@ -180,11 +181,43 @@ def list_return_claims_for_handler(
             ),
         })
 
+    # Calculate real tab counts for Review Queue
+    active_base = db.query(ReturnRequest).filter(
+        ReturnRequest.workflow_status.isnot(None),
+        ReturnRequest.workflow_status.notin_(["rejected", "completed", "cancelled"])
+    )
+    total_queue = active_base.count()
+    pending_queue = active_base.filter(ReturnRequest.workflow_status.in_(["pending_review", "requested", "under_review"])).count()
+    info_queue = active_base.filter(ReturnRequest.workflow_status == "information_requested").count()
+    inspection_queue = active_base.filter(ReturnRequest.workflow_status.in_(["under_inspection", "inspection"])).count()
+
+    # Calculate real KPI counts for Requests Directory
+    total_all = db.query(ReturnRequest).count()
+    returns_all = db.query(ReturnRequest).filter(
+        (ReturnRequest.resolution_type == "refund") | (ReturnRequest.resolution_type.is_(None))
+    ).count()
+    replacements_all = db.query(ReturnRequest).filter(ReturnRequest.resolution_type == "replacement").count()
+    pending_all = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["pending_review", "requested", "under_review"])).count()
+    resolved_all = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["resolved", "completed"])).count()
+
     return {
         "items": items,
         "total": total,
         "limit": limit,
         "offset": offset,
+        "tab_counts": {
+            "all": total_queue,
+            "pending": pending_queue,
+            "info": info_queue,
+            "inspection": inspection_queue,
+        },
+        "kpi_counts": {
+            "total_requests": total_all,
+            "returns": returns_all,
+            "replacements": replacements_all,
+            "pending_action": pending_all,
+            "resolved": resolved_all,
+        }
     }
 
 
@@ -206,13 +239,13 @@ def list_tracking_handoffs_for_handler(
         selectinload(ReturnHandoff.destination_department),
     )
 
-    if status:
+    if status and status != "all":
         query = query.filter(ReturnHandoff.status == status)
 
-    if department_name:
-        query = query.join(ReturnHandoff.destination_department).filter(Department.name == department_name)
+    if department_name and department_name != "all":
+        query = query.join(ReturnHandoff.destination_department).filter(Department.name.ilike(f"%{department_name}%"))
 
-    if search:
+    if search and search.strip():
         search_term = f"%{search.strip()}%"
         query = query.join(ReturnHandoff.return_request).join(ReturnRequest.order).join(CommerceOrder.user).filter(
             (CommerceOrder.order_number.ilike(search_term)) |
@@ -240,17 +273,69 @@ def list_tracking_handoffs_for_handler(
             "last_updated": (h.updated_at or h.created_at).isoformat() if (h.updated_at or h.created_at) else None,
         })
 
+    total_tracked = db.query(ReturnHandoff).count()
+    with_other = db.query(ReturnHandoff).filter(ReturnHandoff.status.in_(["accepted", "in_progress"])).count()
+    awaiting = db.query(ReturnHandoff).filter(ReturnHandoff.status == "pending").count()
+    completed = db.query(ReturnHandoff).filter(ReturnHandoff.status == "completed").count()
+
     return {
         "items": items,
         "total": total,
         "limit": limit,
         "offset": offset,
+        "kpi_counts": {
+            "total_tracked": total_tracked,
+            "with_other": with_other,
+            "awaiting": awaiting,
+            "completed": completed,
+        }
+    }
+
+
+@handler_router.get("/tracking-handoffs/{handoff_id}")
+def get_tracking_handoff_details(
+    handoff_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_returns_handler(db, current_user)
+    h = db.query(ReturnHandoff).options(
+        selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+        selectinload(ReturnHandoff.source_department),
+        selectinload(ReturnHandoff.destination_department),
+    ).filter(ReturnHandoff.id == handoff_id).first()
+    if not h:
+        raise HTTPException(status_code=404, detail="Return handoff not found")
+
+    req = h.return_request
+    order = req.order if req else None
+    customer = order.user if order else None
+
+    return {
+        "id": h.id,
+        "request_id": f"TRN-{1000 + (req.id if req else h.id)}",
+        "claim_id": req.id if req else None,
+        "order_number": order.order_number if order else f"FK-ORD-{h.id}",
+        "customer_name": customer.name if customer else "Customer",
+        "customer_email": customer.email if customer else None,
+        "current_owner": h.destination_department.name if h.destination_department else "Pending",
+        "destination_department_id": h.destination_department_id,
+        "source_department_id": h.source_department_id,
+        "handoff_from": h.source_department.name if h.source_department else "Returns & Replacement",
+        "status": h.status,
+        "handoff_type": h.handoff_type,
+        "created_at": h.created_at.isoformat() if h.created_at else None,
+        "last_updated": (h.updated_at or h.created_at).isoformat() if (h.updated_at or h.created_at) else None,
+        "completed_at": h.completed_at.isoformat() if h.completed_at else None,
+        "failure_reason": h.failure_reason,
+        "payload": h.payload or {},
     }
 
 
 @handler_router.get("/history-audit")
 def list_history_audit_for_handler(
     action: str | None = Query(default=None),
+    module: str | None = Query(default=None),
     search: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -264,8 +349,16 @@ def list_history_audit_for_handler(
         selectinload(ReturnRequestEvent.actor),
     )
 
-    if action:
-        query = query.filter(ReturnRequestEvent.event_type == action)
+    if action and action != "all":
+        query = query.filter(ReturnRequestEvent.event_type.ilike(f"%{action}%"))
+
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
+        query = query.join(ReturnRequestEvent.actor, isouter=True).filter(
+            (ReturnRequestEvent.event_type.ilike(search_term)) |
+            (ReturnRequestEvent.note.ilike(search_term)) |
+            (User.name.ilike(search_term))
+        )
 
     total = query.count()
     events = query.order_by(ReturnRequestEvent.created_at.desc()).offset(offset).limit(limit).all()
@@ -290,16 +383,34 @@ def list_history_audit_for_handler(
             "event_type": ev.event_type,
         })
 
+    total_activities = db.query(ReturnRequestEvent).count()
+    request_updates = db.query(ReturnRequestEvent).filter(
+        ReturnRequestEvent.event_type.ilike("%status%") | ReturnRequestEvent.event_type.ilike("%request%")
+    ).count()
+    handoffs_count = db.query(ReturnRequestEvent).filter(
+        ReturnRequestEvent.event_type.ilike("%handoff%")
+    ).count()
+    audit_logs_count = db.query(ReturnRequestEvent).filter(
+        ReturnRequestEvent.event_type.ilike("%audit%") | ReturnRequestEvent.event_type.ilike("%inspection%") | ReturnRequestEvent.event_type.ilike("%decision%")
+    ).count()
+
     return {
         "items": items,
         "total": total,
         "limit": limit,
         "offset": offset,
+        "kpi_counts": {
+            "total_activities": total_activities,
+            "request_updates": request_updates,
+            "handoffs": handoffs_count,
+            "audit_logs": audit_logs_count,
+        }
     }
 
 
 @handler_router.get("/overview-stats")
 def get_handler_overview_stats(
+    period: str = Query(default="month"),
     db: Session = Depends(get_db),
     current_user=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
@@ -324,6 +435,67 @@ def get_handler_overview_stats(
     ).count()
     replacements_count = db.query(ReturnRequest).filter(ReturnRequest.resolution_type == "replacement").count()
 
+    # Time-series activity based on real timestamps
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    activity_data = []
+
+    if period == "day":
+        days_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for i in range(6, -1, -1):
+            dt = now - timedelta(days=i)
+            start_dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+            cnt = db.query(ReturnRequest).filter(
+                ReturnRequest.requested_at >= start_dt,
+                ReturnRequest.requested_at <= end_dt
+            ).count()
+            activity_data.append({
+                "label": dt.strftime("%a"),
+                "value": cnt,
+                "is_current": (i == 0)
+            })
+    elif period == "week":
+        for i in range(3, -1, -1):
+            start_dt = now - timedelta(days=(i + 1) * 7)
+            end_dt = now - timedelta(days=i * 7)
+            cnt = db.query(ReturnRequest).filter(
+                ReturnRequest.requested_at >= start_dt,
+                ReturnRequest.requested_at <= end_dt
+            ).count()
+            activity_data.append({
+                "label": f"Wk {4 - i}",
+                "value": cnt,
+                "is_current": (i == 0)
+            })
+    else:  # month (last 6 months)
+        for i in range(5, -1, -1):
+            # calculate year and month
+            m = now.month - i
+            y = now.year
+            while m <= 0:
+                m += 12
+                y -= 1
+            month_start = datetime(y, m, 1)
+            if m == 12:
+                next_month = datetime(y + 1, 1, 1)
+            else:
+                next_month = datetime(y, m + 1, 1)
+
+            cnt = db.query(ReturnRequest).filter(
+                ReturnRequest.requested_at >= month_start,
+                ReturnRequest.requested_at < next_month
+            ).count()
+            activity_data.append({
+                "label": month_start.strftime("%b"),
+                "value": cnt,
+                "is_current": (i == 0)
+            })
+
+    # compute height_pct
+    max_val = max([a["value"] for a in activity_data] + [1])
+    for a in activity_data:
+        a["height_pct"] = int((a["value"] / max_val) * 85) if a["value"] > 0 else 0
+
     return {
         "total_requests": total_requests,
         "pending_review": pending_review,
@@ -332,29 +504,69 @@ def get_handler_overview_stats(
         "complaints": complaints_count,
         "returns_count": returns_count,
         "replacements_count": replacements_count,
+        "activity": activity_data,
     }
 
 
 @handler_router.get("/reports-stats")
 def get_handler_reports_stats(
     days: int = Query(default=30, ge=1, le=365),
+    request_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
     _require_returns_handler(db, current_user)
 
-    total_requests = db.query(ReturnRequest).count()
-    returns_dept = _returns_department(db)
-    complaints_count = db.query(Complaint).filter(Complaint.department_id == returns_dept.id).count()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    start_time = now - timedelta(days=days)
 
-    resolved_count = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["resolved", "completed"])).count()
-    pending_count = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["pending_review", "requested"])).count()
-    in_progress_count = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["in_process", "under_inspection", "information_requested"])).count()
+    query = db.query(ReturnRequest).filter(ReturnRequest.requested_at >= start_time)
 
-    returns_count = db.query(ReturnRequest).filter(
+    if request_type and request_type != "all":
+        query = query.filter(ReturnRequest.resolution_type == request_type)
+
+    if status and status != "all":
+        query = query.filter(ReturnRequest.workflow_status == status)
+
+    total_requests = query.count()
+
+    resolved_count = query.filter(ReturnRequest.workflow_status.in_(["resolved", "completed"])).count()
+    pending_count = query.filter(ReturnRequest.workflow_status.in_(["pending_review", "requested", "under_review"])).count()
+    in_progress_count = query.filter(ReturnRequest.workflow_status.in_(["in_process", "approved", "under_inspection", "information_requested"])).count()
+
+    returns_count = query.filter(
         (ReturnRequest.resolution_type == "refund") | (ReturnRequest.resolution_type.is_(None))
     ).count()
-    replacements_count = db.query(ReturnRequest).filter(ReturnRequest.resolution_type == "replacement").count()
+    replacements_count = query.filter(ReturnRequest.resolution_type == "replacement").count()
+
+    returns_dept = _returns_department(db)
+    complaints_count = db.query(Complaint).filter(
+        Complaint.department_id == returns_dept.id,
+        Complaint.create_at >= start_time
+    ).count()
+
+    # Time series trend data (11 points across the days window)
+    num_points = 11
+    interval = max(1, days // (num_points - 1))
+    trend_data = []
+
+    for i in range(num_points):
+        pt_date = start_time + timedelta(days=i * interval)
+        if pt_date > now:
+            pt_date = now
+        pt_start = pt_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        pt_end = pt_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        pt_cnt = query.filter(
+            ReturnRequest.requested_at >= pt_start,
+            ReturnRequest.requested_at <= pt_end
+        ).count()
+
+        trend_data.append({
+            "label": pt_date.strftime("%b %d"),
+            "val": pt_cnt
+        })
 
     return {
         "total_requests": total_requests,
@@ -364,6 +576,7 @@ def get_handler_reports_stats(
         "in_progress": in_progress_count,
         "returns_count": returns_count,
         "replacements_count": replacements_count,
+        "trend": trend_data,
     }
 
 

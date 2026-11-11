@@ -74,6 +74,77 @@ export const handlerService = {
   },
 
   /**
+   * Approve a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/approve
+   */
+  async approveClaim(claimId, note) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+  },
+
+  /**
+   * Reject a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/reject
+   */
+  async rejectClaim(claimId, note) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+  },
+
+  /**
+   * Request additional information for a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/request-information
+   */
+  async requestInformation(claimId, note) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/request-information`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+  },
+
+  /**
+   * Record inspection for a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/inspections
+   */
+  async recordInspection(claimId, payload) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/inspections`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Get single complaint by ID.
+   * GET /api/v1/handler/complaints/{id}
+   */
+  async getComplaintDetails(complaintId) {
+    return await apiRequest(`/api/v1/handler/complaints/${complaintId}`, { method: 'GET' });
+  },
+
+  /**
+   * Get single tracking handoff by ID.
+   * GET /api/v1/departments/tracking-handoffs/{id}
+   */
+  async getHandoffDetails(handoffId) {
+    return await apiRequest(`/api/v1/departments/tracking-handoffs/${handoffId}`, { method: 'GET' });
+  },
+
+  /**
+   * Update return handoff status.
+   * PATCH /api/v1/departments/return-handoffs/{handoff_id}/status
+   */
+  async updateHandoffStatus(handoffId, newStatus, note) {
+    return await apiRequest(`/api/v1/departments/return-handoffs/${handoffId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: newStatus, note: note || 'Status updated by handler' }),
+    });
+  },
+
+  /**
    * List tracking handoffs between departments.
    * GET /api/v1/departments/tracking-handoffs
    */

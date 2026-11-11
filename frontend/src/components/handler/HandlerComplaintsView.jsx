@@ -5,68 +5,92 @@ import {
   ArrowLeftRight,
   CheckCircle2,
   Search,
-  Filter,
-  ChevronLeft,
-  ChevronRight,
+  RotateCcw,
   MoreHorizontal,
+  ExternalLink,
 } from 'lucide-react';
 import { HandlerKPICard } from './HandlerKPICard';
 import { HandlerStatusBadge } from './HandlerStatusBadge';
+import { HandlerPagination } from './HandlerPagination';
 
 export function HandlerComplaintsView({
   complaints = [],
   loading = false,
+  onNavigate,
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedTimeframe, setSelectedTimeframe] = useState('30days');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 5;
+  const [pageSize, setPageSize] = useState(5);
+  const [activeMenuId, setActiveMenuId] = useState(null);
 
-  const totalComplaints = complaints.length > 0 ? complaints.length : 6;
-  const pendingActionCount = 2;
-  const inProgressCount = 2;
-  const resolvedCount = 2;
+  // Real KPI calculations from genuine data
+  const totalComplaints = complaints.length;
+  const pendingActionCount = complaints.filter(
+    (c) => (c.status || '').toLowerCase() === 'pending'
+  ).length;
+  const inProgressCount = complaints.filter(
+    (c) =>
+      ['in progress', 'in_progress', 'followed_up', 'in-process'].includes(
+        (c.status || '').toLowerCase()
+      )
+  ).length;
+  const resolvedCount = complaints.filter(
+    (c) =>
+      ['resolved', 'closed', 'completed'].includes(
+        (c.status || '').toLowerCase()
+      )
+  ).length;
 
-  const initialComplaints = useMemo(() => {
-    if (complaints && complaints.length > 0) {
-      return complaints.map((c, idx) => ({
-        id: `CMP-${1006 - idx}`,
-        rawId: c.id,
-        requestId: `TRN-${1030 - idx * 2}`,
-        orderId: c.order_number || `FK-2026110${7 - (idx % 4)}-${6622 - idx * 1112}`,
-        customer: c.user_name || 'Customer',
-        subject: c.subject || c.description || 'Status update for my return request',
-        status: c.status || 'Pending',
-        raisedOn: c.create_at ? new Date(c.create_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Nov 9, 2026, 5:42 PM',
-      }));
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setSelectedStatus('all');
+    setSelectedTimeframe('30days');
+    setCurrentPage(1);
+  };
+
+  const handleRowClick = (complaintId) => {
+    if (onNavigate) {
+      onNavigate('handler-dashboard', `/handler/complaints/${complaintId}`);
     }
-    return [
-      { id: 'CMP-1006', requestId: 'TRN-1030', orderId: 'FK-20261107-6622', customer: 'Priya', subject: 'Status update for my return request', status: 'Pending', raisedOn: 'Nov 9, 2026, 5:42 PM' },
-      { id: 'CMP-1005', requestId: 'TRN-1029', orderId: 'FK-20261106-5510', customer: 'Sneha', subject: 'When will my pickup be scheduled?', status: 'In Progress', raisedOn: 'Nov 8, 2026, 4:20 PM' },
-      { id: 'CMP-1004', requestId: 'TRN-1028', orderId: 'FK-20261106-5509', customer: 'Karan', subject: 'Need update on replacement delivery', status: 'Resolved', raisedOn: 'Nov 8, 2026, 2:11 PM' },
-      { id: 'CMP-1003', requestId: 'TRN-1026', orderId: 'FK-20261105-4390', customer: 'Rahul', subject: 'Return pickup delayed', status: 'Pending', raisedOn: 'Nov 7, 2026, 11:37 AM' },
-      { id: 'CMP-1002', requestId: 'TRN-1024', orderId: 'FK-20261104-3210', customer: 'Neha', subject: 'Replacement not yet dispatched', status: 'Resolved', raisedOn: 'Nov 6, 2026, 6:14 PM' },
-      { id: 'CMP-1001', requestId: 'TRN-1022', orderId: 'FK-20261103-2109', customer: 'Amit', subject: 'Refund amount mismatch', status: 'In Progress', raisedOn: 'Nov 5, 2026, 3:10 PM' },
-    ];
-  }, [complaints]);
+  };
 
   const filtered = useMemo(() => {
-    return initialComplaints.filter((item) => {
-      if (selectedStatus !== 'all' && !item.status.toLowerCase().includes(selectedStatus.toLowerCase())) return false;
+    return complaints.filter((item) => {
+      const statusStr = (item.status || '').toLowerCase();
+      if (selectedStatus !== 'all') {
+        if (selectedStatus === 'pending' && statusStr !== 'pending') return false;
+        if (
+          selectedStatus === 'progress' &&
+          !['in progress', 'in_progress', 'followed_up', 'in-process'].includes(statusStr)
+        )
+          return false;
+        if (
+          selectedStatus === 'resolved' &&
+          !['resolved', 'closed', 'completed'].includes(statusStr)
+        )
+          return false;
+      }
+
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
+        const idStr = String(item.id || item.complaint_id || '');
+        const reqStr = String(item.request_id || item.claim_id || '');
+        const orderStr = String(item.order_number || item.order_id || '');
+        const custStr = String(item.user_name || item.customer_name || '');
+        const textStr = String(item.subject || item.complaint_text || '');
         return (
-          item.id.toLowerCase().includes(q) ||
-          item.requestId.toLowerCase().includes(q) ||
-          item.orderId.toLowerCase().includes(q) ||
-          item.customer.toLowerCase().includes(q) ||
-          item.subject.toLowerCase().includes(q)
+          idStr.toLowerCase().includes(q) ||
+          reqStr.toLowerCase().includes(q) ||
+          orderStr.toLowerCase().includes(q) ||
+          custStr.toLowerCase().includes(q) ||
+          textStr.toLowerCase().includes(q)
         );
       }
       return true;
     });
-  }, [initialComplaints, selectedStatus, searchTerm]);
+  }, [complaints, selectedStatus, searchTerm]);
 
   const displayed = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
@@ -132,15 +156,20 @@ export function HandlerComplaintsView({
           <select
             className="hd-select"
             value={selectedTimeframe}
-            onChange={(e) => setSelectedTimeframe(e.target.value)}
+            onChange={(e) => { setSelectedTimeframe(e.target.value); setCurrentPage(1); }}
           >
             <option value="30days">Last 30 Days</option>
             <option value="7days">Last 7 Days</option>
             <option value="90days">Last 90 Days</option>
           </select>
 
-          <button type="button" className="hd-icon-btn" title="More Filters">
-            <Filter size={16} strokeWidth={1.8} />
+          <button
+            type="button"
+            className="hd-icon-btn hd-filter-reset-btn"
+            title="Reset all filters"
+            onClick={handleResetFilters}
+          >
+            <RotateCcw size={16} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -151,69 +180,114 @@ export function HandlerComplaintsView({
           <table className="hd-table">
             <thead>
               <tr>
-                <th>COMPLAINT ID</th>
-                <th>REQUEST ID</th>
-                <th>ORDER ID</th>
-                <th>CUSTOMER</th>
+                <th style={{ width: '120px' }}>COMPLAINT ID</th>
+                <th style={{ width: '120px' }}>REQUEST ID</th>
+                <th style={{ width: '140px' }}>ORDER ID</th>
+                <th style={{ width: '130px' }}>CUSTOMER</th>
                 <th>SUBJECT</th>
-                <th>STATUS</th>
-                <th>RAISED ON</th>
-                <th style={{ textAlign: 'right' }}>ACTIONS</th>
+                <th style={{ width: '130px' }}>STATUS</th>
+                <th style={{ width: '170px' }}>RAISED ON</th>
+                <th style={{ width: '80px', textAlign: 'right' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
-              {displayed.map((c) => (
-                <tr key={c.id}>
-                  <td className="hd-cell-id">{c.id}</td>
-                  <td className="hd-cell-subtle">{c.requestId}</td>
-                  <td className="hd-cell-subtle">{c.orderId}</td>
-                  <td className="hd-cell-bold">{c.customer}</td>
-                  <td className="hd-cell-subject">{c.subject}</td>
-                  <td>
-                    <HandlerStatusBadge status={c.status} />
-                  </td>
-                  <td className="hd-cell-subtle">{c.raisedOn}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button type="button" className="hd-table-action-btn" title="Actions">
-                      <MoreHorizontal size={16} />
-                    </button>
+              {loading ? (
+                <tr>
+                  <td colSpan="8" className="hd-table-empty">
+                    Loading complaints...
                   </td>
                 </tr>
-              ))}
+              ) : displayed.length === 0 ? (
+                <tr>
+                  <td colSpan="8" className="hd-table-empty">
+                    No complaints found matching the current criteria.
+                  </td>
+                </tr>
+              ) : (
+                displayed.map((c) => {
+                  const cmpId = c.id || c.complaint_id;
+                  const displayId = `CMP-${cmpId}`;
+                  const reqId = c.request_id || c.claim_id ? `TRN-${c.request_id || c.claim_id}` : '—';
+                  const orderId = c.order_number || (c.order_id ? `FK-${c.order_id}` : '—');
+                  const customer = c.user_name || c.customer_name || 'Customer';
+                  const subject = c.subject || c.complaint_text || 'Customer complaint';
+                  const raisedOn = c.create_at
+                    ? new Date(c.create_at).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })
+                    : '—';
+
+                  return (
+                    <tr
+                      key={cmpId}
+                      className="hd-table-row-clickable"
+                      onClick={() => handleRowClick(cmpId)}
+                    >
+                      <td className="hd-cell-id">{displayId}</td>
+                      <td className="hd-cell-subtle">{reqId}</td>
+                      <td className="hd-cell-subtle">{orderId}</td>
+                      <td className="hd-cell-bold">{customer}</td>
+                      <td className="hd-cell-subject" title={subject}>
+                        {subject}
+                      </td>
+                      <td>
+                        <HandlerStatusBadge status={c.status || 'Pending'} />
+                      </td>
+                      <td className="hd-cell-timestamp">{raisedOn}</td>
+                      <td
+                        style={{ textAlign: 'right', position: 'relative' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          className="hd-table-action-btn"
+                          title="Actions"
+                          onClick={() => setActiveMenuId(activeMenuId === cmpId ? null : cmpId)}
+                        >
+                          <MoreHorizontal size={16} />
+                        </button>
+                        {activeMenuId === cmpId && (
+                          <div className="hd-action-dropdown">
+                            <button
+                              type="button"
+                              className="hd-action-dropdown-item"
+                              onClick={() => {
+                                setActiveMenuId(null);
+                                handleRowClick(cmpId);
+                              }}
+                            >
+                              <ExternalLink size={14} />
+                              View & Manage
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
 
         {/* Pagination Footer */}
-        <div className="hd-pagination-row">
-          <span className="hd-pagination-info">
-            Showing 1-{displayed.length} of {totalComplaints}
-          </span>
-          <div className="hd-pagination-controls">
-            <button
-              type="button"
-              className="hd-page-nav-btn"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button type="button" className="hd-page-num-btn active">1</button>
-            <button type="button" className="hd-page-num-btn">2</button>
-            <button
-              type="button"
-              className="hd-page-nav-btn"
-              disabled={currentPage === 2}
-              onClick={() => setCurrentPage(2)}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </div>
+        <HandlerPagination
+          currentPage={currentPage}
+          totalItems={filtered.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(newSize) => {
+            setPageSize(newSize);
+            setCurrentPage(1);
+          }}
+        />
       </div>
     </div>
   );
 }
 
 export default HandlerComplaintsView;
-
