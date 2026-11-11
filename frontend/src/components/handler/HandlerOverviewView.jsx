@@ -91,9 +91,9 @@ export function HandlerOverviewView({
         </span>
       </div>
 
-      {/* Top Grid: Total Requests + Quick Actions (Left) and 4 KPI Cards (Right) */}
+      {/* Main Overview Layout */}
       <div className="hd-overview-top-grid">
-        {/* Dominant Left Card */}
+        {/* LEFT: Total Requests + Quick Actions */}
         <div className="hd-overview-dominant-card">
           <div className="hd-dominant-header">
             <span className="hd-dominant-label">TOTAL REQUESTS</span>
@@ -150,145 +150,148 @@ export function HandlerOverviewView({
           </div>
         </div>
 
-        {/* 4 KPI Cards */}
-        <div className="hd-overview-kpi-grid">
-          <HandlerKPICard
-            title="Pending Review"
-            value={pendingReview}
-            icon={ClipboardList}
-            subtitle="Needs your action"
-          />
-          <HandlerKPICard
-            title="In Process"
-            value={inProcess}
-            icon={RefreshCw}
-            subtitle="With other departments"
-          />
-          <HandlerKPICard
-            title="Resolved"
-            value={resolved}
-            icon={CheckCircle2}
-            subtitle="Completed requests"
-          />
-          <HandlerKPICard
-            title="Complaints"
-            value={complaintsCount}
-            icon={MessageSquare}
-            subtitle="Related to returns/replacements"
-            viewAllLink="View All →"
-            onViewAll={() => onNavigate && onNavigate('handler-dashboard', '/handler/complaints')}
-          />
-        </div>
-      </div>
-
-      {/* Middle Section: Request Activity + Request by Type */}
-      <div className="hd-overview-middle-grid">
-        {/* Request Activity Card */}
-        <div className="hd-card hd-activity-card">
-          <div className="hd-card-header-row">
-            <div>
-              <h3 className="hd-card-title">Request Activity</h3>
-              <div className="hd-activity-metric">
-                <span className="hd-activity-number">{totalRequests}</span>
-                <span className="hd-activity-label">Total requests</span>
-              </div>
-            </div>
-            <div className="hd-timeframe-toggle">
-              {['Day', 'Week', 'Month'].map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={`hd-timeframe-btn ${activityTimeframe === t ? 'active' : ''}`}
-                  onClick={() => handleTimeframeClick(t)}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
+        {/* RIGHT: KPIs + Charts */}
+        <div className="hd-overview-right-column">
+          {/* First row: Four KPI cards */}
+          <div className="hd-overview-kpi-grid">
+            <HandlerKPICard
+              title="Pending Review"
+              value={pendingReview}
+              icon={ClipboardList}
+              subtitle="Needs your action"
+            />
+            <HandlerKPICard
+              title="In Process"
+              value={inProcess}
+              icon={RefreshCw}
+              subtitle="With other departments"
+            />
+            <HandlerKPICard
+              title="Resolved"
+              value={resolved}
+              icon={CheckCircle2}
+              subtitle="Completed requests"
+            />
+            <HandlerKPICard
+              title="Complaints"
+              value={complaintsCount}
+              icon={MessageSquare}
+              subtitle="Related to returns/replacements"
+              viewAllLink="View All →"
+              onViewAll={() => onNavigate && onNavigate('handler-dashboard', '/handler/complaints')}
+            />
           </div>
 
-          <div className="hd-activity-chart-container">
-            {activityData.length === 0 ? (
-              <div className="hd-chart-empty-state">No activity data available for the selected period.</div>
-            ) : (
-              <div className="hd-activity-bars">
-                {activityData.map((m) => (
-                  <div key={m.label} className="hd-activity-bar-col">
-                    <div className="hd-activity-bar-track">
-                      <div
-                        className={`hd-activity-bar-fill ${m.is_current ? 'current' : ''}`}
-                        style={{ height: `${m.height_pct ?? 0}%` }}
-                        title={`${m.label}: ${m.value} requests`}
-                      />
-                    </div>
-                    <span className="hd-activity-bar-label">{m.label}</span>
+          {/* Second row: Both charts */}
+          <div className="hd-overview-middle-grid">
+            {/* Request Activity Card */}
+            <div className="hd-card hd-activity-card">
+              <div className="hd-card-header-row">
+                <div>
+                  <h3 className="hd-card-title">Request Activity</h3>
+                  <div className="hd-activity-metric">
+                    <span className="hd-activity-number">{totalRequests}</span>
+                    <span className="hd-activity-label">Total requests</span>
                   </div>
-                ))}
+                </div>
+                <div className="hd-timeframe-toggle">
+                  {['Day', 'Week', 'Month'].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`hd-timeframe-btn ${activityTimeframe === t ? 'active' : ''}`}
+                      onClick={() => handleTimeframeClick(t)}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Request by Type Card */}
-        <div className="hd-card hd-type-card">
-          <h3 className="hd-card-title">Request by Type</h3>
-          <div className="hd-type-card-body">
-            <div className="hd-donut-container">
-              <svg width="130" height="130" viewBox="0 0 130 130" className="hd-donut-svg">
-                {/* Background Ring */}
-                <circle
-                  cx="65"
-                  cy="65"
-                  r="48"
-                  fill="transparent"
-                  stroke="#E8E2D5"
-                  strokeWidth="18"
-                />
-                {totalRequests > 0 && (
-                  <>
-                    {/* Returns Segment */}
-                    <circle
-                      cx="65"
-                      cy="65"
-                      r="48"
-                      fill="transparent"
-                      stroke="#13513C"
-                      strokeWidth="18"
-                      strokeDasharray={`${(returnsPct / 100) * 301.6} 301.6`}
-                      strokeDashoffset="0"
-                      transform="rotate(-90 65 65)"
-                    />
-                    {/* Replacements Segment */}
-                    <circle
-                      cx="65"
-                      cy="65"
-                      r="48"
-                      fill="transparent"
-                      stroke="#D3C7AB"
-                      strokeWidth="18"
-                      strokeDasharray={`${(replacementsPct / 100) * 301.6} 301.6`}
-                      strokeDashoffset={`-${(returnsPct / 100) * 301.6}`}
-                      transform="rotate(-90 65 65)"
-                    />
-                  </>
+              <div className="hd-activity-chart-container">
+                {activityData.length === 0 ? (
+                  <div className="hd-chart-empty-state">No activity data available for the selected period.</div>
+                ) : (
+                  <div className="hd-activity-bars">
+                    {activityData.map((m) => (
+                      <div key={m.label} className="hd-activity-bar-col">
+                        <div className="hd-activity-bar-track">
+                          <div
+                            className={`hd-activity-bar-fill ${m.is_current ? 'current' : ''}`}
+                            style={{ height: `${m.height_pct ?? 0}%` }}
+                            title={`${m.label}: ${m.value} requests`}
+                          />
+                        </div>
+                        <span className="hd-activity-bar-label">{m.label}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </svg>
-              <div className="hd-donut-center">
-                <span className="hd-donut-total">{totalRequests}</span>
-                <span className="hd-donut-label">Total</span>
               </div>
             </div>
 
-            <div className="hd-donut-legend">
-              <div className="hd-legend-item">
-                <span className="hd-legend-color" style={{ backgroundColor: '#13513C' }} />
-                <span className="hd-legend-name">Returns</span>
-                <span className="hd-legend-val">{returnsCount} ({returnsPct}%)</span>
-              </div>
-              <div className="hd-legend-item">
-                <span className="hd-legend-color" style={{ backgroundColor: '#D3C7AB' }} />
-                <span className="hd-legend-name">Replacements</span>
-                <span className="hd-legend-val">{replacementsCount} ({replacementsPct}%)</span>
+            {/* Request by Type Card */}
+            <div className="hd-card hd-type-card">
+              <h3 className="hd-card-title">Request by Type</h3>
+              <div className="hd-type-card-body">
+                <div className="hd-donut-container">
+                  <svg width="130" height="130" viewBox="0 0 130 130" className="hd-donut-svg">
+                    {/* Background Ring */}
+                    <circle
+                      cx="65"
+                      cy="65"
+                      r="48"
+                      fill="transparent"
+                      stroke="#E8E2D5"
+                      strokeWidth="18"
+                    />
+                    {totalRequests > 0 && (
+                      <>
+                        {/* Returns Segment */}
+                        <circle
+                          cx="65"
+                          cy="65"
+                          r="48"
+                          fill="transparent"
+                          stroke="#13513C"
+                          strokeWidth="18"
+                          strokeDasharray={`${(returnsPct / 100) * 301.6} 301.6`}
+                          strokeDashoffset="0"
+                          transform="rotate(-90 65 65)"
+                        />
+                        {/* Replacements Segment */}
+                        <circle
+                          cx="65"
+                          cy="65"
+                          r="48"
+                          fill="transparent"
+                          stroke="#D3C7AB"
+                          strokeWidth="18"
+                          strokeDasharray={`${(replacementsPct / 100) * 301.6} 301.6`}
+                          strokeDashoffset={`-${(returnsPct / 100) * 301.6}`}
+                          transform="rotate(-90 65 65)"
+                        />
+                      </>
+                    )}
+                  </svg>
+                  <div className="hd-donut-center">
+                    <span className="hd-donut-total">{totalRequests}</span>
+                    <span className="hd-donut-label">Total</span>
+                  </div>
+                </div>
+
+                <div className="hd-donut-legend">
+                  <div className="hd-legend-item">
+                    <span className="hd-legend-color" style={{ backgroundColor: '#13513C' }} />
+                    <span className="hd-legend-name">Returns</span>
+                    <span className="hd-legend-val">{returnsCount} ({returnsPct}%)</span>
+                  </div>
+                  <div className="hd-legend-item">
+                    <span className="hd-legend-color" style={{ backgroundColor: '#D3C7AB' }} />
+                    <span className="hd-legend-name">Replacements</span>
+                    <span className="hd-legend-val">{replacementsCount} ({replacementsPct}%)</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

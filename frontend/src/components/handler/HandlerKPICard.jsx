@@ -18,23 +18,25 @@ export function HandlerKPICard({
       </div>
       <div className="hd-kpi-value">{value ?? 0}</div>
       {(subtitle || trend || viewAllLink) && (
-        <div className="hd-kpi-footer">
-          {trend && (
-            <span className="hd-kpi-trend">
-              <span className="hd-kpi-trend-arrow">↑</span> {trend}
-            </span>
-          )}
-          {subtitle && <span className="hd-kpi-subtitle">{subtitle}</span>}
-          {viewAllLink && (
-            <button
-              type="button"
-              className="hd-kpi-view-all"
-              onClick={onViewAll}
-            >
-              {viewAllLink}
-            </button>
-          )}
-        </div>
+          <div className="hd-kpi-footer">
+            <div className="hd-kpi-footer-row">
+              {trend && (
+                <span className="hd-kpi-trend">
+                  <span className="hd-kpi-trend-arrow">↑</span> {trend}
+                </span>
+              )}
+              {subtitle && <span className="hd-kpi-subtitle">{subtitle}</span>}
+            </div>
+            {viewAllLink && (
+              <button
+                type="button"
+                className="hd-kpi-view-all"
+                onClick={onViewAll}
+              >
+                {viewAllLink}
+              </button>
+            )}
+          </div>
       )}
     </div>
   );
