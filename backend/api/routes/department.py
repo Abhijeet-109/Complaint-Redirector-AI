@@ -103,6 +103,9 @@ def list_departments_for_handlers(
 @handler_router.get("/returns")
 def list_return_claims_for_handler(
     workflow_status: str | None = Query(default=None, min_length=1),
+    include_all: bool = Query(default=False),
+    resolution_type: str | None = Query(default=None),
+    search: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -115,16 +118,33 @@ def list_return_claims_for_handler(
     query = db.query(ReturnRequest).options(
         selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
         selectinload(ReturnRequest.order_item),
-    ).filter(
-        ReturnRequest.workflow_status.isnot(None),
-        ReturnRequest.workflow_status.notin_(
-            ["rejected", "completed", "cancelled"]
-        ),
     )
+
+    if not include_all:
+        query = query.filter(
+            ReturnRequest.workflow_status.isnot(None),
+            ReturnRequest.workflow_status.notin_(
+                ["rejected", "completed", "cancelled"]
+            ),
+        )
 
     if workflow_status:
         query = query.filter(
             ReturnRequest.workflow_status == workflow_status
+        )
+
+    if resolution_type:
+        query = query.filter(
+            ReturnRequest.resolution_type == resolution_type
+        )
+
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.join(ReturnRequest.order, isouter=True).join(CommerceOrder.user, isouter=True).filter(
+            (CommerceOrder.order_number.ilike(search_term)) |
+            (User.name.ilike(search_term)) |
+            (ReturnRequest.reason.ilike(search_term)) |
+            (ReturnRequest.description.ilike(search_term))
         )
 
     total = query.count()
@@ -165,6 +185,185 @@ def list_return_claims_for_handler(
         "total": total,
         "limit": limit,
         "offset": offset,
+    }
+
+
+@handler_router.get("/tracking-handoffs")
+def list_tracking_handoffs_for_handler(
+    department_name: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_returns_handler(db, current_user)
+
+    query = db.query(ReturnHandoff).options(
+        selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+        selectinload(ReturnHandoff.source_department),
+        selectinload(ReturnHandoff.destination_department),
+    )
+
+    if status:
+        query = query.filter(ReturnHandoff.status == status)
+
+    if department_name:
+        query = query.join(ReturnHandoff.destination_department).filter(Department.name == department_name)
+
+    if search:
+        search_term = f"%{search.strip()}%"
+        query = query.join(ReturnHandoff.return_request).join(ReturnRequest.order).join(CommerceOrder.user).filter(
+            (CommerceOrder.order_number.ilike(search_term)) |
+            (User.name.ilike(search_term))
+        )
+
+    total = query.count()
+    handoffs = query.order_by(ReturnHandoff.updated_at.desc()).offset(offset).limit(limit).all()
+
+    items = []
+    for h in handoffs:
+        req = h.return_request
+        order = req.order if req else None
+        customer = order.user if order else None
+        items.append({
+            "id": h.id,
+            "request_id": f"TRN-{1000 + (req.id if req else h.id)}",
+            "claim_id": req.id if req else None,
+            "order_number": order.order_number if order else f"FK-ORD-{h.id}",
+            "customer_name": customer.name if customer else "Customer",
+            "current_owner": h.destination_department.name if h.destination_department else "Pending",
+            "handoff_from": h.source_department.name if h.source_department else "Returns & Replacement",
+            "status": h.status,
+            "handoff_type": h.handoff_type,
+            "last_updated": (h.updated_at or h.created_at).isoformat() if (h.updated_at or h.created_at) else None,
+        })
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@handler_router.get("/history-audit")
+def list_history_audit_for_handler(
+    action: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_returns_handler(db, current_user)
+
+    query = db.query(ReturnRequestEvent).options(
+        selectinload(ReturnRequestEvent.return_request).selectinload(ReturnRequest.order),
+        selectinload(ReturnRequestEvent.actor),
+    )
+
+    if action:
+        query = query.filter(ReturnRequestEvent.event_type == action)
+
+    total = query.count()
+    events = query.order_by(ReturnRequestEvent.created_at.desc()).offset(offset).limit(limit).all()
+
+    items = []
+    for ev in events:
+        req = ev.return_request
+        actor = ev.actor
+        action_name = ev.event_type.replace("_", " ").title()
+        ref_id = f"TRN-{1000 + req.id}" if req else f"EVT-{ev.id}"
+        details_text = ev.note or f"Status changed to {ev.new_status or ev.event_type}"
+        performed_by_name = f"{actor.name} (R&R)" if actor and actor.name else "System"
+
+        items.append({
+            "id": ev.id,
+            "timestamp": ev.created_at.isoformat() if ev.created_at else None,
+            "action": action_name,
+            "reference_id": ref_id,
+            "details": details_text,
+            "performed_by": performed_by_name,
+            "new_status": ev.new_status,
+            "event_type": ev.event_type,
+        })
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@handler_router.get("/overview-stats")
+def get_handler_overview_stats(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_returns_handler(db, current_user)
+
+    total_requests = db.query(ReturnRequest).count()
+    pending_review = db.query(ReturnRequest).filter(
+        ReturnRequest.workflow_status.in_(["pending_review", "requested", "under_review"])
+    ).count()
+    in_process = db.query(ReturnRequest).filter(
+        ReturnRequest.workflow_status.in_(["in_process", "approved", "under_inspection", "information_requested"])
+    ).count()
+    resolved = db.query(ReturnRequest).filter(
+        ReturnRequest.workflow_status.in_(["resolved", "completed"])
+    ).count()
+
+    returns_dept = _returns_department(db)
+    complaints_count = db.query(Complaint).filter(Complaint.department_id == returns_dept.id).count()
+
+    returns_count = db.query(ReturnRequest).filter(
+        (ReturnRequest.resolution_type == "refund") | (ReturnRequest.resolution_type.is_(None))
+    ).count()
+    replacements_count = db.query(ReturnRequest).filter(ReturnRequest.resolution_type == "replacement").count()
+
+    return {
+        "total_requests": total_requests,
+        "pending_review": pending_review,
+        "in_process": in_process,
+        "resolved": resolved,
+        "complaints": complaints_count,
+        "returns_count": returns_count,
+        "replacements_count": replacements_count,
+    }
+
+
+@handler_router.get("/reports-stats")
+def get_handler_reports_stats(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_returns_handler(db, current_user)
+
+    total_requests = db.query(ReturnRequest).count()
+    returns_dept = _returns_department(db)
+    complaints_count = db.query(Complaint).filter(Complaint.department_id == returns_dept.id).count()
+
+    resolved_count = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["resolved", "completed"])).count()
+    pending_count = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["pending_review", "requested"])).count()
+    in_progress_count = db.query(ReturnRequest).filter(ReturnRequest.workflow_status.in_(["in_process", "under_inspection", "information_requested"])).count()
+
+    returns_count = db.query(ReturnRequest).filter(
+        (ReturnRequest.resolution_type == "refund") | (ReturnRequest.resolution_type.is_(None))
+    ).count()
+    replacements_count = db.query(ReturnRequest).filter(ReturnRequest.resolution_type == "replacement").count()
+
+    return {
+        "total_requests": total_requests,
+        "complaints": complaints_count,
+        "resolved": resolved_count,
+        "pending": pending_count,
+        "in_progress": in_progress_count,
+        "returns_count": returns_count,
+        "replacements_count": replacements_count,
     }
 
 

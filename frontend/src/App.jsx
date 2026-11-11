@@ -28,7 +28,7 @@ function AppContent() {
     if (path === '/register') return 'register';
     if (path === '/my-complaints') return 'my-complaints';
     if (path === '/my-conversations') return 'my-conversations';
-    if (path === '/handler-dashboard') return 'handler-dashboard';
+    if (path === '/handler-dashboard' || path.startsWith('/handler')) return 'handler-dashboard';
     if (path === '/admin-dashboard') return 'admin-dashboard';
     if (path === '/admin') return 'super-admin-dashboard';
     if (path === '/super-admin-dashboard') return 'super-admin-dashboard';
@@ -48,7 +48,7 @@ function AppContent() {
       else if (path === '/register') setCurrentPage('register');
       else if (path === '/my-complaints') setCurrentPage('my-complaints');
       else if (path === '/my-conversations') setCurrentPage('my-conversations');
-      else if (path === '/handler-dashboard') setCurrentPage('handler-dashboard');
+      else if (path === '/handler-dashboard' || path.startsWith('/handler')) setCurrentPage('handler-dashboard');
       else if (path === '/admin-dashboard') setCurrentPage('admin-dashboard');
       else if (path === '/admin') setCurrentPage('super-admin-dashboard');
       else if (path === '/super-admin-dashboard') setCurrentPage('super-admin-dashboard');
@@ -71,7 +71,7 @@ function AppContent() {
     if (page === 'register') targetPath = '/register';
     if (page === 'my-complaints') targetPath = '/my-complaints';
     if (page === 'my-conversations') targetPath = '/my-conversations';
-    if (page === 'handler-dashboard') targetPath = '/handler-dashboard';
+    if (page === 'handler-dashboard') targetPath = value || (window.location.pathname.startsWith('/handler/') ? window.location.pathname : '/handler/dashboard');
     if (page === 'admin-dashboard') targetPath = '/admin-dashboard';
     if (page === 'super-admin-dashboard') targetPath = '/super-admin-dashboard';
 
@@ -116,7 +116,7 @@ function AppContent() {
   }
 
   if (authorizedPage === 'handler-dashboard') {
-    return <HandlerDashboardPage onNavigate={navigateTo} />;
+    return <HandlerDashboardPage routePath={routePath} onNavigate={navigateTo} />;
   }
 
   if (authorizedPage === 'admin-dashboard') {
