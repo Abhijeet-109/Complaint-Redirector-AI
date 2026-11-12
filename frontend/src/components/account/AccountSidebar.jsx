@@ -64,21 +64,6 @@ export function AccountSidebar({
       action: () => onNavigate?.('account', 'support-tickets'),
     },
     {
-      id: 'wishlist',
-      label: 'Wishlist',
-      icon: Heart,
-      action: () => {
-        if (onOpenWishlist) onOpenWishlist();
-        else onNavigate?.('account', 'wishlist');
-      },
-    },
-    {
-      id: 'payments',
-      label: 'Payment Methods',
-      icon: CreditCard,
-      action: () => onNavigate?.('account', 'payments'),
-    },
-    {
       id: 'complaints',
       label: 'My Complaints',
       icon: Headphones,
@@ -92,6 +77,21 @@ export function AccountSidebar({
       icon: MessageSquare,
       action: () => {
         if (onNavigate) onNavigate('my-conversations');
+      },
+    },
+    {
+      id: 'payments',
+      label: 'Payment Methods',
+      icon: CreditCard,
+      action: () => onNavigate?.('account', 'payments'),
+    },
+    {
+      id: 'wishlist',
+      label: 'Wishlist',
+      icon: Heart,
+      action: () => {
+        if (onOpenWishlist) onOpenWishlist();
+        else onNavigate?.('account', 'wishlist');
       },
     },
     {

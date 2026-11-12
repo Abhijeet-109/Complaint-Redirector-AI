@@ -1,286 +1,1084 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Package, Search, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  FileText,
+  RotateCcw,
+  RefreshCw,
+  Package,
+  AlertCircle,
+  X,
+  Upload,
+  Clock,
+  Truck,
+  Check
+} from 'lucide-react';
 import { accountService } from '../services/accountService';
 import './accountPages.css';
 
-const money = (value, currency = 'INR') => new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(Number(value || 0));
-const labels = {
-  pending_payment: 'Payment pending', placed: 'Order processing', payment_failed: 'Payment failed',
-  captured: 'Paid', pending: 'Pending', failed: 'Failed', processing: 'Processing', shipped: 'Shipped',
-  delivered: 'Delivered', cancelled: 'Cancelled', refunded: 'Refunded', cod: 'Cash on Delivery',
-  upi: 'UPI', netbanking: 'Net Banking', refund: 'Refund', replacement: 'Replacement',
-  requested: 'Requested', submitted: 'Submitted', under_review: 'Under review', approved: 'Approved',
-  rejected: 'Rejected', completed: 'Completed', information_requested: 'Information requested',
+// Currency & formatting helpers
+const money = (value, currency = 'INR') =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(Number(value || 0));
+
+const formatOrderDateTime = (value) => {
+  if (!value) return 'Date unavailable';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return String(value);
+  const day = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return `${day}, ${time}`;
 };
-const humanize = (value) => labels[String(value || '').toLowerCase()] || String(value || 'Unavailable').replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-const dateLabel = (value) => value ? new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Date unavailable';
-const itemId = (item) => item.id ?? item.order_item_id;
 
-function ReturnPanel({ order, item, onClose, onClaimCreated }) {
-  const id = itemId(item);
-  const [eligibility, setEligibility] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [resolution, setResolution] = useState('');
-  const [reason, setReason] = useState('');
-  const [description, setDescription] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [submitting, setSubmitting] = useState(false);
-  const [claim, setClaim] = useState(null);
-  const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState('');
-  const [uploaded, setUploaded] = useState(false);
+const formatShortDateTime = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return String(value);
+  const day = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return `${day}, ${time}`;
+};
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoading(true); setError('');
-      try {
-        const result = await accountService.returnEligibility(order.id, id);
-        if (!active) return;
-        setEligibility(result);
-        const resolutions = result.available_resolutions || [];
-        if (resolutions.length) setResolution(resolutions[0]);
-        const available = Number(result.quantity_available || 1);
-        setQuantity(available > 0 ? 1 : 0);
-      } catch (cause) {
-        if (active) setError(cause.message || 'Could not check return eligibility.');
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, [order.id, id]);
+const formatDateOnly = (value) => {
+  if (!value) return 'Date unavailable';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
-  const submit = async (event) => {
-    event.preventDefault();
-    if (submitting || !eligibility?.eligible) return;
-    if (!resolution) { setError('Select refund or replacement.'); return; }
-    if (!reason.trim()) { setError('Enter a reason for the request.'); return; }
-    const qty = Number(quantity);
-    if (!Number.isInteger(qty) || qty < 1 || qty > Number(eligibility.quantity_available || 0)) {
-      setError('Select a valid quantity.'); return;
-    }
-    setSubmitting(true); setError('');
-    try {
-      const result = await accountService.createReturnClaim({
-        order_id: order.id,
-        order_item_id: id,
-        quantity: qty,
-        resolution_type: resolution,
-        reason_code: reason.trim(),
-        description: description.trim() || undefined,
-      });
-      const created = result?.return_request || null;
-      setClaim(created);
-      onClaimCreated(created);
-    } catch (cause) {
-      setError(cause.message || 'Could not submit return request.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+const calculateDaysLeft = (deadline) => {
+  if (!deadline) return null;
+  const target = new Date(deadline);
+  const now = new Date();
+  const diffMs = target.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  return diffDays > 0 ? diffDays : 0;
+};
 
-  const upload = async () => {
-    if (uploading || !claim?.id || !files.length) return;
-    if (files.length > 5) { setUploadError('You can upload up to 5 images.'); return; }
-    setUploading(true); setUploadError('');
-    try {
-      await accountService.uploadReturnEvidence(claim.id, files);
-      setUploaded(true);
-      setFiles([]);
-    } catch (cause) {
-      setUploadError(cause.message || 'Could not upload evidence.');
-    } finally {
-      setUploading(false);
-    }
-  };
+const labels = {
+  pending_payment: 'Payment pending',
+  placed: 'Order confirmed',
+  payment_failed: 'Payment failed',
+  captured: 'Paid',
+  pending: 'Pending',
+  failed: 'Failed',
+  processing: 'Processing',
+  shipped: 'Shipped',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+  cod: 'Cash on Delivery',
+  upi: 'UPI',
+  netbanking: 'Net Banking',
+  refund: 'Refund',
+  replacement: 'Replacement',
+  requested: 'Requested',
+  submitted: 'Submitted',
+  under_review: 'Under review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  completed: 'Completed',
+  information_requested: 'Information requested',
+};
 
-  const refreshClaim = async () => {
-    if (!claim?.id) return;
-    try {
-      const details = await accountService.returnClaim(claim.id);
-      setClaim((current) => ({ ...(current || {}), ...details, id: details.id ?? current?.id }));
-    } catch (cause) {
-      setUploadError(cause.message || 'Could not refresh claim status.');
-    }
-  };
+const humanize = (value) =>
+  labels[String(value || '').toLowerCase()] ||
+  String(value || 'Unavailable')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-  return <div className="fk-return-panel" role="dialog" aria-label="Return or replace item">
-    <div className="fk-return-panel-header">
-      <strong>Return / Replace</strong>
-      <button type="button" className="fk-return-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
-    </div>
-    <p className="fk-return-item-name">{item.product_name}{item.variant_name ? ` · ${item.variant_name}` : ''}</p>
-    {loading ? <p className="fk-account-state">Checking eligibility…</p> : error && !eligibility ? <p className="fk-account-notice is-error" role="alert">{error}</p> : <>
-      {eligibility && <div className={`fk-return-eligibility ${eligibility.eligible ? 'is-eligible' : 'is-ineligible'}`}>
-        <p><strong>{eligibility.eligible ? 'Eligible for return or replacement' : 'Not eligible'}</strong></p>
-        <p>{eligibility.message}</p>
-        <div className="fk-return-eligibility-meta">
-          <span>Available quantity: {eligibility.quantity_available ?? 0}</span>
-          {eligibility.return_deadline && <span>Return by: {dateLabel(eligibility.return_deadline)}</span>}
-        </div>
-        {eligibility.active_claim && <p>Active claim: #{eligibility.active_claim.id} ({humanize(eligibility.active_claim.workflow_status || eligibility.active_claim.status)})</p>}
-        {!!(eligibility.available_resolutions || []).length && <p>Available options: {(eligibility.available_resolutions || []).map(humanize).join(', ')}</p>}
-      </div>}
-      {error && <p className="fk-account-notice is-error" role="alert">{error}</p>}
-      {claim ? <div className="fk-return-claim-result">
-        <p><strong>Claim submitted</strong></p>
-        <p>Claim ID: <strong>#{claim.id}</strong></p>
-        <p>Status: <span className="fk-order-status">{humanize(claim.workflow_status || claim.status)}</span></p>
-        <div className="fk-return-evidence">
-          <label className="fk-return-label" htmlFor={`evidence-${claim.id}`}>Upload evidence (optional, up to 5 images)</label>
-          <input id={`evidence-${claim.id}`} type="file" accept="image/*" multiple disabled={uploading || uploaded}
-            onChange={(e) => { setUploadError(''); setFiles(Array.from(e.target.files || []).slice(0, 5)); }} />
-          {files.length > 0 && <p className="fk-return-hint">{files.length} file(s) selected</p>}
-          {uploadError && <p className="fk-account-notice is-error" role="alert">{uploadError}</p>}
-          <div className="fk-return-actions">
-            <button type="button" onClick={upload} disabled={uploading || uploaded || files.length === 0}>{uploading ? 'Uploading…' : uploaded ? 'Evidence uploaded' : 'Upload evidence'}</button>
-            <button type="button" className="secondary" onClick={refreshClaim}>Refresh status</button>
-          </div>
-        </div>
-      </div> : eligibility?.eligible && <form className="fk-return-form" onSubmit={submit}>
-        <label className="fk-return-label">Resolution
-          <select value={resolution} onChange={(e) => setResolution(e.target.value)} disabled={submitting}>
-            {(eligibility.available_resolutions || []).map((value) => <option key={value} value={value}>{humanize(value)}</option>)}
-          </select>
-        </label>
-        <label className="fk-return-label">Quantity
-          <input type="number" min="1" max={eligibility.quantity_available || 1} value={quantity}
-            onChange={(e) => setQuantity(e.target.value)} disabled={submitting} />
-        </label>
-        <label className="fk-return-label">Reason
-          <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. damaged, wrong item" maxLength={40} disabled={submitting} />
-        </label>
-        <label className="fk-return-label">Description (optional)
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Add details" maxLength={2000} rows={3} disabled={submitting} />
-        </label>
-        <div className="fk-return-actions">
-          <button type="submit" disabled={submitting || !eligibility.eligible}>{submitting ? 'Submitting…' : 'Submit request'}</button>
-          <button type="button" className="secondary" onClick={onClose} disabled={submitting}>Cancel</button>
-        </div>
-      </form>}
-    </>}
-  </div>;
-}
+const itemId = (item) => item?.id ?? item?.order_item_id;
+
+const RETURN_REASON_OPTIONS = [
+  'Item is defective / not working properly',
+  'Damaged during delivery / transit',
+  'Wrong item or variant delivered',
+  'Missing accessories or parts in package',
+  'Quality not as expected / description mismatch',
+  'Changed mind / No longer needed',
+];
 
 export function AccountOrders() {
   const [orders, setOrders] = useState([]);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeReturnItemId, setActiveReturnItemId] = useState(null);
-  const [claimDetails, setClaimDetails] = useState({});
+  const [filter, setFilter] = useState('all');
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
+  const [activeItemByOrder, setActiveItemByOrder] = useState({});
 
-  const load = async () => {
-    setLoading(true); setError('');
-    try { const result = await accountService.orders(); setOrders(Array.isArray(result) ? result : []); }
-    catch (cause) { setError(cause.message || 'Could not load your orders.'); }
-    finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
-  const visibleOrders = useMemo(() => orders.filter((order) => {
-    const matchesQuery = `${order.order_number || ''} ${(order.items || []).map((item) => `${item.product_name} ${item.sku}`).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase());
-    const status = String(order.status || '').toLowerCase();
-    return matchesQuery && (filter === 'all' || (filter === 'active' ? !['delivered', 'cancelled', 'refunded'].includes(status) : status === filter));
-  }), [orders, query, filter]);
+  // Eligibility & Return form states keyed by orderItemId
+  const [eligibilityState, setEligibilityState] = useState({});
+  const [formState, setFormState] = useState({});
+  const [activeClaimState, setActiveClaimState] = useState({});
+  const [evidenceFiles, setEvidenceFiles] = useState({});
+  const [uploadingEvidence, setUploadingEvidence] = useState({});
+  const [uploadError, setUploadError] = useState({});
+  const [evidenceSuccess, setEvidenceSuccess] = useState({});
 
-  const showDetails = async (order) => {
-    setLoading(true); setError(''); setActiveReturnItemId(null); setClaimDetails({});
-    try { setSelectedOrder(await accountService.order(order.id)); }
-    catch (cause) { setError(cause.message || 'Could not load order details.'); }
-    finally { setLoading(false); }
-  };
+  // Tracking modal
+  const [trackingModalOrder, setTrackingModalOrder] = useState(null);
 
-  const refreshClaim = async (claimId) => {
-    if (!claimId || claimDetails[claimId]?.loading) return;
-    setClaimDetails((current) => ({ ...current, [claimId]: { ...(current[claimId] || {}), loading: true, error: '' } }));
+  // Load orders
+  const loadOrders = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const details = await accountService.returnClaim(claimId);
-      setClaimDetails((current) => ({ ...current, [claimId]: { data: details, loading: false, error: '' } }));
+      const result = await accountService.orders();
+      const list = Array.isArray(result) ? result : [];
+      setOrders(list);
+      // Auto-expand first order to match the reference view
+      if (list.length > 0 && expandedOrderId === null) {
+        setExpandedOrderId(list[0].id);
+      }
     } catch (cause) {
-      setClaimDetails((current) => ({ ...current, [claimId]: { ...(current[claimId] || {}), loading: false, error: cause.message || 'Could not load claim.' } }));
+      setError(cause.message || 'Could not load your orders.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const onClaimCreated = (created) => {
-    if (!selectedOrder || !created) return;
-    setSelectedOrder((current) => {
-      if (!current) return current;
-      const summary = {
-        id: created.id, order_item_id: created.order_item_id, quantity: created.quantity,
-        resolution_type: created.resolution_type, reason_code: created.reason_code,
-        status: created.status, workflow_status: created.workflow_status, requested_at: created.requested_at,
-      };
-      return {
-        ...current,
-        items: (current.items || []).map((item) => itemId(item) === created.order_item_id
-          ? { ...item, return_claims: [summary, ...(item.return_claims || []).filter((c) => c.id !== summary.id)] }
-          : item),
-      };
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  // Filter orders
+  const visibleOrders = useMemo(() => {
+    return orders.filter((order) => {
+      const status = String(order.status || '').toLowerCase();
+      if (filter === 'all') return true;
+      if (filter === 'active') return !['delivered', 'cancelled', 'refunded'].includes(status);
+      if (filter === 'delivered') return status === 'delivered';
+      if (filter === 'cancelled') return ['cancelled', 'payment_failed', 'refunded'].includes(status);
+      return true;
     });
+  }, [orders, filter]);
+
+  // When expanding an order or switching active item, check eligibility
+  const checkEligibilityForItem = async (orderId, targetItemId) => {
+    if (!targetItemId || eligibilityState[targetItemId]?.loading) return;
+
+    setEligibilityState((prev) => ({
+      ...prev,
+      [targetItemId]: { loading: true, data: null, error: '' },
+    }));
+
+    try {
+      const result = await accountService.returnEligibility(orderId, targetItemId);
+      setEligibilityState((prev) => ({
+        ...prev,
+        [targetItemId]: { loading: false, data: result, error: '' },
+      }));
+
+      // Initialize form fields for this item
+      const availableResolutions = result.available_resolutions || [];
+      const defaultResolution = availableResolutions.includes('refund')
+        ? 'refund'
+        : availableResolutions[0] || 'replacement';
+
+      const initialQty = Number(result.quantity_available || 1) > 0 ? 1 : 0;
+
+      setFormState((prev) => ({
+        ...prev,
+        [targetItemId]: {
+          resolution: defaultResolution,
+          quantity: initialQty,
+          reason: RETURN_REASON_OPTIONS[0],
+          description: '',
+          submitting: false,
+          error: '',
+        },
+      }));
+
+      // Check if item has existing active claim
+      if (result.active_claim) {
+        setActiveClaimState((prev) => ({
+          ...prev,
+          [targetItemId]: result.active_claim,
+        }));
+      }
+    } catch (cause) {
+      setEligibilityState((prev) => ({
+        ...prev,
+        [targetItemId]: { loading: false, data: null, error: cause.message || 'Could not verify return eligibility.' },
+      }));
+    }
   };
 
-  return <section className="fk-account-page fk-orders-page">
-    {selectedOrder ? <>
-      <button className="fk-page-back" type="button" onClick={() => setSelectedOrder(null)}><ArrowLeft size={17} /> Back to orders</button>
-      <div className="fk-page-heading"><div><h1>Order details</h1><p>Placed {dateLabel(selectedOrder.created_at)}</p></div><span className="fk-order-status">{humanize(selectedOrder.status)}</span></div>
-      <section className="fk-order-detail-card"><div className="fk-order-detail-heading"><strong>{selectedOrder.order_number}</strong><span>{money(selectedOrder.total_amount, selectedOrder.currency)}</span></div>
-        <div className="fk-order-detail-meta"><span>Payment method: {humanize(selectedOrder.payment_method)}</span><span>Payment status: {humanize(selectedOrder.payment_status)}</span></div>
-      </section>
-      {selectedOrder.delivery_address && <section className="fk-order-detail-card"><h2>Delivery address</h2><p><strong>{selectedOrder.delivery_address.recipient_name}</strong> · {selectedOrder.delivery_address.mobile_number}</p><p>{[selectedOrder.delivery_address.address_line1, selectedOrder.delivery_address.address_line2, selectedOrder.delivery_address.locality, selectedOrder.delivery_address.city, selectedOrder.delivery_address.state, selectedOrder.delivery_address.pin_code].filter(Boolean).join(', ')}</p></section>}
-      <section className="fk-order-detail-card"><h2>Items</h2><div className="fk-order-items">{(selectedOrder.items || []).map((item, index) => {
-        const id = itemId(item);
-        const claims = item.return_claims || [];
-        const isDelivered = String(selectedOrder.status || '').toLowerCase() === 'delivered';
-        return <article className="fk-order-item fk-order-item-return" key={id || `${item.sku}-${index}`}>
-          {item.image ? <img src={item.image} alt="" loading="lazy" decoding="async" /> : <span className="fk-order-image-placeholder"><Package size={22} /></span>}
-          <div className="fk-order-item-info">
-            <strong>{item.product_name}</strong>
-            <span>{item.variant_name || 'Standard option'}{item.sku ? ` · SKU ${item.sku}` : ''}</span>
-            <span>Quantity {item.quantity}</span>
-            {claims.length > 0 && <div className="fk-return-claims">
-              {claims.map((claim) => {
-                const detail = claimDetails[claim.id]?.data;
-                const status = (detail?.workflow_status || detail?.status || claim.workflow_status || claim.status);
-                return <div className="fk-return-claim-chip" key={claim.id}>
-                  <span>Claim #{claim.id}: <span className="fk-order-status">{humanize(status)}</span></span>
-                  <button type="button" onClick={() => refreshClaim(claim.id)} disabled={claimDetails[claim.id]?.loading}>{claimDetails[claim.id]?.loading ? 'Refreshing…' : 'Refresh'}</button>
-                  {claimDetails[claim.id]?.error && <span className="fk-return-claim-error">{claimDetails[claim.id].error}</span>}
-                </div>;
-              })}
-            </div>}
-            {isDelivered && <div className="fk-order-item-actions">
-              <button type="button" onClick={() => setActiveReturnItemId(activeReturnItemId === id ? null : id)}>
-                {activeReturnItemId === id ? 'Hide return options' : 'Return / Replace'}
-              </button>
-            </div>}
-            {activeReturnItemId === id && <ReturnPanel order={selectedOrder} item={item}
-              onClose={() => setActiveReturnItemId(null)} onClaimCreated={onClaimCreated} />}
-          </div>
-          <b>{money(item.line_total, selectedOrder.currency)}</b>
-        </article>;
-      })}</div></section>
-      {selectedOrder.shipment && <section className="fk-order-detail-card"><h2>Shipment</h2><p>Status: {humanize(selectedOrder.shipment.status)}</p>{selectedOrder.shipment.tracking_reference && <p>Tracking reference: {selectedOrder.shipment.tracking_reference}</p>}</section>}
-      <div className="fk-order-total"><span>Order total</span><strong>{money(selectedOrder.total_amount, selectedOrder.currency)}</strong></div>
-    </> : <>
-      <div className="fk-page-heading"><div><h1>My Orders</h1><p>Review your purchases and delivery details.</p></div></div>
-      <div className="fk-orders-toolbar"><label className="fk-orders-search"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search order number or product" aria-label="Search orders" /></label>
-        <select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter orders"><option value="all">All orders</option><option value="active">In progress</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select>
+  // Toggle order expansion
+  const toggleOrder = (order) => {
+    const isExpanding = expandedOrderId !== order.id;
+    const newExpandedId = isExpanding ? order.id : null;
+    setExpandedOrderId(newExpandedId);
+
+    if (isExpanding) {
+      const firstItem = order.items?.[0];
+      const targetItemId = activeItemByOrder[order.id] || itemId(firstItem);
+      if (targetItemId && !eligibilityState[targetItemId]) {
+        checkEligibilityForItem(order.id, targetItemId);
+      }
+    }
+  };
+
+  // Ensure eligibility is triggered for active item on first render
+  useEffect(() => {
+    if (expandedOrderId) {
+      const order = orders.find((o) => o.id === expandedOrderId);
+      if (order && order.items?.length > 0) {
+        const targetItemId = activeItemByOrder[order.id] || itemId(order.items[0]);
+        if (targetItemId && !eligibilityState[targetItemId]) {
+          checkEligibilityForItem(order.id, targetItemId);
+        }
+      }
+    }
+  }, [expandedOrderId, orders]);
+
+  // Handle item change in an order
+  const handleSelectItem = (orderId, targetItemId) => {
+    setActiveItemByOrder((prev) => ({ ...prev, [orderId]: targetItemId }));
+    if (!eligibilityState[targetItemId]) {
+      checkEligibilityForItem(orderId, targetItemId);
+    }
+  };
+
+  // Handle return request submission
+  const handleSubmitReturn = async (e, order, currentItem) => {
+    e.preventDefault();
+    const currentItemId = itemId(currentItem);
+    const itemForm = formState[currentItemId] || {};
+    const itemEligibility = eligibilityState[currentItemId]?.data;
+
+    if (!itemEligibility?.eligible) return;
+
+    if (!itemForm.resolution) {
+      setFormState((prev) => ({
+        ...prev,
+        [currentItemId]: { ...itemForm, error: 'Please choose an available resolution (Return & Refund or Replace Item).' },
+      }));
+      return;
+    }
+
+    if (!itemForm.reason) {
+      setFormState((prev) => ({
+        ...prev,
+        [currentItemId]: { ...itemForm, error: 'Please select a reason for your return.' },
+      }));
+      return;
+    }
+
+    const qty = Number(itemForm.quantity);
+    if (!Number.isInteger(qty) || qty < 1 || qty > Number(itemEligibility.quantity_available || 1)) {
+      setFormState((prev) => ({
+        ...prev,
+        [currentItemId]: { ...itemForm, error: 'Please select a valid quantity.' },
+      }));
+      return;
+    }
+
+    setFormState((prev) => ({
+      ...prev,
+      [currentItemId]: { ...itemForm, submitting: true, error: '' },
+    }));
+
+    try {
+      const payload = {
+        order_id: order.id,
+        order_item_id: currentItemId,
+        quantity: qty,
+        resolution_type: itemForm.resolution,
+        reason_code: itemForm.reason.slice(0, 40),
+        description: itemForm.description?.trim() ? itemForm.description.trim().slice(0, 500) : undefined,
+      };
+
+      const result = await accountService.createReturnClaim(payload);
+      const createdClaim = result?.return_request;
+
+      setActiveClaimState((prev) => ({
+        ...prev,
+        [currentItemId]: createdClaim,
+      }));
+
+      // Refresh eligibility in background
+      checkEligibilityForItem(order.id, currentItemId);
+    } catch (cause) {
+      setFormState((prev) => ({
+        ...prev,
+        [currentItemId]: { ...itemForm, submitting: false, error: cause.message || 'Could not submit return request.' },
+      }));
+    }
+  };
+
+  // Handle evidence upload
+  const handleEvidenceUpload = async (claimId) => {
+    const files = evidenceFiles[claimId] || [];
+    if (!files.length || uploadingEvidence[claimId]) return;
+
+    setUploadingEvidence((prev) => ({ ...prev, [claimId]: true }));
+    setUploadError((prev) => ({ ...prev, [claimId]: '' }));
+
+    try {
+      await accountService.uploadReturnEvidence(claimId, files);
+      setEvidenceSuccess((prev) => ({ ...prev, [claimId]: true }));
+      setEvidenceFiles((prev) => ({ ...prev, [claimId]: [] }));
+      const refreshed = await accountService.returnClaim(claimId);
+      if (refreshed?.order_item_id) {
+        setActiveClaimState((prev) => ({ ...prev, [refreshed.order_item_id]: refreshed }));
+      }
+    } catch (cause) {
+      setUploadError((prev) => ({ ...prev, [claimId]: cause.message || 'Evidence upload failed.' }));
+    } finally {
+      setUploadingEvidence((prev) => ({ ...prev, [claimId]: false }));
+    }
+  };
+
+  return (
+    <div className="fk-orders-container">
+      {/* Back to orders breadcrumb */}
+      <div className="fk-orders-breadcrumb">
+        <button
+          type="button"
+          className="fk-back-orders-btn"
+          onClick={() => setExpandedOrderId(null)}
+          title="Back to all orders"
+        >
+          <ArrowLeft size={15} />
+          <span>Back to orders</span>
+        </button>
       </div>
-      {error && <p className="fk-account-notice is-error" role="alert">{error}</p>}
-      {loading ? <p className="fk-account-state" role="status">Loading your orders…</p> : visibleOrders.length ? <div className="fk-order-list">{visibleOrders.map((order) => <article className="fk-order-card" key={order.id}>
-        <header className="fk-order-card-header"><div><span className="fk-order-number">{order.order_number}</span><span className="fk-order-date">Placed {dateLabel(order.created_at)}</span></div><div className="fk-order-header-total"><span>Total</span><strong>{money(order.total_amount, order.currency)}</strong></div></header>
-        <div className="fk-order-card-status"><span className="fk-order-status">{humanize(order.status)}</span><span>Payment: {humanize(order.payment_status)}</span><span>{humanize(order.payment_method)}</span></div>
-        <div className="fk-order-card-items">{(order.items || []).map((item, index) => <div className="fk-order-card-item" key={`${item.sku}-${index}`}>
-          {item.image ? <img src={item.image} alt="" loading="lazy" decoding="async" /> : <span className="fk-order-image-placeholder"><Package size={20} /></span>}
-          <div><strong>{item.product_name}</strong><span>{item.variant_name || 'Standard option'}{item.sku ? ` · SKU ${item.sku}` : ''} · Qty {item.quantity}</span></div><b>{money(item.line_total, order.currency)}</b>
-        </div>)}</div>
-        <footer><button type="button" onClick={() => showDetails(order)}>View details</button></footer>
-      </article>)}</div> : <div className="fk-account-empty"><Package size={34} /><strong>{orders.length ? 'No matching orders' : "You haven't placed any orders yet."}</strong><p>{orders.length ? 'Try another search or status filter.' : 'Your order history will appear here after a purchase.'}</p></div>}
-    </>}
-  </section>;
+
+      {/* Page Heading & Filters */}
+      <div className="fk-orders-header-row">
+        <div>
+          <h1 className="fk-orders-title">My Orders</h1>
+          <p className="fk-orders-subtitle">
+            Review your purchases, track deliveries, and manage returns.
+          </p>
+        </div>
+
+        <div className="fk-orders-filter-wrapper">
+          <select
+            className="fk-orders-select"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            aria-label="Filter orders"
+          >
+            <option value="all">All Orders</option>
+            <option value="active">In Progress</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <ChevronDown size={16} className="fk-select-chevron" />
+        </div>
+      </div>
+
+      {/* Global Error Banner */}
+      {error && (
+        <div className="fk-orders-error-banner" role="alert">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div className="fk-orders-state-box" role="status">
+          <div className="fk-spinner" />
+          <p>Loading your orders…</p>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && !visibleOrders.length && (
+        <div className="fk-orders-empty-box">
+          <Package size={48} className="fk-empty-icon" />
+          <h3>{orders.length ? 'No orders match your filter' : 'No orders found'}</h3>
+          <p>
+            {orders.length
+              ? 'Try changing the status filter above to see other orders.'
+              : 'When you place an order, its details and return options will appear here.'}
+          </p>
+        </div>
+      )}
+
+      {/* Orders List */}
+      {!loading && visibleOrders.length > 0 && (
+        <div className="fk-orders-list">
+          {visibleOrders.map((order) => {
+            const isExpanded = expandedOrderId === order.id;
+            const items = order.items || [];
+            const activeItemId = activeItemByOrder[order.id] || itemId(items[0]);
+            const currentItem = items.find((it) => itemId(it) === activeItemId) || items[0] || {};
+            const isDelivered = String(order.status || '').toLowerCase() === 'delivered';
+            const deliveredDateStr =
+              order.shipment?.delivered_at ||
+              (isDelivered ? order.created_at : null);
+
+            // Item-level eligibility & form data
+            const currentItemId = itemId(currentItem);
+            const currentEligibility = eligibilityState[currentItemId]?.data;
+            const eligibilityLoading = eligibilityState[currentItemId]?.loading;
+            const itemForm = formState[currentItemId] || {
+              resolution: 'refund',
+              quantity: 1,
+              reason: RETURN_REASON_OPTIONS[0],
+              description: '',
+              submitting: false,
+              error: '',
+            };
+            const currentClaim =
+              activeClaimState[currentItemId] ||
+              (currentItem.return_claims && currentItem.return_claims[0]);
+
+            // Days left calculation
+            const returnDeadline = currentEligibility?.return_deadline;
+            const daysLeft = calculateDaysLeft(returnDeadline);
+
+            return (
+              <article
+                key={order.id}
+                className={`fk-order-card-wrapper ${isExpanded ? 'is-expanded' : 'is-collapsed'}`}
+              >
+                {/* Order Card Header (Click to toggle expansion) */}
+                <div
+                  className="fk-order-card-summary"
+                  onClick={() => toggleOrder(order)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleOrder(order);
+                    }
+                  }}
+                  aria-expanded={isExpanded}
+                >
+                  {/* Left: Thumbnail & Order ID / Date */}
+                  <div className="fk-order-summary-left">
+                    <div className="fk-order-thumbnail-box">
+                      {currentItem.image ? (
+                        <img
+                          src={currentItem.image}
+                          alt={currentItem.product_name || 'Product'}
+                          className="fk-order-thumbnail-img"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <Package size={20} className="fk-thumbnail-placeholder" />
+                      )}
+                    </div>
+                    <div className="fk-order-meta-info">
+                      <span className="fk-order-number-text">
+                        Order #{order.order_number}
+                      </span>
+                      <span className="fk-order-date-text">
+                        Placed on {formatOrderDateTime(order.created_at)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right: Status Pill & Delivery date & Chevron */}
+                  <div className="fk-order-summary-right">
+                    <span className={`fk-status-pill is-${String(order.status || '').toLowerCase()}`}>
+                      {isDelivered && (
+                        <span className="fk-status-icon-check">
+                          <Check size={11} strokeWidth={3} />
+                        </span>
+                      )}
+                      <span>{humanize(order.status)}</span>
+                    </span>
+
+                    {deliveredDateStr && isDelivered && (
+                      <span className="fk-delivery-date-text">
+                        Delivered on {formatDateOnly(deliveredDateStr)}
+                      </span>
+                    )}
+
+                    {!isDelivered && (
+                      <span className="fk-delivery-date-text">
+                        {order.status === 'shipped' ? 'In transit' : `Total: ${money(order.total_amount, order.currency)}`}
+                      </span>
+                    )}
+
+                    <span className="fk-chevron-toggle" aria-hidden="true">
+                      {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Expanded Details Body */}
+                {isExpanded && (
+                  <div className="fk-order-card-body">
+                    {/* Multi-item selector tabs if order contains > 1 item */}
+                    {items.length > 1 && (
+                      <div className="fk-order-items-tabstrip">
+                        <span className="fk-tabstrip-label">Select product:</span>
+                        <div className="fk-tabstrip-pills">
+                          {items.map((it, idx) => {
+                            const itId = itemId(it);
+                            const isSelected = itId === activeItemId;
+                            return (
+                              <button
+                                key={itId || idx}
+                                type="button"
+                                className={`fk-item-tab-pill ${isSelected ? 'active' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectItem(order.id, itId);
+                                }}
+                              >
+                                {it.product_name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="fk-order-body-columns">
+                      {/* LEFT COLUMN: Product Overview & Delivery Progression */}
+                      <div className="fk-order-left-column">
+                        {/* Large Product Image Container */}
+                        <div className="fk-product-image-box">
+                          {currentItem.image ? (
+                            <img
+                              src={currentItem.image}
+                              alt={currentItem.product_name || 'Product'}
+                              className="fk-product-hero-img"
+                            />
+                          ) : (
+                            <Package size={52} className="fk-product-placeholder-icon" />
+                          )}
+                        </div>
+
+                        {/* Product Title, Attributes & Price */}
+                        <div className="fk-product-details-block">
+                          <h2 className="fk-product-name-heading">
+                            {currentItem.product_name}
+                          </h2>
+                          <div className="fk-product-attributes-text">
+                            {currentItem.variant_name && <span>Color: {currentItem.variant_name}</span>}
+                            {currentItem.variant_name && <span> | </span>}
+                            <span>Qty: {currentItem.quantity}</span>
+                          </div>
+                          <div className="fk-product-price-tag">
+                            {money(currentItem.line_total || currentItem.unit_price, order.currency)}
+                          </div>
+                        </div>
+
+                        {/* Delivery Progression Timeline */}
+                        <div className="fk-delivery-timeline-block">
+                          {/* Step 1: Order Confirmed */}
+                          <div className="fk-timeline-step is-completed">
+                            <div className="fk-timeline-marker">
+                              <span className="fk-marker-dot">
+                                <Check size={11} strokeWidth={3} />
+                              </span>
+                              <span className="fk-timeline-line is-completed" />
+                            </div>
+                            <div className="fk-timeline-content">
+                              <strong className="fk-timeline-label">Order Confirmed</strong>
+                              <span className="fk-timeline-time">
+                                {formatShortDateTime(order.created_at)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Step 2: Shipped */}
+                          <div
+                            className={`fk-timeline-step ${
+                              order.status === 'shipped' || isDelivered ? 'is-completed' : 'is-pending'
+                            }`}
+                          >
+                            <div className="fk-timeline-marker">
+                              <span className="fk-marker-dot">
+                                {order.status === 'shipped' || isDelivered ? (
+                                  <Check size={11} strokeWidth={3} />
+                                ) : (
+                                  <span className="fk-hollow-dot" />
+                                )}
+                              </span>
+                              <span
+                                className={`fk-timeline-line ${
+                                  isDelivered ? 'is-completed' : 'is-pending'
+                                }`}
+                              />
+                            </div>
+                            <div className="fk-timeline-content">
+                              <strong className="fk-timeline-label">Shipped</strong>
+                              <span className="fk-timeline-time">
+                                {order.shipment?.shipped_at
+                                  ? formatShortDateTime(order.shipment.shipped_at)
+                                  : isDelivered
+                                  ? formatShortDateTime(order.created_at)
+                                  : 'Pending dispatch'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Step 3: Delivered */}
+                          <div className={`fk-timeline-step ${isDelivered ? 'is-completed' : 'is-pending'}`}>
+                            <div className="fk-timeline-marker">
+                              <span className="fk-marker-dot">
+                                {isDelivered ? (
+                                  <Check size={11} strokeWidth={3} />
+                                ) : (
+                                  <span className="fk-hollow-dot" />
+                                )}
+                              </span>
+                            </div>
+                            <div className="fk-timeline-content">
+                              <strong className="fk-timeline-label">Delivered</strong>
+                              <span className="fk-timeline-time">
+                                {deliveredDateStr
+                                  ? formatShortDateTime(deliveredDateStr)
+                                  : 'Estimated delivery soon'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* See all updates link */}
+                          <button
+                            type="button"
+                            className="fk-timeline-updates-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTrackingModalOrder(order);
+                            }}
+                          >
+                            See All Updates &gt;
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* RIGHT COLUMN: Return / Replacement Request */}
+                      <div className="fk-order-right-column">
+                        {/* Section Header */}
+                        <div className="fk-return-section-header">
+                          <FileText size={20} className="fk-header-doc-icon" />
+                          <div>
+                            <h2 className="fk-return-header-title">Return / Replacement Request</h2>
+                            <p className="fk-return-header-desc">
+                              Raise a return or replacement request for this item.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Eligibility Banner Loading */}
+                        {eligibilityLoading && (
+                          <div className="fk-eligibility-banner is-loading">
+                            <Clock size={18} className="fk-banner-icon spin" />
+                            <div>
+                              <strong>Checking Return / Replacement Eligibility</strong>
+                              <p>Checking return policies, delivery status, and window dates…</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Existing Claim Already Active or Submitted */}
+                        {currentClaim && (
+                          <div className="fk-claim-card-banner">
+                            <div className="fk-claim-banner-header">
+                              <CheckCircle2 size={20} className="fk-claim-icon" />
+                              <div>
+                                <strong className="fk-claim-title">
+                                  Return / Replacement Request Submitted
+                                </strong>
+                                <p className="fk-claim-subtext">
+                                  Claim ID: <strong>#{currentClaim.id}</strong> · Status:{' '}
+                                  <span className="fk-claim-badge">
+                                    {humanize(currentClaim.workflow_status || currentClaim.status)}
+                                  </span>
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Evidence Upload inside Claim Banner */}
+                            <div className="fk-evidence-upload-section">
+                              <label className="fk-evidence-label" htmlFor={`evidence-${currentClaim.id}`}>
+                                <Upload size={14} /> Upload supporting photos (up to 5 images)
+                              </label>
+                              <div className="fk-evidence-row">
+                                <input
+                                  id={`evidence-${currentClaim.id}`}
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  disabled={uploadingEvidence[currentClaim.id] || evidenceSuccess[currentClaim.id]}
+                                  onChange={(e) => {
+                                    setUploadError((prev) => ({ ...prev, [currentClaim.id]: '' }));
+                                    setEvidenceFiles((prev) => ({
+                                      ...prev,
+                                      [currentClaim.id]: Array.from(e.target.files || []).slice(0, 5),
+                                    }));
+                                  }}
+                                  className="fk-file-input"
+                                />
+                                <button
+                                  type="button"
+                                  className="fk-upload-submit-btn"
+                                  onClick={() => handleEvidenceUpload(currentClaim.id)}
+                                  disabled={
+                                    uploadingEvidence[currentClaim.id] ||
+                                    evidenceSuccess[currentClaim.id] ||
+                                    !(evidenceFiles[currentClaim.id] || []).length
+                                  }
+                                >
+                                  {uploadingEvidence[currentClaim.id]
+                                    ? 'Uploading…'
+                                    : evidenceSuccess[currentClaim.id]
+                                    ? 'Uploaded Successfully'
+                                    : 'Upload'}
+                                </button>
+                              </div>
+
+                              {uploadError[currentClaim.id] && (
+                                <p className="fk-form-error-inline">{uploadError[currentClaim.id]}</p>
+                              )}
+                              {evidenceSuccess[currentClaim.id] && (
+                                <p className="fk-form-success-inline">Evidence images attached to claim.</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Eligible Banner (when eligible & no pending claim) */}
+                        {!eligibilityLoading && !currentClaim && currentEligibility?.eligible && (
+                          <div className="fk-eligibility-banner is-eligible">
+                            <CheckCircle2 size={20} className="fk-banner-icon" />
+                            <div>
+                              <strong className="fk-banner-title">
+                                Eligible for Return / Replacement
+                              </strong>
+                              <p className="fk-banner-desc">
+                                You can return or replace this item.
+                                {returnDeadline && (
+                                  <span>
+                                    {' '}Return window closes on {formatDateOnly(returnDeadline)}
+                                    {daysLeft !== null && ` (${daysLeft} days left)`}.
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Ineligible Banner */}
+                        {!eligibilityLoading && !currentClaim && currentEligibility && !currentEligibility.eligible && (
+                          <div className="fk-eligibility-banner is-ineligible">
+                            <AlertCircle size={20} className="fk-banner-icon" />
+                            <div>
+                              <strong className="fk-banner-title">
+                                Not Eligible for Return / Replacement
+                              </strong>
+                              <p className="fk-banner-desc">
+                                {currentEligibility.message || 'This item cannot be returned or replaced.'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Interactive Return Form (shown only if eligible and no claim submitted) */}
+                        {!currentClaim && currentEligibility?.eligible && (
+                          <form
+                            className="fk-return-form-container"
+                            onSubmit={(e) => handleSubmitReturn(e, order, currentItem)}
+                          >
+                            {/* Available Resolutions */}
+                            <div className="fk-form-section-resolutions">
+                              <label className="fk-section-subheading">Available Resolutions</label>
+                              <div className="fk-resolutions-grid">
+                                {/* Option 1: Return & Refund */}
+                                <div
+                                  className={`fk-resolution-card ${
+                                    itemForm.resolution === 'refund' ? 'is-selected' : ''
+                                  } ${
+                                    !(currentEligibility.available_resolutions || []).includes('refund')
+                                      ? 'is-disabled'
+                                      : ''
+                                  }`}
+                                  onClick={() => {
+                                    if ((currentEligibility.available_resolutions || []).includes('refund')) {
+                                      setFormState((prev) => ({
+                                        ...prev,
+                                        [currentItemId]: { ...itemForm, resolution: 'refund' },
+                                      }));
+                                    }
+                                  }}
+                                  role="radio"
+                                  aria-checked={itemForm.resolution === 'refund'}
+                                  tabIndex={0}
+                                >
+                                  <div className="fk-radio-outer-circle">
+                                    {itemForm.resolution === 'refund' && (
+                                      <div className="fk-radio-inner-dot" />
+                                    )}
+                                  </div>
+                                  <RotateCcw size={17} className="fk-resolution-icon" />
+                                  <div className="fk-resolution-text-box">
+                                    <strong className="fk-resolution-title">Return & Refund</strong>
+                                    <span className="fk-resolution-desc">
+                                      Return the item and get a refund
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Option 2: Replace Item */}
+                                <div
+                                  className={`fk-resolution-card ${
+                                    itemForm.resolution === 'replacement' ? 'is-selected' : ''
+                                  } ${
+                                    !(currentEligibility.available_resolutions || []).includes('replacement')
+                                      ? 'is-disabled'
+                                      : ''
+                                  }`}
+                                  onClick={() => {
+                                    if ((currentEligibility.available_resolutions || []).includes('replacement')) {
+                                      setFormState((prev) => ({
+                                        ...prev,
+                                        [currentItemId]: { ...itemForm, resolution: 'replacement' },
+                                      }));
+                                    }
+                                  }}
+                                  role="radio"
+                                  aria-checked={itemForm.resolution === 'replacement'}
+                                  tabIndex={0}
+                                >
+                                  <div className="fk-radio-outer-circle">
+                                    {itemForm.resolution === 'replacement' && (
+                                      <div className="fk-radio-inner-dot" />
+                                    )}
+                                  </div>
+                                  <RefreshCw size={17} className="fk-resolution-icon" />
+                                  <div className="fk-resolution-text-box">
+                                    <strong className="fk-resolution-title">Replace Item</strong>
+                                    <span className="fk-resolution-desc">
+                                      Get a replacement of the same item
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Row 1: Quantity */}
+                            <div className="fk-form-field-row">
+                              <label className="fk-form-row-label" htmlFor={`qty-${currentItemId}`}>
+                                Quantity
+                              </label>
+                              <div className="fk-form-row-input-group">
+                                <select
+                                  id={`qty-${currentItemId}`}
+                                  className="fk-form-select fk-qty-select"
+                                  value={itemForm.quantity}
+                                  onChange={(e) =>
+                                    setFormState((prev) => ({
+                                      ...prev,
+                                      [currentItemId]: { ...itemForm, quantity: Number(e.target.value) },
+                                    }))
+                                  }
+                                  disabled={itemForm.submitting}
+                                >
+                                  {Array.from(
+                                    { length: currentEligibility.quantity_available || 1 },
+                                    (_, i) => i + 1
+                                  ).map((q) => (
+                                    <option key={q} value={q}>
+                                      {q}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="fk-field-helper-text">
+                                  (Available: {itemForm.quantity} of {currentEligibility.quantity_available || 1})
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Row 2: Reason for Return */}
+                            <div className="fk-form-field-row">
+                              <label className="fk-form-row-label" htmlFor={`reason-${currentItemId}`}>
+                                Reason for Return *
+                              </label>
+                              <div className="fk-form-row-input-group">
+                                <select
+                                  id={`reason-${currentItemId}`}
+                                  className="fk-form-select fk-reason-select"
+                                  value={itemForm.reason}
+                                  onChange={(e) =>
+                                    setFormState((prev) => ({
+                                      ...prev,
+                                      [currentItemId]: { ...itemForm, reason: e.target.value },
+                                    }))
+                                  }
+                                  disabled={itemForm.submitting}
+                                  required
+                                >
+                                  {RETURN_REASON_OPTIONS.map((opt) => (
+                                    <option key={opt} value={opt}>
+                                      {opt}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Row 3: Tell us more */}
+                            <div className="fk-form-field-row align-top">
+                              <label className="fk-form-row-label" htmlFor={`desc-${currentItemId}`}>
+                                Tell us more (Optional)
+                              </label>
+                              <div className="fk-form-row-input-group flex-col">
+                                <textarea
+                                  id={`desc-${currentItemId}`}
+                                  className="fk-form-textarea"
+                                  rows={3}
+                                  maxLength={500}
+                                  value={itemForm.description}
+                                  onChange={(e) =>
+                                    setFormState((prev) => ({
+                                      ...prev,
+                                      [currentItemId]: { ...itemForm, description: e.target.value },
+                                    }))
+                                  }
+                                  placeholder="Describe the issue in detail to help us process your request faster..."
+                                  disabled={itemForm.submitting}
+                                />
+                                <div className="fk-textarea-char-count">
+                                  {itemForm.description?.length || 0} / 500
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Inline Form Error */}
+                            {itemForm.error && (
+                              <div className="fk-form-error-inline" role="alert">
+                                <AlertCircle size={15} />
+                                <span>{itemForm.error}</span>
+                              </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="fk-form-actions-row">
+                              <button
+                                type="button"
+                                className="fk-action-btn-cancel"
+                                onClick={() => setExpandedOrderId(null)}
+                                disabled={itemForm.submitting}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                className="fk-action-btn-submit"
+                                disabled={itemForm.submitting || !currentEligibility.eligible}
+                              >
+                                {itemForm.submitting ? 'Submitting…' : 'Submit Request'}
+                              </button>
+                            </div>
+                          </form>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Shipment Tracking Modal ("See All Updates") */}
+      {trackingModalOrder && (
+        <div
+          className="fk-tracking-modal-backdrop"
+          onClick={() => setTrackingModalOrder(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="fk-tracking-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="fk-tracking-modal-header">
+              <div>
+                <h3>Shipment Tracking</h3>
+                <p>Order #{trackingModalOrder.order_number}</p>
+              </div>
+              <button
+                type="button"
+                className="fk-modal-close-btn"
+                onClick={() => setTrackingModalOrder(null)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="fk-tracking-modal-body">
+              {/* Shipment info */}
+              <div className="fk-tracking-shipment-meta">
+                <div>
+                  <span className="fk-meta-label">Carrier</span>
+                  <strong>{trackingModalOrder.shipment?.carrier || 'Flatkart Express Logistics'}</strong>
+                </div>
+                <div>
+                  <span className="fk-meta-label">Tracking Number</span>
+                  <strong>{trackingModalOrder.shipment?.tracking_reference || 'TRK-' + trackingModalOrder.order_number}</strong>
+                </div>
+                <div>
+                  <span className="fk-meta-label">Current Status</span>
+                  <span className="fk-order-status-badge">
+                    {humanize(trackingModalOrder.shipment?.status || trackingModalOrder.status)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Delivery Address */}
+              {trackingModalOrder.delivery_address && (
+                <div className="fk-tracking-address-box">
+                  <span className="fk-meta-label">Delivering To</span>
+                  <strong>{trackingModalOrder.delivery_address.recipient_name}</strong>
+                  <p>
+                    {[
+                      trackingModalOrder.delivery_address.address_line1,
+                      trackingModalOrder.delivery_address.address_line2,
+                      trackingModalOrder.delivery_address.locality,
+                      trackingModalOrder.delivery_address.city,
+                      trackingModalOrder.delivery_address.state,
+                      trackingModalOrder.delivery_address.pin_code,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </p>
+                </div>
+              )}
+
+              {/* Events timeline */}
+              <div className="fk-tracking-events-list">
+                <span className="fk-meta-label">Activity Updates</span>
+                {trackingModalOrder.shipment?.events && trackingModalOrder.shipment.events.length > 0 ? (
+                  trackingModalOrder.shipment.events.map((ev, idx) => (
+                    <div key={ev.id || idx} className="fk-tracking-event-item">
+                      <div className="fk-event-dot" />
+                      <div className="fk-event-details">
+                        <strong>{humanize(ev.new_status)}</strong>
+                        {ev.note && <p>{ev.note}</p>}
+                        <span>{formatOrderDateTime(ev.created_at)}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="fk-tracking-event-item">
+                    <div className="fk-event-dot" />
+                    <div className="fk-event-details">
+                      <strong>Order Placed & Confirmed</strong>
+                      <p>Order has been confirmed and verified by Flatkart fulfilment system.</p>
+                      <span>{formatOrderDateTime(trackingModalOrder.created_at)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
+
+export default AccountOrders;
