@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { CartProvider } from './context/CartContext';
+import { CartProvider, useCart } from './context/CartContext';
 import { AddressProvider } from './context/AddressContext';
+import { CartDrawer } from './components/common/CartDrawer';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
@@ -17,12 +18,14 @@ import { resolveAuthorizedPage } from './utils/roleAccess';
 
 function AppContent() {
   const { user, isAuthenticated, loading } = useAuth();
+  const { setIsCartOpen } = useCart();
   const initialProductSlug = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i)?.[1];
   const [productSlug, setProductSlug] = useState(() => initialProductSlug ? decodeURIComponent(initialProductSlug) : '');
   const [currentPage, setCurrentPage] = useState(() => {
     const path = window.location.pathname.toLowerCase();
     if (/^\/products\/[^/]+\/?$/.test(path)) return 'product';
     if (path === '/checkout') return 'checkout';
+    if (path === '/cart') return 'home';
     if (path.startsWith('/account')) return 'account';
     if (path === '/login') return 'login';
     if (path === '/register') return 'register';
@@ -37,12 +40,19 @@ function AppContent() {
   const [routePath, setRoutePath] = useState(() => window.location.pathname);
 
   useEffect(() => {
+    if (window.location.pathname.toLowerCase() === '/cart') {
+      setIsCartOpen(true);
+    }
+  }, [setIsCartOpen]);
+
+  useEffect(() => {
     const handlePopState = () => {
       setRoutePath(window.location.pathname);
       const path = window.location.pathname.toLowerCase();
       const productMatch = window.location.pathname.match(/^\/products\/([^/]+)\/?$/i);
       if (productMatch) { setProductSlug(decodeURIComponent(productMatch[1])); setCurrentPage('product'); }
       else if (path === '/checkout') setCurrentPage('checkout');
+      else if (path === '/cart') { setIsCartOpen(true); setCurrentPage('home'); }
       else if (path.startsWith('/account')) setCurrentPage('account');
       else if (path === '/login') setCurrentPage('login');
       else if (path === '/register') setCurrentPage('register');
@@ -66,6 +76,10 @@ function AppContent() {
       setProductSlug(value);
     }
     if (page === 'checkout') targetPath = '/checkout';
+    if (page === 'cart') {
+      setIsCartOpen(true);
+      return;
+    }
     if (page === 'account') targetPath = `/account/${value || 'profile'}`;
     if (page === 'login') targetPath = '/login';
     if (page === 'register') targetPath = '/register';

@@ -3,14 +3,23 @@
 .fk-orders-container {
   width: 100%;
   max-width: 1160px;
-  padding: 16px 28px 48px;
+  padding: 12px 28px 48px;
   color: var(--fk-text-primary, #1c352f);
   box-sizing: border-box;
+  /* Visually hide scrollbar while preserving full scrollability */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fk-orders-container::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Breadcrumb */
 .fk-orders-breadcrumb {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .fk-back-orders-btn {
@@ -32,46 +41,91 @@
   color: #111827;
 }
 
-/* Page Header Row */
+/* Page Header Row (Compact inline layout matching Section 5) */
 .fk-orders-header-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
+}
+
+.fk-orders-title-group {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .fk-orders-title {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 750;
   color: #111827;
   letter-spacing: -0.02em;
   line-height: 1.2;
-  margin: 0 0 4px 0;
+  margin: 0;
+}
+
+.fk-orders-title-sep {
+  color: #9ca3af;
+  font-weight: 400;
+  font-size: 16px;
 }
 
 .fk-orders-subtitle {
-  font-size: 14px;
+  font-size: 13.5px;
   color: #6b7280;
   margin: 0;
   line-height: 1.4;
 }
 
-/* Filter Dropdown */
-.fk-orders-filter-wrapper {
+/* Nav Order Actions in Secondary Top Strip */
+.fk-nav-order-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fk-nav-back-orders-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0 10px;
+  height: 32px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fk-text-primary, #1c352f);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.fk-nav-back-orders-btn:hover {
+  background-color: #f9fafb;
+  border-color: #9ca3af;
+  color: #111827;
+}
+
+/* Nav Filter Dropdown in Compact Top Strip (Section 3) */
+.fk-nav-order-filter {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-.fk-orders-select {
-  height: 40px;
-  padding: 0 34px 0 14px;
+.fk-nav-order-filter .fk-orders-select {
+  height: 32px;
+  padding: 0 28px 0 10px;
   border: 1px solid #d1d5db;
-  border-radius: 8px;
+  border-radius: 6px;
   background-color: #ffffff;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 500;
   color: #1f2937;
   cursor: pointer;
@@ -82,15 +136,22 @@
   transition: border-color 0.15s ease;
 }
 
-.fk-orders-select:focus {
+.fk-nav-order-filter .fk-orders-select:focus {
   border-color: #858a59;
 }
 
-.fk-select-chevron {
+.fk-nav-order-filter .fk-select-chevron {
   position: absolute;
-  right: 12px;
+  right: 8px;
   pointer-events: none;
   color: #6b7280;
+}
+
+/* Secondary Nav Right cluster styling */
+.fk-secondary-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 /* Error Banner & States */
@@ -173,12 +234,12 @@
   border-color: #d1d5db;
 }
 
-/* Order Summary Header (Accordion toggle) */
+/* Order Summary Header (Accordion toggle - 3 Zones: Left, Center, Right) */
 .fk-order-card-summary {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto minmax(240px, 1fr);
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
+  padding: 14px 20px;
   cursor: pointer;
   user-select: none;
   background: #ffffff;
@@ -236,9 +297,16 @@
   color: #6b7280;
 }
 
+.fk-order-summary-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 .fk-order-summary-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 18px;
 }
 
@@ -1131,6 +1199,26 @@
 
   .fk-form-row-input-group {
     width: 100%;
+  }
+
+  .fk-order-card-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .fk-order-summary-left {
+    width: 100%;
+  }
+
+  .fk-order-summary-center {
+    order: 2;
+  }
+
+  .fk-order-summary-right {
+    order: 3;
+    gap: 12px;
   }
 }
 

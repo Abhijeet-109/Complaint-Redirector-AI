@@ -1787,7 +1787,14 @@ input, textarea, select {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fk-account-nav-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .fk-account-nav-btn {
@@ -1860,18 +1867,16 @@ input, textarea, select {
 .fk-account-main-area.is-scrollable {
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 0 36px;
-  scrollbar-width: thin;
-  scrollbar-color: #DFDBD1 transparent;
+  padding: 14px 0 36px;
+  /* Visually hide scrollbars across all browsers while fully preserving mouse-wheel, touch, trackpad and keyboard scrolling */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .fk-account-main-area.is-scrollable::-webkit-scrollbar {
-  width: 6px;
-}
-
-.fk-account-main-area.is-scrollable::-webkit-scrollbar-thumb {
-  background-color: #DFDBD1;
-  border-radius: 4px;
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 @media (max-width: 960px) {

@@ -6,7 +6,7 @@ import { accountService } from '../../services/accountService';
 
 const DEFAULT_NAV_ITEMS = ['Home'];
 
-export function CategoryNav({ activeCategory, onSelectCategory, items, onNavigate }) {
+export function CategoryNav({ activeCategory, onSelectCategory, items, onNavigate, extraRightAction }) {
   const navItems = items || DEFAULT_NAV_ITEMS;
   const { addresses, selectedAddress, selectAddress, setDefaultAddress, refreshAddresses } = useAddressBook();
   const { isAuthenticated } = useAuth();
@@ -33,10 +33,13 @@ export function CategoryNav({ activeCategory, onSelectCategory, items, onNavigat
         return <button key={item} className={`fk-nav-item ${isActive ? 'active' : ''}`} onClick={() => onSelectCategory?.(item)}>{item}</button>;
       })}
     </div>
-    <button type="button" className="fk-nav-delivery" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} title="Choose delivery location">
-      <MapPin size={18} strokeWidth={2.2} color="var(--fk-text-primary)" />
-      <span className="fk-delivery-text"><span className="fk-delivery-label">Deliver to</span><span className="fk-delivery-value">{selectedAddress ? selectedAddress.pin_code : isAuthenticated ? 'Add address' : 'Choose location'}</span></span>
-    </button>
+    <div className="fk-secondary-nav-right">
+      {extraRightAction}
+      <button type="button" className="fk-nav-delivery" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} title="Choose delivery location">
+        <MapPin size={18} strokeWidth={2.2} color="var(--fk-text-primary)" />
+        <span className="fk-delivery-text"><span className="fk-delivery-label">Deliver to</span><span className="fk-delivery-value">{selectedAddress ? selectedAddress.pin_code : isAuthenticated ? 'Add address' : 'Choose location'}</span></span>
+      </button>
+    </div>
     {open && <div className="fk-modal-overlay" role="presentation" onClick={() => setOpen(false)}>
       <section className="fk-auth-modal" role="dialog" aria-modal="true" aria-label="Delivery location" onClick={(event) => event.stopPropagation()} style={{ maxWidth: 540 }}>
         <div className="fk-auth-header"><strong>Choose delivery location</strong><button type="button" aria-label="Close" onClick={() => setOpen(false)}><X size={20} /></button></div>

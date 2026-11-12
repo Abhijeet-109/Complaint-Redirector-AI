@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   CheckCircle2,
@@ -99,11 +98,13 @@ const RETURN_REASON_OPTIONS = [
   'Changed mind / No longer needed',
 ];
 
-export function AccountOrders() {
+export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [internalFilter, setInternalFilter] = useState('all');
+  const filter = externalFilter !== undefined ? externalFilter : internalFilter;
+  const setFilter = onFilterChange || setInternalFilter;
   const [expandedOrderId, setExpandedOrderId] = useState(null);
   const [activeItemByOrder, setActiveItemByOrder] = useState({});
 
@@ -118,6 +119,17 @@ export function AccountOrders() {
 
   // Tracking modal
   const [trackingModalOrder, setTrackingModalOrder] = useState(null);
+
+  // Collapse expanded order and scroll to top when Back to orders is triggered
+  useEffect(() => {
+    if (resetTrigger > 0) {
+      setExpandedOrderId(null);
+      const mainArea = document.querySelector('.fk-account-main-area');
+      if (mainArea) {
+        mainArea.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  }, [resetTrigger]);
 
   // Load orders
   const loadOrders = async () => {
@@ -333,41 +345,14 @@ export function AccountOrders() {
 
   return (
     <div className="fk-orders-container">
-      {/* Back to orders breadcrumb */}
-      <div className="fk-orders-breadcrumb">
-        <button
-          type="button"
-          className="fk-back-orders-btn"
-          onClick={() => setExpandedOrderId(null)}
-          title="Back to all orders"
-        >
-          <ArrowLeft size={15} />
-          <span>Back to orders</span>
-        </button>
-      </div>
-
-      {/* Page Heading & Filters */}
+      {/* Page Heading (Compact inline layout matching Section 5) */}
       <div className="fk-orders-header-row">
-        <div>
+        <div className="fk-orders-title-group">
           <h1 className="fk-orders-title">My Orders</h1>
+          <span className="fk-orders-title-sep">—</span>
           <p className="fk-orders-subtitle">
             Review your purchases, track deliveries, and manage returns.
           </p>
-        </div>
-
-        <div className="fk-orders-filter-wrapper">
-          <select
-            className="fk-orders-select"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            aria-label="Filter orders"
-          >
-            <option value="all">All Orders</option>
-            <option value="active">In Progress</option>
-            <option value="delivered">Delivered</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <ChevronDown size={16} className="fk-select-chevron" />
         </div>
       </div>
 
@@ -452,7 +437,7 @@ export function AccountOrders() {
                   }}
                   aria-expanded={isExpanded}
                 >
-                  {/* Left: Thumbnail & Order ID / Date */}
+                  {/* Zone 1 (Left): Order identity */}
                   <div className="fk-order-summary-left">
                     <div className="fk-order-thumbnail-box">
                       {currentItem.image ? (
@@ -476,8 +461,8 @@ export function AccountOrders() {
                     </div>
                   </div>
 
-                  {/* Right: Status Pill & Delivery date & Chevron */}
-                  <div className="fk-order-summary-right">
+                  {/* Zone 2 (Center): Color-coded status badge visually centered */}
+                  <div className="fk-order-summary-center">
                     <span className={`fk-status-pill is-${String(order.status || '').toLowerCase()}`}>
                       {isDelivered && (
                         <span className="fk-status-icon-check">
@@ -486,7 +471,10 @@ export function AccountOrders() {
                       )}
                       <span>{humanize(order.status)}</span>
                     </span>
+                  </div>
 
+                  {/* Zone 3 (Right): Supporting info & Chevron */}
+                  <div className="fk-order-summary-right">
                     {deliveredDateStr && isDelivered && (
                       <span className="fk-delivery-date-text">
                         Delivered on {formatDateOnly(deliveredDateStr)}

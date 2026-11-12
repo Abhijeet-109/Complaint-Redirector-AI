@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Eye, EyeOff, Pencil, Trash2 } from 'lucide-react';
+import { Check, Eye, EyeOff, Pencil, Trash2, ChevronDown, ArrowLeft } from 'lucide-react';
 import { AccountLayout } from '../components/account/AccountLayout';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
+import { CartDrawer } from '../components/common/CartDrawer';
 import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -148,19 +149,64 @@ export function MyAccount({ section = 'profile', onNavigate }) {
   const { user, setUser } = useAuth();
   const { setIsWishlistOpen } = useCart();
   const [chatOpen, setChatOpen] = useState(false);
+  const [orderFilter, setOrderFilter] = useState('all');
+  const [resetOrderTrigger, setResetOrderTrigger] = useState(0);
+
   const validSection = ['profile', 'address', 'payments', 'orders', 'support-tickets', 'wishlist'].includes(section) ? section : 'profile';
   useEffect(() => {
     if (validSection === 'wishlist') setIsWishlistOpen(true);
   }, [validSection, setIsWishlistOpen]);
+
+  const handleBackToOrders = () => {
+    setResetOrderTrigger((prev) => prev + 1);
+  };
+
+  const navOrderActions = validSection === 'orders' ? (
+    <div className="fk-nav-order-actions">
+      <button
+        type="button"
+        className="fk-nav-back-orders-btn"
+        onClick={handleBackToOrders}
+        title="Back to all orders"
+      >
+        <ArrowLeft size={14} />
+        <span>Back to orders</span>
+      </button>
+
+      <div className="fk-nav-order-filter">
+        <select
+          className="fk-orders-select"
+          value={orderFilter}
+          onChange={(e) => setOrderFilter(e.target.value)}
+          aria-label="Filter orders"
+        >
+          <option value="all">All Orders</option>
+          <option value="active">In Progress</option>
+          <option value="delivered">Delivered</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <ChevronDown size={15} className="fk-select-chevron" />
+      </div>
+    </div>
+  ) : null;
+
   return <>
-    <AccountLayout activeItem={validSection} onNavigate={onNavigate} onOpenWishlist={() => setIsWishlistOpen(true)} onToggleChatbot={() => setChatOpen((open) => !open)} scrollable>
+    <AccountLayout
+      activeItem={validSection}
+      onNavigate={onNavigate}
+      onOpenWishlist={() => setIsWishlistOpen(true)}
+      onToggleChatbot={() => setChatOpen((open) => !open)}
+      extraNavAction={navOrderActions}
+      scrollable
+    >
       {['profile', 'address', 'payments'].includes(validSection)
         ? <AccountSection key={validSection} section={validSection} onProfileSaved={(value) => { setUser({ ...user, ...value }); localStorage.setItem('flatkart_user', JSON.stringify({ ...user, ...value })); }} />
-        : validSection === 'orders' ? <AccountOrders />
+        : validSection === 'orders' ? <AccountOrders filter={orderFilter} onFilterChange={setOrderFilter} resetTrigger={resetOrderTrigger} />
           : validSection === 'support-tickets' ? <AccountSupportTickets />
             : <section style={{ padding: 28 }}><h1>Wishlist</h1><p>Your saved products are available in the wishlist panel.</p></section>}
     </AccountLayout>
     <WishlistDrawer onNavigate={onNavigate} />
+    <CartDrawer onNavigate={onNavigate} />
     <ChatbotWidget isOpen={chatOpen} onToggle={() => setChatOpen((open) => !open)} onNavigate={onNavigate} />
   </>;
 }
