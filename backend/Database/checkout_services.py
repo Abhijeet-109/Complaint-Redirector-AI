@@ -411,6 +411,8 @@ def serialize_order(order):
     for item in order.items:
         price = money(item.unit_price)
         items.append({
+            "id": item.id,
+            "order_item_id": item.id,
             "variant_id": item.variant_id,
             "product_name": item.product_name,
             "variant_name": item.variant_name,

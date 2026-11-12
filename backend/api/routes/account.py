@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from backend.Database.checkout_services import serialize_order
 from backend.Database.models import (
     CommerceOrder, CommerceOrderItem, Product, User, UserAddress, WishlistItem,
+    ReturnRequest,
 )
 from backend.Database.services import get_order, list_orders
 from backend.Database.return_services import (
@@ -209,7 +210,7 @@ def set_payment_preference(payload: PaymentPreference, db: Session = Depends(get
     return {"preferred_payment_method": user.preferred_payment_method}
 
 
-def _order_payload(order):
+def _order_payload(order, return_claims=None):
     result = serialize_order(order)
     result["created_at"] = order.created_at.isoformat() if order.created_at else None
     if order.shipment:
@@ -234,11 +235,24 @@ def _order_payload(order):
         }
     else:
         result["shipment"] = None
+    claims_by_item = {}
+    for claim in (return_claims or []):
+        claims_by_item.setdefault(claim.order_item_id, []).append({
+            "id": claim.id,
+            "order_item_id": claim.order_item_id,
+            "quantity": claim.quantity,
+            "resolution_type": claim.resolution_type,
+            "reason_code": claim.reason_code,
+            "status": claim.status,
+            "workflow_status": claim.workflow_status,
+            "requested_at": claim.requested_at.isoformat() if claim.requested_at else None,
+        })
     for output, item in zip(result["items"], order.items):
         images = item.variant.product.images
         chosen = next((image for image in images if image.variant_id == item.variant_id), None)
         chosen = chosen or next((image for image in images if image.variant_id is None), None)
         output["image"] = chosen.storage_key if chosen else None
+        output["return_claims"] = claims_by_item.get(item.id, [])
     return result
 
 
@@ -252,7 +266,10 @@ def customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(ge
     order = get_order(db, user.id, order_id)
     if order is None:
         raise HTTPException(404, "Order not found")
-    return _order_payload(order)
+    claims = db.scalars(
+        select(ReturnRequest).where(ReturnRequest.order_id == order.id).order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc())
+    ).all()
+    return _order_payload(order, claims)
 
 
 @router.get("/orders/{order_id}/items/{order_item_id}/return-eligibility")

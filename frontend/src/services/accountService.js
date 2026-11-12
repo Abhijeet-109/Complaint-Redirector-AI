@@ -15,6 +15,14 @@ export const accountService = {
   }),
   orders: () => apiRequest('/api/account/orders'),
   order: (id) => apiRequest(`/api/account/orders/${id}`),
+  returnEligibility: (orderId, orderItemId) => apiRequest(`/api/account/orders/${orderId}/items/${orderItemId}/return-eligibility`),
+  createReturnClaim: (data) => apiRequest('/api/account/returns', { method: 'POST', body: JSON.stringify(data) }),
+  uploadReturnEvidence: (claimId, files) => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    return apiRequest(`/api/account/returns/${claimId}/evidence`, { method: 'POST', body: formData });
+  },
+  returnClaim: (claimId) => apiRequest(`/api/account/returns/${claimId}`),
   wishlist: () => apiRequest('/api/account/wishlist'),
   addWishlist: (productId) => apiRequest(`/api/account/wishlist/${productId}`, { method: 'POST' }),
   removeWishlist: (productId) => apiRequest(`/api/account/wishlist/${productId}`, { method: 'DELETE' }),
