@@ -1856,15 +1856,27 @@ def execute_return_refund(
     if payments is None or handoff.destination_department_id != payments.id:
         raise ValueError("Handoff is not assigned to Payments & Refunds")
 
+    def reject_execution_precondition(message: str):
+        error = ValueError(message)
+        if handoff.status in {"accepted", "in_progress"}:
+            _record_return_refund_execution_failure(
+                db,
+                claim_id=handoff.return_request_id,
+                handoff_id=handoff.id,
+                actor_id=actor.id,
+                error=error,
+            )
+        raise error
+
     claim = db.scalar(
         select(ReturnRequest).where(ReturnRequest.id == handoff.return_request_id).with_for_update()
     )
     if claim is None:
-        raise ValueError("Return request not found")
+        reject_execution_precondition("Return request not found")
     if claim.workflow_status != "approved" or claim.resolution_type != "refund":
-        raise ValueError("Only an approved refund request can be processed")
+        reject_execution_precondition("Only an approved refund request can be processed")
     if claim.refund_timing not in {"immediate", "after_collection"}:
-        raise ValueError("Refund timing is unavailable for this request")
+        reject_execution_precondition("Refund timing is unavailable for this request")
     returns_department = db.scalar(select(Department).where(Department.name == "Returns & Replacement"))
     delivery_department = db.scalar(select(Department).where(Department.name == "Order & Delivery"))
     expected_source_id = (
@@ -1872,7 +1884,7 @@ def execute_return_refund(
         delivery_department.id if claim.refund_timing == "after_collection" and delivery_department else None
     )
     if expected_source_id is None or handoff.source_department_id != expected_source_id:
-        raise ValueError("Payments handoff source does not match the approved refund workflow")
+        reject_execution_precondition("Payments handoff source does not match the approved refund workflow")
     if claim.refund_timing == "after_collection":
         pickup = db.scalar(
             select(ReturnHandoff).where(
@@ -1882,7 +1894,7 @@ def execute_return_refund(
             ).limit(1)
         )
         if pickup is None:
-            raise ValueError("Collection must be completed before processing this refund")
+            reject_execution_precondition("Collection must be completed before processing this refund")
 
     existing = db.scalar(
         select(Refund).where(Refund.return_request_id == claim.id)
@@ -1917,20 +1929,6 @@ def execute_return_refund(
 
     if handoff.status not in {"accepted", "in_progress"}:
         raise ValueError("Accept the Payments handoff before processing its refund")
-
-    order = db.scalar(select(CommerceOrder).where(CommerceOrder.id == claim.order_id))
-    order_item = db.scalar(
-        select(CommerceOrderItem).where(
-            CommerceOrderItem.id == claim.order_item_id,
-            CommerceOrderItem.order_id == claim.order_id,
-        )
-    )
-    if order is None or order_item is None:
-        raise ValueError("Return request order context is unavailable")
-    amount = _money(order_item.unit_price * claim.quantity)
-    if amount <= 0 or order.currency != "INR":
-        raise ValueError("Return refund amount or currency is invalid")
-
     if handoff.status == "accepted":
         previous = handoff.status
         handoff.status = "in_progress"
@@ -1944,18 +1942,34 @@ def execute_return_refund(
             note="Payments refund processing started.",
             event_data={"handoff_id": handoff.id, "destination_department_id": payments.id},
         ))
-    db.add(ReturnRequestEvent(
-        return_request_id=claim.id,
-        event_type="refund_processing_initiated",
-        previous_status=None,
-        new_status="processing",
-        actor_user_id=actor.id,
-        note="Refund processing started from the approved return request.",
-        event_data={"handoff_id": handoff.id, "amount": str(amount), "currency": order.currency},
-    ))
     db.commit()
 
     try:
+        order = db.scalar(select(CommerceOrder).where(CommerceOrder.id == claim.order_id))
+        order_item = db.scalar(
+            select(CommerceOrderItem).where(
+                CommerceOrderItem.id == claim.order_item_id,
+                CommerceOrderItem.order_id == claim.order_id,
+            )
+        )
+        if order is None or order_item is None:
+            raise ValueError("Return request order context is unavailable")
+        # Checkout snapshots ProductVariant.price into unit_price and derives the
+        # payment subtotal/total from that same value; MRP is not the paid price.
+        amount = _money(order_item.unit_price * claim.quantity)
+        if amount <= 0 or order.currency != "INR":
+            raise ValueError("Return refund amount or currency is invalid")
+        db.add(ReturnRequestEvent(
+            return_request_id=claim.id,
+            event_type="refund_processing_initiated",
+            previous_status=None,
+            new_status="processing",
+            actor_user_id=actor.id,
+            note="Refund processing started from the approved return request.",
+            event_data={"handoff_id": handoff.id, "amount": str(amount), "currency": order.currency},
+        ))
+        db.commit()
+
         if order.payment_method == "cod":
             result = record_cod_manual_refund(
                 db,
@@ -1995,22 +2009,14 @@ def execute_return_refund(
         else:
             raise ValueError("Order payment method is not supported for refunds")
     except ValueError as exc:
-        db.rollback()
-        db.add(ReturnRequestEvent(
-            return_request_id=claim.id,
-            event_type="refund_processing_failed",
-            previous_status=None,
-            new_status="failed",
-            actor_user_id=actor.id,
-            note=str(exc)[:500],
-            event_data={"handoff_id": handoff.id},
-        ))
-        db.commit()
+        _record_return_refund_execution_failure(
+            db, claim_id=claim.id, handoff_id=handoff.id, actor_id=actor.id, error=exc,
+        )
         raise
-    except Exception:
-        db.rollback()
-        # Service-level provider timeouts are represented by a durable
-        # processing Refund; an unexpected local failure is not called success.
+    except Exception as exc:
+        _record_return_refund_execution_failure(
+            db, claim_id=claim.id, handoff_id=handoff.id, actor_id=actor.id, error=exc,
+        )
         raise
 
     refund = db.scalar(
@@ -2087,6 +2093,76 @@ def _serialize_return_refund(refund: Refund, *, duplicate: bool = False) -> dict
         "failure_reason": refund.failure_reason,
         "duplicate": duplicate,
     }
+
+
+def _record_return_refund_execution_failure(
+    db: Session,
+    *,
+    claim_id: int,
+    handoff_id: int,
+    actor_id: int,
+    error: Exception,
+) -> None:
+    """Keep handoff state aligned with whether a durable financial result exists."""
+    db.rollback()
+    handoff = db.scalar(
+        select(ReturnHandoff).where(ReturnHandoff.id == handoff_id).with_for_update()
+    )
+    refund = db.scalar(
+        select(Refund).where(Refund.return_request_id == claim_id)
+        .order_by(Refund.created_at, Refund.id).limit(1).with_for_update()
+    )
+    reason = str(error)[:500]
+
+    if handoff is not None and handoff.status in {"accepted", "in_progress"}:
+        previous = handoff.status
+        now = _utcnow()
+        if refund is None or refund.status == "failed":
+            new_handoff_status = "failed"
+            handoff.failure_reason = reason if refund is None else (refund.failure_reason or reason)
+            handoff.completed_at = now
+        elif refund.status == "processed":
+            new_handoff_status = "completed"
+            handoff.completed_at = now
+        else:
+            new_handoff_status = "in_progress"
+        if previous != new_handoff_status:
+            handoff.status = new_handoff_status
+            handoff.updated_at = now
+            db.add(ReturnRequestEvent(
+                return_request_id=claim_id,
+                event_type="department_handoff_status_changed",
+                previous_status=previous,
+                new_status=new_handoff_status,
+                actor_user_id=actor_id,
+                note=reason,
+                event_data={"handoff_id": handoff.id,
+                            "destination_department_id": handoff.destination_department_id,
+                            "failure_stage": "before_refund_record" if refund is None else "after_refund_record",
+                            "refund_id": refund.id if refund else None},
+            ))
+
+    if refund is None:
+        event_type = "refund_execution_failed_before_refund"
+        new_status = "failed"
+        metadata = {"handoff_id": handoff_id, "refund_id": None,
+                    "failure_stage": "before_refund_record"}
+    else:
+        event_type = "refund_execution_interrupted"
+        new_status = refund.status
+        metadata = {"handoff_id": handoff_id, "refund_id": refund.id,
+                    "refund_status": refund.status,
+                    "failure_stage": "after_refund_record"}
+    db.add(ReturnRequestEvent(
+        return_request_id=claim_id,
+        event_type=event_type,
+        previous_status="in_progress",
+        new_status=new_status,
+        actor_user_id=actor_id,
+        note=reason,
+        event_data=metadata,
+    ))
+    db.commit()
 
 
 def list_return_refund_handoffs(db: Session, *, status: str | None, limit: int, offset: int) -> dict:
