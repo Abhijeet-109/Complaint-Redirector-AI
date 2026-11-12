@@ -37,6 +37,218 @@ def _utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def evaluate_return_eligibility(
+    session: Session,
+    *,
+    order: CommerceOrder,
+    order_item_id: int,
+    requested_quantity: int | None = None,
+    resolution_type: str | None = None,
+    now: datetime | None = None,
+    lock: bool = False,
+) -> dict:
+    """Evaluate the shared return policy for a customer's purchased item.
+
+    Preview callers omit ``requested_quantity`` and ``resolution_type``.
+    Claim creation supplies both and evaluates again inside its transaction.
+    """
+    shipment = session.scalar(select(Shipment).where(Shipment.order_id == order.id))
+    delivered_at = shipment.delivered_at if shipment else None
+    result = {
+        "order_id": order.id,
+        "order_item_id": order_item_id,
+        "eligible": False,
+        "reason_code": None,
+        "message": "This item is eligible for a return or replacement.",
+        "delivered_at": delivered_at,
+        "return_deadline": None,
+        "return_window_days": None,
+        "quantity_purchased": None,
+        "quantity_already_claimed": 0,
+        "quantity_available": 0,
+        "active_claim": None,
+        "available_resolutions": [],
+        "_order_item": None,
+    }
+
+    if shipment is None or shipment.status != "delivered":
+        result.update(
+            reason_code="not_delivered",
+            message="A return can only be requested after confirmed delivery.",
+        )
+        return result
+    if delivered_at is None:
+        result.update(
+            reason_code="delivery_timestamp_missing",
+            message="A return can only be requested after confirmed delivery.",
+        )
+        return result
+
+    if delivered_at.tzinfo is not None:
+        delivered_at = delivered_at.astimezone(timezone.utc).replace(tzinfo=None)
+    result["delivered_at"] = delivered_at
+    now = now or _utcnow_naive()
+    if now.tzinfo is not None:
+        now = now.astimezone(timezone.utc).replace(tzinfo=None)
+    if delivered_at > now:
+        result.update(
+            reason_code="invalid_delivery_timestamp",
+            message="Invalid delivery timestamp.",
+        )
+        return result
+
+    item_query = (
+        select(CommerceOrderItem)
+        .options(
+            selectinload(CommerceOrderItem.variant)
+            .selectinload(ProductVariant.product)
+        )
+        .where(
+            CommerceOrderItem.id == order_item_id,
+            CommerceOrderItem.order_id == order.id,
+        )
+    )
+    if lock:
+        item_query = item_query.with_for_update()
+    order_item = session.scalar(item_query)
+    if order_item is None:
+        raise LookupError("Order item not found.")
+    result["_order_item"] = order_item
+
+    result["quantity_purchased"] = order_item.quantity
+    result["quantity_available"] = order_item.quantity
+    if requested_quantity is not None and requested_quantity > order_item.quantity:
+        result.update(
+            reason_code="quantity_exceeds_purchased",
+            message="Requested quantity exceeds purchased quantity.",
+        )
+        return result
+
+    product = order_item.variant.product if order_item.variant else None
+    if product is None:
+        raise LookupError("Product information not found.")
+    if product.is_returnable is None:
+        result.update(
+            reason_code="policy_not_configured",
+            message="Return policy is not configured for this product.",
+        )
+        return result
+    if type(product.is_returnable) is not bool:
+        raise RuntimeError("Invalid return-policy configuration.")
+    if product.is_returnable is False:
+        result.update(
+            reason_code="not_returnable",
+            message="This product is not returnable.",
+        )
+        return result
+    if product.return_window_days is None:
+        result.update(
+            reason_code="policy_not_configured",
+            message="Return window is not configured for this product.",
+        )
+        return result
+    if type(product.return_window_days) is not int or product.return_window_days < 0:
+        raise RuntimeError("Invalid return-window configuration.")
+    if product.is_refundable is not None and type(product.is_refundable) is not bool:
+        raise RuntimeError("Invalid refund-policy configuration.")
+
+    deadline = delivered_at + timedelta(days=product.return_window_days)
+    result["return_window_days"] = product.return_window_days
+    result["return_deadline"] = deadline
+    result["available_resolutions"] = (
+        (["refund"] if product.is_refundable is True else []) + ["replacement"]
+    )
+    if now > deadline:
+        result.update(
+            reason_code="return_window_expired",
+            message="The return window has expired.",
+        )
+        return result
+
+    if resolution_type == "refund" and product.is_refundable is None:
+        result.update(
+            reason_code="refund_policy_not_configured",
+            message="Refund policy is not configured for this product.",
+        )
+        return result
+    if resolution_type == "refund" and product.is_refundable is False:
+        result.update(
+            reason_code="refund_not_available",
+            message="This product is not eligible for a refund.",
+        )
+        return result
+
+    active_claim_query = (
+        select(ReturnRequest)
+        .where(
+            ReturnRequest.order_item_id == order_item.id,
+            ReturnRequest.status.in_(ACTIVE_LEGACY_STATUSES),
+            or_(
+                ReturnRequest.workflow_status.is_(None),
+                ReturnRequest.workflow_status.notin_(TERMINAL_WORKFLOW_STATUSES),
+            ),
+        )
+        .limit(1)
+    )
+    if lock:
+        active_claim_query = active_claim_query.with_for_update()
+    active_claim = session.scalar(active_claim_query)
+
+    countable_claim = and_(
+        ReturnRequest.status.notin_(("rejected", "cancelled")),
+        or_(
+            ReturnRequest.workflow_status.is_(None),
+            ReturnRequest.workflow_status.notin_(("rejected", "cancelled")),
+        ),
+    )
+    previously_claimed = session.scalar(
+        select(func.coalesce(func.sum(ReturnRequest.quantity), 0)).where(
+            ReturnRequest.order_item_id == order_item.id,
+            countable_claim,
+        )
+    )
+    already_claimed = int(previously_claimed or 0)
+    remaining_quantity = order_item.quantity - already_claimed
+    result["quantity_already_claimed"] = already_claimed
+    result["quantity_available"] = max(0, remaining_quantity)
+
+    if active_claim is not None:
+        result["active_claim"] = {
+            "id": active_claim.id,
+            "status": active_claim.status,
+            "workflow_status": active_claim.workflow_status,
+            "quantity": active_claim.quantity,
+            "resolution_type": active_claim.resolution_type,
+            "requested_at": active_claim.requested_at,
+        }
+        result.update(
+            reason_code="active_claim_exists",
+            message="An active return request already exists for this item.",
+        )
+        return result
+
+    if requested_quantity is not None and requested_quantity > remaining_quantity:
+        result.update(
+            reason_code="quantity_exhausted",
+            message=f"Only {remaining_quantity} unit(s) remain eligible for return.",
+        )
+        return result
+    if result["quantity_available"] <= 0:
+        result.update(
+            reason_code="quantity_exhausted",
+            message="No units remain eligible for return.",
+        )
+        return result
+
+    result["eligible"] = True
+    result["reason_code"] = "eligible"
+    return result
+
+
+def _raise_eligibility_failure(result: dict) -> None:
+    raise ValueError(result["message"])
+
+
 def create_return_claim(
     session: Session,
     *,
@@ -87,152 +299,19 @@ def create_return_claim(
     if order is None:
         raise LookupError("Order not found.")
 
-    # 3. Verify delivery.
-    shipment = session.scalar(
-        select(Shipment).where(
-            Shipment.order_id == order.id
-        )
+    # Evaluation runs again while the order and item are locked. Preview is
+    # informational and cannot authorize a later claim submission.
+    eligibility = evaluate_return_eligibility(
+        session,
+        order=order,
+        order_item_id=order_item_id,
+        requested_quantity=quantity,
+        resolution_type=resolution_type,
+        lock=True,
     )
-
-    if (
-        shipment is None
-        or shipment.status != "delivered"
-        or shipment.delivered_at is None
-    ):
-        raise ValueError(
-            "A return can only be requested after confirmed delivery."
-        )
-
-    delivered_at = shipment.delivered_at
-
-    if delivered_at.tzinfo is not None:
-        delivered_at = delivered_at.astimezone(
-            timezone.utc
-        ).replace(tzinfo=None)
-
-    now = _utcnow_naive()
-
-    if delivered_at > now:
-        raise ValueError("Invalid delivery timestamp.")
-
-    # 4. Lock the purchased order item and load its product.
-    order_item = session.scalar(
-        select(CommerceOrderItem)
-        .options(
-            selectinload(CommerceOrderItem.variant)
-            .selectinload(ProductVariant.product)
-        )
-        .where(
-            CommerceOrderItem.id == order_item_id,
-            CommerceOrderItem.order_id == order.id,
-        )
-        .with_for_update()
-    )
-
-    if order_item is None:
-        raise LookupError("Order item not found.")
-
-    if quantity > order_item.quantity:
-        raise ValueError(
-            "Requested quantity exceeds purchased quantity."
-        )
-
-    variant = order_item.variant
-    product = variant.product if variant else None
-
-    if product is None:
-        raise LookupError("Product information not found.")
-
-    # 5. Validate product return policy.
-    if product.is_returnable is None:
-        raise ValueError(
-            "Return policy is not configured for this product."
-        )
-
-    if product.is_returnable is False:
-        raise ValueError("This product is not returnable.")
-
-    if product.return_window_days is None:
-        raise ValueError(
-            "Return window is not configured for this product."
-        )
-
-    if product.return_window_days < 0:
-        raise RuntimeError(
-            "Invalid return-window configuration."
-        )
-
-    deadline = delivered_at + timedelta(
-        days=product.return_window_days
-    )
-
-    if now > deadline:
-        raise ValueError("The return window has expired.")
-
-    if resolution_type == "refund":
-        if product.is_refundable is None:
-            raise ValueError(
-                "Refund policy is not configured for this product."
-            )
-
-        if product.is_refundable is False:
-            raise ValueError(
-                "This product is not eligible for a refund."
-            )
-
-    # 6. Prevent another active claim for this order item.
-    active_claim_id = session.scalar(
-        select(ReturnRequest.id)
-        .where(
-            ReturnRequest.order_item_id == order_item.id,
-            ReturnRequest.status.in_(ACTIVE_LEGACY_STATUSES),
-            or_(
-                ReturnRequest.workflow_status.is_(None),
-                ReturnRequest.workflow_status.notin_(
-                    TERMINAL_WORKFLOW_STATUSES
-                ),
-            ),
-        )
-        .limit(1)
-        .with_for_update()
-    )
-
-    if active_claim_id is not None:
-        raise ValueError(
-            "An active return request already exists for this item."
-        )
-
-    # 7. Calculate previously claimed/returned quantity.
-    countable_claim = and_(
-        ReturnRequest.status.notin_(("rejected", "cancelled")),
-        or_(
-            ReturnRequest.workflow_status.is_(None),
-            ReturnRequest.workflow_status.notin_(
-                ("rejected", "cancelled")
-            ),
-        ),
-    )
-
-    previously_claimed = session.scalar(
-        select(
-            func.coalesce(
-                func.sum(ReturnRequest.quantity),
-                0,
-            )
-        ).where(
-            ReturnRequest.order_item_id == order_item.id,
-            countable_claim,
-        )
-    )
-
-    remaining_quantity = (
-        order_item.quantity - int(previously_claimed or 0)
-    )
-
-    if quantity > remaining_quantity:
-        raise ValueError(
-            f"Only {remaining_quantity} unit(s) remain eligible for return."
-        )
+    if not eligibility["eligible"]:
+        _raise_eligibility_failure(eligibility)
+    order_item = eligibility["_order_item"]
 
     # 8. Create the return request.
     claim = ReturnRequest(

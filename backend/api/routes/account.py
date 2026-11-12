@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.Database.checkout_services import serialize_order
 from backend.Database.models import (
-    Product, User, UserAddress, WishlistItem,
+    CommerceOrder, CommerceOrderItem, Product, User, UserAddress, WishlistItem,
 )
 from backend.Database.services import get_order, list_orders
 from backend.Database.return_services import (
-    claim_details, create_return_claim, get_return_claim, record_customer_response,
+    claim_details, create_return_claim, evaluate_return_eligibility,
+    get_return_claim, record_customer_response,
 )
 from backend.Database.models import ReturnEvidence, ReturnRequestEvent
 from backend.Database.return_evidence_storage import (
@@ -252,6 +253,45 @@ def customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(ge
     if order is None:
         raise HTTPException(404, "Order not found")
     return _order_payload(order)
+
+
+@router.get("/orders/{order_id}/items/{order_item_id}/return-eligibility")
+def customer_return_eligibility(
+    order_id: int,
+    order_item_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    order = db.scalar(select(CommerceOrder).where(
+        CommerceOrder.id == order_id,
+        CommerceOrder.user_id == user.id,
+    ))
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    item_exists = db.scalar(select(CommerceOrderItem.id).where(
+        CommerceOrderItem.id == order_item_id,
+        CommerceOrderItem.order_id == order.id,
+    ))
+    if item_exists is None:
+        raise HTTPException(status_code=404, detail="Order item not found.")
+    try:
+        eligibility = evaluate_return_eligibility(
+            db,
+            order=order,
+            order_item_id=order_item_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        key: eligibility[key]
+        for key in (
+            "order_id", "order_item_id", "eligible", "reason_code", "message",
+            "delivered_at", "return_deadline", "return_window_days",
+            "quantity_purchased", "quantity_already_claimed", "quantity_available",
+            "active_claim", "available_resolutions",
+        )
+    }
 
 @router.post("/returns", status_code=status.HTTP_201_CREATED)
 def submit_return_claim(

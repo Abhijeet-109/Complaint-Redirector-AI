@@ -122,6 +122,173 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         values.update(overrides)
         return create_return_claim(self.db, **values)
 
+    def preview(self, order_id=None, order_item_id=None):
+        return self.client.get(
+            f"/api/account/orders/{order_id or self.order.id}/items/"
+            f"{order_item_id or self.item.id}/return-eligibility"
+        )
+
+    def close_seed_claim(self, *, status="rejected"):
+        self.claim.status = status
+        self.claim.workflow_status = status
+        self.db.commit()
+
+    def test_return_eligibility_preview_has_refund_and_replacement(self):
+        self.close_seed_claim()
+        response = self.preview()
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertTrue(data["eligible"])
+        self.assertEqual(data["reason_code"], "eligible")
+        self.assertEqual(data["available_resolutions"], ["refund", "replacement"])
+        self.assertEqual(data["order_id"], self.order.id)
+        self.assertEqual(data["order_item_id"], self.item.id)
+        self.assertEqual(data["quantity_purchased"], 2)
+        self.assertEqual(data["quantity_already_claimed"], 0)
+        self.assertEqual(data["quantity_available"], 2)
+        self.assertIsNone(data["active_claim"])
+        self.assertEqual(data["return_window_days"], 30)
+        self.assertEqual(data["delivered_at"], self.delivered_at.isoformat())
+        self.assertEqual(
+            data["return_deadline"],
+            (self.delivered_at + timedelta(days=30)).isoformat(),
+        )
+
+    def test_return_eligibility_preview_reports_expired_window(self):
+        self.close_seed_claim()
+        self.shipment.delivered_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=31)
+        self.db.commit()
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "return_window_expired")
+        self.assertEqual(data["available_resolutions"], ["refund", "replacement"])
+
+    def test_return_eligibility_preview_reports_non_returnable_product(self):
+        self.close_seed_claim()
+        self.product.is_returnable = False
+        self.db.commit()
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "not_returnable")
+        self.assertEqual(data["available_resolutions"], [])
+
+    def test_return_eligibility_preview_reports_missing_return_policy(self):
+        self.close_seed_claim()
+        self.product.is_returnable = None
+        self.db.commit()
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "policy_not_configured")
+        self.product.is_returnable = True
+        self.product.return_window_days = None
+        self.db.commit()
+        self.assertEqual(self.preview().json()["reason_code"], "policy_not_configured")
+
+    def test_return_eligibility_preview_refund_disabled_leaves_replacement(self):
+        self.close_seed_claim()
+        self.product.is_refundable = False
+        self.db.commit()
+        data = self.preview().json()
+        self.assertTrue(data["eligible"])
+        self.assertEqual(data["available_resolutions"], ["replacement"])
+
+    def test_return_eligibility_preview_unconfigured_refund_leaves_replacement(self):
+        self.close_seed_claim()
+        self.product.is_refundable = None
+        self.db.commit()
+        data = self.preview().json()
+        self.assertTrue(data["eligible"])
+        self.assertEqual(data["available_resolutions"], ["replacement"])
+
+    def test_return_eligibility_preview_reports_delivery_state(self):
+        self.close_seed_claim()
+        self.shipment.status = "shipped"
+        self.db.commit()
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "not_delivered")
+        self.shipment.status = "delivered"
+        self.shipment.delivered_at = None
+        self.db.commit()
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "delivery_timestamp_missing")
+
+    def test_return_eligibility_preview_reports_active_claim_safely(self):
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "active_claim_exists")
+        self.assertEqual(data["active_claim"]["id"], self.claim.id)
+        self.assertNotIn("description", data["active_claim"])
+        self.assertEqual(data["quantity_already_claimed"], 1)
+        self.assertEqual(data["quantity_available"], 1)
+
+    def test_return_eligibility_preview_counts_completed_claims(self):
+        self.claim.quantity = 2
+        self.claim.status = "completed"
+        self.claim.workflow_status = "completed"
+        self.db.commit()
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "quantity_exhausted")
+        self.assertEqual(data["quantity_already_claimed"], 2)
+        self.assertEqual(data["quantity_available"], 0)
+
+    def test_customer_cannot_preview_another_customers_order(self):
+        self.actor = self.other
+        response = self.preview()
+        self.assertEqual(response.status_code, 404)
+
+    def test_customer_cannot_preview_item_from_a_different_order(self):
+        second_order = CommerceOrder(order_number="RET-ORDER-2", user_id=self.customer.id, status="delivered")
+        self.db.add(second_order)
+        self.db.flush()
+        second_item = CommerceOrderItem(
+            order_id=second_order.id, variant_id=self.variant.id,
+            product_name="Notebook", variant_name="A4", sku="NB-A4-2",
+            quantity=1, unit_price=100,
+        )
+        self.db.add(second_item)
+        self.db.commit()
+        response = self.preview(order_item_id=second_item.id)
+        self.assertEqual(response.status_code, 404)
+
+    def test_refund_and_replacement_submission_use_existing_claim_workflow(self):
+        self.close_seed_claim()
+        refund = self.client.post("/api/account/returns", json={
+            "order_id": self.order.id, "order_item_id": self.item.id,
+            "quantity": 1, "resolution_type": "refund", "reason_code": "damaged",
+        })
+        self.assertEqual(refund.status_code, 201, refund.text)
+        self.assertEqual(refund.json()["return_request"]["workflow_status"], "submitted")
+        submitted_refund_id = refund.json()["return_request"]["id"]
+        submitted_refund = self.db.get(ReturnRequest, submitted_refund_id)
+        submitted_refund.status = "rejected"
+        submitted_refund.workflow_status = "rejected"
+        self.db.commit()
+        replacement = self.client.post("/api/account/returns", json={
+            "order_id": self.order.id, "order_item_id": self.item.id,
+            "quantity": 1, "resolution_type": "replacement", "reason_code": "defective",
+        })
+        self.assertEqual(replacement.status_code, 201, replacement.text)
+        self.assertEqual(replacement.json()["return_request"]["resolution_type"], "replacement")
+        self.assertEqual(replacement.json()["return_request"]["workflow_status"], "submitted")
+
+    def test_refund_disabled_submission_still_allows_replacement(self):
+        self.close_seed_claim()
+        self.product.is_refundable = False
+        self.db.commit()
+        refund = self.client.post("/api/account/returns", json={
+            "order_id": self.order.id, "order_item_id": self.item.id,
+            "quantity": 1, "resolution_type": "refund", "reason_code": "damaged",
+        })
+        self.assertEqual(refund.status_code, 409)
+        replacement = self.client.post("/api/account/returns", json={
+            "order_id": self.order.id, "order_item_id": self.item.id,
+            "quantity": 1, "resolution_type": "replacement", "reason_code": "defective",
+        })
+        self.assertEqual(replacement.status_code, 201, replacement.text)
+
     def test_delivered_order_can_be_claimed_but_undelivered_cannot(self):
         self.shipment.status = "shipped"
         self.db.commit()
