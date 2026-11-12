@@ -604,6 +604,10 @@ class ReturnRequest(Base):
             "resolution_type IS NULL OR resolution_type IN ('refund', 'replacement')",
             name="ck_return_requests_resolution_type",
         ),
+        CheckConstraint(
+            "refund_timing IS NULL OR refund_timing IN ('immediate', 'after_collection')",
+            name="ck_return_requests_refund_timing",
+        ),
         ForeignKeyConstraint(
             ["order_item_id", "order_id"],
             ["commerce_order_items.id", "commerce_order_items.order_id"],
@@ -634,6 +638,7 @@ class ReturnRequest(Base):
     resolution_type = Column(String(20), nullable=True)
     reason_code = Column(String(40), nullable=True)
     description = Column(Text, nullable=True)
+    refund_timing = Column(String(24), nullable=True)
 
     # Separate workflow status; nullable for legacy records.
     workflow_status = Column(String(40), nullable=True, index=True)
