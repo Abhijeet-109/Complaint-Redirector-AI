@@ -575,7 +575,7 @@ def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, deci
             _create_handoff(
                 session,
                 claim,
-                source=target,
+                source=source,
                 destination=payments,
                 handoff_type="refund_processing",
                 actor_id=actor_id,

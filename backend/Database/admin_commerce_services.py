@@ -13,12 +13,14 @@ from sqlalchemy.orm import Session, selectinload
 from backend.Database.models import (
     CommerceOrder,
     CommerceOrderItem,
+    Department,
     Inventory,
     PaymentAttempt,
     Product,
     ProductCategory,
     ProductVariant,
     Refund,
+    ReturnHandoff,
     ReturnRequest,
     ReturnRequestEvent,
     Shipment,
@@ -1550,6 +1552,8 @@ def process_razorpay_refund(
     reason: str = "",
     processed_by: User = None,
     order_number: str | None = None,
+    return_request_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
     """
     1. Validate payment captured, not already fully refunded.
@@ -1571,6 +1575,27 @@ def process_razorpay_refund(
         order_id = target_order.id
     elif not order_id:
         raise ValueError("Either order_number or order_id must be provided")
+
+    return_request = None
+    if return_request_id is not None:
+        return_request = db.scalar(
+            select(ReturnRequest).where(ReturnRequest.id == return_request_id).with_for_update()
+        )
+        if return_request is None or return_request.order_id != order_id:
+            raise ValueError("Return request does not belong to this order")
+        existing = db.scalar(
+            select(Refund).where(Refund.return_request_id == return_request_id)
+            .order_by(Refund.created_at, Refund.id).with_for_update()
+        )
+        if existing is not None:
+            return {
+                "id": existing.id, "status": existing.status, "amount": str(_money(existing.amount)),
+                "provider_refund_id": existing.provider_refund_id,
+                "failure_reason": existing.failure_reason, "duplicate": True,
+            }
+        if not razorpay or not os.getenv("RAZORPAY_KEY_ID") or not os.getenv("RAZORPAY_KEY_SECRET"):
+            raise ValueError("Razorpay refund processing is not configured")
+        idempotency_key = idempotency_key or f"return-refund:{return_request_id}:v1"
 
     attempt = db.scalar(
         select(PaymentAttempt)
@@ -1602,20 +1627,26 @@ def process_razorpay_refund(
             f"Refund amount ₹{amount} exceeds refundable balance ₹{max_refundable}"
         )
 
-    idempotency_key = f"refund:{payment_attempt_id}:{uuid4().hex}"
     refund_record = Refund(
         order_id=order_id,
         payment_attempt_id=payment_attempt_id,
+        return_request_id=return_request_id,
         amount=amount,
         currency="INR",
         reason=reason,
         refund_method="razorpay",
-        status="pending",
-        idempotency_key=idempotency_key,
+        status="processing" if return_request_id is not None else "pending",
+        idempotency_key=idempotency_key or f"refund:{payment_attempt_id}:{uuid4().hex}",
         processed_by_id=processed_by.id,
     )
     db.add(refund_record)
     db.flush()
+
+    # Return workflow refunds reserve a durable request-level record before
+    # calling the provider. A timeout can therefore never cause a fresh refund.
+    if return_request_id is not None:
+        db.commit()
+        db.refresh(refund_record)
 
     # Call Razorpay
     try:
@@ -1632,20 +1663,59 @@ def process_razorpay_refund(
                 },
             )
             refund_record.provider_refund_id = rzp_response.get("id")
+            provider_status = str(rzp_response.get("status") or "").lower()
+            if return_request_id is not None:
+                if provider_status == "processed" and refund_record.provider_refund_id:
+                    refund_record.status = "processed"
+                elif provider_status == "failed":
+                    refund_record.status = "failed"
+                    refund_record.failure_reason = str(rzp_response.get("error_description") or "Provider reported refund failure")[:500]
+                else:
+                    refund_record.status = "processing"
+                    refund_record.failure_reason = None
+                refund_record.updated_at = _utcnow()
+                db.commit()
+                if refund_record.status != "processed":
+                    return {
+                        "id": refund_record.id, "status": refund_record.status,
+                        "amount": str(amount), "provider_refund_id": refund_record.provider_refund_id,
+                        "failure_reason": refund_record.failure_reason,
+                    }
         else:
+            if return_request_id is not None:
+                raise ValueError("Razorpay refund processing is not configured")
             # Fallback for development/test environment without live Razorpay credentials
             refund_record.provider_refund_id = f"rfnd_sim_{uuid4().hex[:14]}"
 
-        refund_record.status = "processed"
-        refund_record.updated_at = _utcnow()
+        if return_request_id is None:
+            refund_record.status = "processed"
+            refund_record.updated_at = _utcnow()
     except Exception as exc:
+        if return_request_id is not None:
+            # A provider exception may mean the request succeeded remotely.
+            # Keep the durable record non-successful and block automatic retry.
+            refund_record.status = "processing"
+            refund_record.failure_reason = f"Provider result uncertain: {exc}"[:500]
+            refund_record.updated_at = _utcnow()
+            db.commit()
+            return {
+                "id": refund_record.id, "status": refund_record.status,
+                "amount": str(amount), "provider_refund_id": refund_record.provider_refund_id,
+                "failure_reason": refund_record.failure_reason,
+            }
         refund_record.status = "failed"
         refund_record.failure_reason = str(exc)[:500]
         refund_record.updated_at = _utcnow()
         db.commit()
         raise ValueError(f"Razorpay refund failed: {exc}") from exc
 
-    # Update order payment_status
+    # Update order payment_status only when the actual refund succeeded.
+    if return_request_id is not None and refund_record.status != "processed":
+        return {
+            "id": refund_record.id, "status": refund_record.status,
+            "amount": str(amount), "provider_refund_id": refund_record.provider_refund_id,
+            "failure_reason": refund_record.failure_reason,
+        }
     order = db.scalar(select(CommerceOrder).where(CommerceOrder.id == order_id).with_for_update())
     if order:
         total_refunded = _money(already_refunded) + amount
@@ -1674,6 +1744,8 @@ def record_cod_manual_refund(
     reason: str = "",
     processed_by: User = None,
     order_number: str | None = None,
+    return_request_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
     """Record a manual COD refund (no Razorpay involved)."""
     if order_number and not order_id:
@@ -1694,13 +1766,49 @@ def record_cod_manual_refund(
 
     order_id = order.id
 
+    return_request = None
+    if return_request_id is not None:
+        return_request = db.scalar(
+            select(ReturnRequest).where(ReturnRequest.id == return_request_id).with_for_update()
+        )
+        if return_request is None or return_request.order_id != order_id or return_request.resolution_type != "refund":
+            raise ValueError("Return request does not belong to this COD refund order")
+        existing = db.scalar(
+            select(Refund).where(Refund.return_request_id == return_request_id)
+            .order_by(Refund.created_at, Refund.id).with_for_update()
+        )
+        if existing is not None:
+            return {
+                "id": existing.id, "status": existing.status, "amount": str(_money(existing.amount)),
+                "external_reference": existing.external_reference, "duplicate": True,
+            }
+        if not external_reference or not external_reference.strip():
+            raise ValueError("An external reference is required for a COD refund")
+
     amount = _money(amount)
     if amount <= Decimal(0):
         raise ValueError("Refund amount must be positive")
 
-    idempotency_key = f"cod-refund:{order_id}:{uuid4().hex}"
+    if return_request_id is not None:
+        if order.total_amount is None:
+            raise ValueError("Order total is unavailable for COD refund validation")
+        already_refunded = db.scalar(
+            select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.order_id == order_id,
+                Refund.status.in_(["pending", "processing", "processed"]),
+            )
+        ) or Decimal(0)
+        max_refundable = _money(order.total_amount) - _money(already_refunded)
+        if amount > max_refundable:
+            raise ValueError(f"Refund amount {amount} exceeds refundable order balance {max_refundable}")
+
+    idempotency_key = idempotency_key or (
+        f"return-refund:{return_request_id}:v1" if return_request_id is not None
+        else f"cod-refund:{order_id}:{uuid4().hex}"
+    )
     refund_record = Refund(
         order_id=order_id,
+        return_request_id=return_request_id,
         amount=amount,
         currency="INR",
         reason=reason,
@@ -1712,8 +1820,15 @@ def record_cod_manual_refund(
     )
     db.add(refund_record)
 
-    # Update payment status
-    order.payment_status = "refunded"
+    # Update payment status without treating a partial return as a full refund.
+    if return_request_id is None:
+        order.payment_status = "refunded"
+    else:
+        total_refunded = _money(already_refunded) + amount
+        order.payment_status = (
+            "refunded" if total_refunded >= _money(order.total_amount)
+            else "partially_refunded"
+        )
     db.commit()
     db.refresh(refund_record)
     return {
@@ -1721,4 +1836,336 @@ def record_cod_manual_refund(
         "status": refund_record.status,
         "amount": str(amount),
         "external_reference": refund_record.external_reference,
+    }
+
+
+def execute_return_refund(
+    db: Session,
+    *,
+    handoff_id: int,
+    actor: User,
+    external_reference: str | None = None,
+) -> dict:
+    """Execute or safely replay the single refund associated with a return request."""
+    handoff = db.scalar(
+        select(ReturnHandoff).where(ReturnHandoff.id == handoff_id).with_for_update()
+    )
+    if handoff is None or handoff.handoff_type != "refund_processing":
+        raise ValueError("Payments refund handoff not found")
+    payments = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+    if payments is None or handoff.destination_department_id != payments.id:
+        raise ValueError("Handoff is not assigned to Payments & Refunds")
+
+    claim = db.scalar(
+        select(ReturnRequest).where(ReturnRequest.id == handoff.return_request_id).with_for_update()
+    )
+    if claim is None:
+        raise ValueError("Return request not found")
+    if claim.workflow_status != "approved" or claim.resolution_type != "refund":
+        raise ValueError("Only an approved refund request can be processed")
+    if claim.refund_timing not in {"immediate", "after_collection"}:
+        raise ValueError("Refund timing is unavailable for this request")
+    returns_department = db.scalar(select(Department).where(Department.name == "Returns & Replacement"))
+    delivery_department = db.scalar(select(Department).where(Department.name == "Order & Delivery"))
+    expected_source_id = (
+        returns_department.id if claim.refund_timing == "immediate" and returns_department else
+        delivery_department.id if claim.refund_timing == "after_collection" and delivery_department else None
+    )
+    if expected_source_id is None or handoff.source_department_id != expected_source_id:
+        raise ValueError("Payments handoff source does not match the approved refund workflow")
+    if claim.refund_timing == "after_collection":
+        pickup = db.scalar(
+            select(ReturnHandoff).where(
+                ReturnHandoff.return_request_id == claim.id,
+                ReturnHandoff.handoff_type == "refund_pickup",
+                ReturnHandoff.status == "completed",
+            ).limit(1)
+        )
+        if pickup is None:
+            raise ValueError("Collection must be completed before processing this refund")
+
+    existing = db.scalar(
+        select(Refund).where(Refund.return_request_id == claim.id)
+        .order_by(Refund.created_at, Refund.id).with_for_update()
+    )
+    if existing is not None:
+        if existing.status == "processed" and handoff.status in {"accepted", "in_progress"}:
+            previous = handoff.status
+            handoff.status = "completed"
+            handoff.completed_at = _utcnow()
+            db.add(ReturnRequestEvent(
+                return_request_id=claim.id,
+                event_type="department_handoff_status_changed",
+                previous_status=previous,
+                new_status="completed",
+                actor_user_id=actor.id,
+                note="Refund was already processed; completing the Payments handoff.",
+                event_data={"handoff_id": handoff.id, "destination_department_id": payments.id},
+            ))
+        db.add(ReturnRequestEvent(
+            return_request_id=claim.id,
+            event_type="refund_execution_retry",
+            previous_status=existing.status,
+            new_status=existing.status,
+            actor_user_id=actor.id,
+            note="Existing return refund reused; no new provider request was made.",
+            event_data={"handoff_id": handoff.id, "refund_id": existing.id,
+                        "refund_status": existing.status},
+        ))
+        db.commit()
+        return _serialize_return_refund(existing, duplicate=True)
+
+    if handoff.status not in {"accepted", "in_progress"}:
+        raise ValueError("Accept the Payments handoff before processing its refund")
+
+    order = db.scalar(select(CommerceOrder).where(CommerceOrder.id == claim.order_id))
+    order_item = db.scalar(
+        select(CommerceOrderItem).where(
+            CommerceOrderItem.id == claim.order_item_id,
+            CommerceOrderItem.order_id == claim.order_id,
+        )
+    )
+    if order is None or order_item is None:
+        raise ValueError("Return request order context is unavailable")
+    amount = _money(order_item.unit_price * claim.quantity)
+    if amount <= 0 or order.currency != "INR":
+        raise ValueError("Return refund amount or currency is invalid")
+
+    if handoff.status == "accepted":
+        previous = handoff.status
+        handoff.status = "in_progress"
+        handoff.updated_at = _utcnow()
+        db.add(ReturnRequestEvent(
+            return_request_id=claim.id,
+            event_type="department_handoff_status_changed",
+            previous_status=previous,
+            new_status="in_progress",
+            actor_user_id=actor.id,
+            note="Payments refund processing started.",
+            event_data={"handoff_id": handoff.id, "destination_department_id": payments.id},
+        ))
+    db.add(ReturnRequestEvent(
+        return_request_id=claim.id,
+        event_type="refund_processing_initiated",
+        previous_status=None,
+        new_status="processing",
+        actor_user_id=actor.id,
+        note="Refund processing started from the approved return request.",
+        event_data={"handoff_id": handoff.id, "amount": str(amount), "currency": order.currency},
+    ))
+    db.commit()
+
+    try:
+        if order.payment_method == "cod":
+            result = record_cod_manual_refund(
+                db,
+                order_id=order.id,
+                amount=amount,
+                refund_method="manual_cod",
+                external_reference=(external_reference or "").strip(),
+                reason=f"Return request {claim.id}: {claim.reason_code or claim.reason}",
+                processed_by=actor,
+                return_request_id=claim.id,
+                idempotency_key=f"return-refund:{claim.id}:v1",
+            )
+        elif order.payment_method in {"razorpay", "upi", "netbanking"}:
+            attempt = db.scalar(
+                select(PaymentAttempt)
+                .where(
+                    PaymentAttempt.order_id == order.id,
+                    PaymentAttempt.provider == "razorpay",
+                    PaymentAttempt.status == "captured",
+                    PaymentAttempt.provider_payment_id.isnot(None),
+                )
+                .order_by(PaymentAttempt.paid_at.desc(), PaymentAttempt.id.desc())
+                .with_for_update()
+            )
+            if attempt is None:
+                raise ValueError("No captured Razorpay payment is available for this order")
+            result = process_razorpay_refund(
+                db,
+                order_id=order.id,
+                payment_attempt_id=attempt.id,
+                amount=amount,
+                reason=f"Return request {claim.id}: {claim.reason_code or claim.reason}",
+                processed_by=actor,
+                return_request_id=claim.id,
+                idempotency_key=f"return-refund:{claim.id}:v1",
+            )
+        else:
+            raise ValueError("Order payment method is not supported for refunds")
+    except ValueError as exc:
+        db.rollback()
+        db.add(ReturnRequestEvent(
+            return_request_id=claim.id,
+            event_type="refund_processing_failed",
+            previous_status=None,
+            new_status="failed",
+            actor_user_id=actor.id,
+            note=str(exc)[:500],
+            event_data={"handoff_id": handoff.id},
+        ))
+        db.commit()
+        raise
+    except Exception:
+        db.rollback()
+        # Service-level provider timeouts are represented by a durable
+        # processing Refund; an unexpected local failure is not called success.
+        raise
+
+    refund = db.scalar(
+        select(Refund).where(Refund.return_request_id == claim.id)
+        .order_by(Refund.created_at, Refund.id).limit(1)
+    )
+    if refund is None:
+        raise RuntimeError("Refund service returned without creating a linked Refund record")
+
+    event_type = "refund_execution_retry" if result.get("duplicate") else {
+        "processed": "refund_successfully_processed",
+        "failed": "refund_processing_failed",
+        "pending": "refund_pending",
+        "processing": "refund_pending",
+    }.get(refund.status, "refund_pending")
+    db.add(ReturnRequestEvent(
+        return_request_id=claim.id,
+        event_type=event_type,
+        previous_status=None,
+        new_status=refund.status,
+        actor_user_id=actor.id,
+        note=("Existing return refund reused; no new provider request was made."
+              if result.get("duplicate") else refund.failure_reason or f"Refund {refund.status}."),
+        event_data={"handoff_id": handoff.id, "refund_id": refund.id,
+                    "amount": str(_money(refund.amount)), "refund_method": refund.refund_method,
+                    "provider_refund_id": refund.provider_refund_id,
+                    "external_reference": refund.external_reference},
+    ))
+    if refund.status == "processed":
+        previous = handoff.status
+        handoff.status = "completed"
+        handoff.completed_at = _utcnow()
+        handoff.updated_at = handoff.completed_at
+        db.add(ReturnRequestEvent(
+            return_request_id=claim.id,
+            event_type="department_handoff_status_changed",
+            previous_status=previous,
+            new_status="completed",
+            actor_user_id=actor.id,
+            note="Payments refund work completed.",
+            event_data={"handoff_id": handoff.id, "destination_department_id": payments.id,
+                        "refund_id": refund.id},
+        ))
+    elif refund.status == "failed":
+        previous = handoff.status
+        handoff.status = "failed"
+        handoff.failure_reason = refund.failure_reason or "Refund processing failed."
+        handoff.completed_at = _utcnow()
+        handoff.updated_at = handoff.completed_at
+        db.add(ReturnRequestEvent(
+            return_request_id=claim.id,
+            event_type="department_handoff_status_changed",
+            previous_status=previous,
+            new_status="failed",
+            actor_user_id=actor.id,
+            note="Payments refund work failed.",
+            event_data={"handoff_id": handoff.id, "destination_department_id": payments.id,
+                        "refund_id": refund.id},
+        ))
+    db.commit()
+    return _serialize_return_refund(refund)
+
+
+def _serialize_return_refund(refund: Refund, *, duplicate: bool = False) -> dict:
+    return {
+        "id": refund.id,
+        "return_request_id": refund.return_request_id,
+        "status": refund.status,
+        "amount": str(_money(refund.amount)),
+        "currency": refund.currency,
+        "refund_method": refund.refund_method,
+        "provider_refund_id": refund.provider_refund_id,
+        "external_reference": refund.external_reference,
+        "failure_reason": refund.failure_reason,
+        "duplicate": duplicate,
+    }
+
+
+def list_return_refund_handoffs(db: Session, *, status: str | None, limit: int, offset: int) -> dict:
+    payments = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+    if payments is None:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    query = select(ReturnHandoff).where(
+        ReturnHandoff.destination_department_id == payments.id,
+        ReturnHandoff.handoff_type == "refund_processing",
+    )
+    if status and status != "all":
+        query = query.where(ReturnHandoff.status == status)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    handoffs = db.scalars(
+        query.options(
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order),
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
+        ).order_by(ReturnHandoff.updated_at.desc(), ReturnHandoff.id.desc())
+        .offset(offset).limit(limit)
+    ).all()
+    items = []
+    for handoff in handoffs:
+        claim = handoff.return_request
+        order = claim.order if claim else None
+        item = claim.order_item if claim else None
+        refund = db.scalar(
+            select(Refund).where(Refund.return_request_id == claim.id)
+            .order_by(Refund.created_at.desc(), Refund.id.desc()).limit(1)
+        ) if claim else None
+        amount = _money(item.unit_price * claim.quantity) if item and claim else None
+        items.append({
+            "handoff_id": handoff.id,
+            "return_request_id": claim.id if claim else None,
+            "handoff_status": handoff.status,
+            "resolution_type": claim.resolution_type if claim else None,
+            "refund_timing": claim.refund_timing if claim else None,
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else None,
+            "payment_method": order.payment_method if order else None,
+            "item": ({"order_item_id": item.id, "product_name": item.product_name,
+                      "variant_name": item.variant_name, "sku": item.sku,
+                      "quantity": claim.quantity, "unit_price": str(_money(item.unit_price)),
+                      "refund_amount": str(amount)} if item and claim else None),
+            "refund": _serialize_return_refund(refund) if refund else None,
+        })
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+def get_return_refund_tracking(db: Session, claim_id: int) -> dict:
+    handoffs = db.scalars(
+        select(ReturnHandoff)
+        .options(selectinload(ReturnHandoff.source_department),
+                 selectinload(ReturnHandoff.destination_department))
+        .where(ReturnHandoff.return_request_id == claim_id)
+        .order_by(ReturnHandoff.created_at, ReturnHandoff.id)
+    ).all()
+    refund_handoff = next((row for row in handoffs if row.handoff_type == "refund_processing"), None)
+    fulfillment_handoff = next((row for row in handoffs if row.handoff_type in {
+        "refund_pickup", "replacement_fulfillment"
+    }), None)
+    refunds = db.scalars(
+        select(Refund).where(Refund.return_request_id == claim_id)
+        .order_by(Refund.created_at, Refund.id)
+    ).all()
+    if refund_handoff is None:
+        payments_tracking = "N/A" if any(row.handoff_type == "replacement_fulfillment" for row in handoffs) else {
+            "handoff_id": None,
+            "handoff_status": None,
+            "refunds": [_serialize_return_refund(row) for row in refunds],
+        }
+    else:
+        payments_tracking = {
+            "handoff_id": refund_handoff.id,
+            "handoff_status": refund_handoff.status,
+            "refunds": [_serialize_return_refund(row) for row in refunds],
+        }
+    return {
+        "order_delivery": ({"handoff_id": fulfillment_handoff.id,
+                            "handoff_type": fulfillment_handoff.handoff_type,
+                            "status": fulfillment_handoff.status} if fulfillment_handoff else None),
+        "payments": payments_tracking,
     }

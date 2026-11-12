@@ -14,11 +14,15 @@ from backend.Database.models import (
     ReturnRequest,
     ReturnEvidence,
     ReturnHandoff,
+    Refund,
     ReturnRequestEvent,
 )
 from backend.Database.return_services import (
     apply_claim_decision, claim_details, create_after_collection_refund_handoff,
     get_return_claim, record_inspection,
+)
+from backend.Database.admin_commerce_services import (
+    execute_return_refund, get_return_refund_tracking, list_return_refund_handoffs,
 )
 from backend.Database.return_evidence_storage import read_evidence
 from backend.Database.schemas import (
@@ -57,6 +61,11 @@ class ReturnHandoffStatusInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     status: str = Field(pattern=r"^(accepted|in_progress|completed|failed)$")
     note: str = Field(min_length=3, max_length=2000)
+
+
+class ReturnRefundExecutionInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    external_reference: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 def _returns_department(db: Session):
@@ -588,7 +597,53 @@ def handler_return_claim_details(
     current_user=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
     claim = _require_claim_access(db, claim_id, current_user)
-    return claim_details(db, claim)
+    details = claim_details(db, claim)
+    details["tracking"] = {
+        "return_request_id": claim.id,
+        "order": details["order"],
+        "order_item": {"id": claim.order_item_id, "quantity": claim.quantity,
+                       **(details["product"] or {})},
+        "resolution_type": claim.resolution_type,
+        "refund_timing": claim.refund_timing,
+        "returns_status": claim.workflow_status,
+        **get_return_refund_tracking(db, claim.id),
+        "event_history": details["audit_history"],
+    }
+    return details
+
+
+@handler_router.get("/payments/refund-handoffs")
+def list_payments_refund_handoffs(
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+    if db.scalar(select(Department.id).where(Department.name == "Payments & Refunds")) is None:
+        raise HTTPException(status_code=500, detail="Payments & Refunds department is not configured.")
+    return list_return_refund_handoffs(db, status=status_filter, limit=limit, offset=offset)
+
+
+@handler_router.post("/return-handoffs/{handoff_id}/process-refund")
+def process_return_refund_handoff(
+    handoff_id: int,
+    payload: ReturnRefundExecutionInput,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+    try:
+        return execute_return_refund(
+            db, handoff_id=handoff_id, actor=actor,
+            external_reference=payload.external_reference,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Refund processing could not be completed safely.") from exc
 
 
 def _commit_claim_operation(db: Session, operation):
@@ -708,6 +763,13 @@ def update_return_handoff_status(handoff_id: int, payload: ReturnHandoffStatusIn
     previous = handoff.status
     if payload.status not in allowed.get(previous, set()):
         raise HTTPException(status_code=409, detail="Invalid handoff status transition.")
+    if payload.status == "completed" and handoff.handoff_type == "refund_processing":
+        processed_refund = db.scalar(select(Refund.id).where(
+            Refund.return_request_id == handoff.return_request_id,
+            Refund.status == "processed",
+        ).limit(1))
+        if processed_refund is None:
+            raise HTTPException(status_code=409, detail="A Payments refund handoff requires a processed Refund record before completion.")
     from datetime import datetime, timezone
     handoff.status = payload.status
     handoff.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -726,6 +788,18 @@ def update_return_handoff_status(handoff_id: int, payload: ReturnHandoffStatusIn
         note=payload.note,
         event_data={"handoff_id": handoff.id, "destination_department_id": handoff.destination_department_id},
     ))
+    if handoff.handoff_type == "refund_processing" and payload.status in {"accepted", "in_progress"}:
+        db.add(ReturnRequestEvent(
+            return_request_id=handoff.return_request_id,
+            event_type=("payments_handoff_accepted" if payload.status == "accepted"
+                        else "payments_processing_started"),
+            actor_user_id=actor.id,
+            previous_status=previous,
+            new_status=payload.status,
+            note=payload.note,
+            event_data={"handoff_id": handoff.id,
+                        "destination_department_id": handoff.destination_department_id},
+        ))
     try:
         if payload.status == "completed":
             create_after_collection_refund_handoff(db, handoff, actor_id=actor.id)
