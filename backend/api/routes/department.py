@@ -17,7 +17,8 @@ from backend.Database.models import (
     ReturnRequestEvent,
 )
 from backend.Database.return_services import (
-    apply_claim_decision, claim_details, get_return_claim, record_inspection,
+    apply_claim_decision, claim_details, create_after_collection_refund_handoff,
+    get_return_claim, record_inspection,
 )
 from backend.Database.return_evidence_storage import read_evidence
 from backend.Database.schemas import (
@@ -726,7 +727,15 @@ def update_return_handoff_status(handoff_id: int, payload: ReturnHandoffStatusIn
         event_data={"handoff_id": handoff.id, "destination_department_id": handoff.destination_department_id},
     ))
     try:
+        if payload.status == "completed":
+            create_after_collection_refund_handoff(db, handoff, actor_id=actor.id)
         db.commit()
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail="Handoff status could not be updated.") from exc

@@ -84,6 +84,7 @@ class ReturnClaimCreate(BaseModel):
     quantity: int = Field(gt=0)
 
     resolution_type: Literal["refund", "replacement"]
+    refund_timing: Literal["immediate", "after_collection"] | None = None
     reason_code: str = Field(min_length=1, max_length=40)
     description: str | None = Field(default=None, max_length=2000)
 
@@ -324,6 +325,7 @@ def submit_return_claim(
             order_item_id=payload.order_item_id,
             quantity=payload.quantity,
             resolution_type=payload.resolution_type,
+            refund_timing=payload.refund_timing,
             reason_code=payload.reason_code,
             description=payload.description,
         )
@@ -367,6 +369,7 @@ def submit_return_claim(
             "order_item_id": claim.order_item_id,
             "quantity": claim.quantity,
             "resolution_type": claim.resolution_type,
+            "refund_timing": claim.refund_timing,
             "reason_code": claim.reason_code,
             "description": claim.description,
             "status": claim.status,

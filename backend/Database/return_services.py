@@ -257,6 +257,7 @@ def create_return_claim(
     order_item_id: int,
     quantity: int,
     resolution_type: str,
+    refund_timing: str | None = None,
     reason_code: str,
     description: str | None = None,
 ) -> ReturnRequest:
@@ -273,6 +274,8 @@ def create_return_claim(
 
     if resolution_type not in {"refund", "replacement"}:
         raise ValueError("Invalid resolution type.")
+    if refund_timing not in {None, "immediate", "after_collection"}:
+        raise ValueError("Invalid refund timing.")
 
     reason_code = reason_code.strip()
     if not reason_code:
@@ -325,6 +328,7 @@ def create_return_claim(
 
         # New workflow fields.
         resolution_type=resolution_type,
+        refund_timing=refund_timing if resolution_type == "refund" else None,
         reason_code=reason_code,
         description=description,
         workflow_status="submitted",
@@ -344,6 +348,7 @@ def create_return_claim(
             "order_item_id": order_item.id,
             "quantity": quantity,
             "resolution_type": resolution_type,
+            "refund_timing": claim.refund_timing,
             "reason_code": reason_code,
         },
     )
@@ -405,6 +410,7 @@ def claim_details(session: Session, claim: ReturnRequest) -> dict:
         "order_item_id": claim.order_item_id,
         "quantity": claim.quantity,
         "resolution_type": claim.resolution_type,
+        "refund_timing": claim.refund_timing,
         "reason_code": claim.reason_code,
         "reason": claim.reason,
         "description": claim.description,
@@ -534,6 +540,10 @@ def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, deci
         raise ValueError("Invalid claim decision.")
     if decision == "approved" and claim.resolution_type not in {"refund", "replacement"}:
         raise ValueError("This claim has no valid resolution type and cannot be approved.")
+    if decision == "approved" and claim.resolution_type == "refund" and claim.refund_timing not in {
+        "immediate", "after_collection"
+    }:
+        raise ValueError("Refund timing must be selected before approving this refund request.")
 
     claim.workflow_status = decision
     claim.status = "approved" if decision == "approved" else "rejected" if decision == "rejected" else "requested"
@@ -548,7 +558,7 @@ def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, deci
         target_name = "Order & Delivery"
         target = _department_by_name(session, target_name)
         handoff_type = "refund_pickup" if claim.resolution_type == "refund" else "replacement_fulfillment"
-        _create_handoff(
+        pickup = _create_handoff(
             session,
             claim,
             source=source,
@@ -560,6 +570,21 @@ def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, deci
                      "order_item_id": claim.order_item_id, "quantity": claim.quantity,
                      "resolution_type": claim.resolution_type},
         )
+        if claim.resolution_type == "refund" and claim.refund_timing == "immediate":
+            payments = _department_by_name(session, "Payments & Refunds")
+            _create_handoff(
+                session,
+                claim,
+                source=target,
+                destination=payments,
+                handoff_type="refund_processing",
+                actor_id=actor_id,
+                idempotency_key=f"return-claim:{claim.id}:refund_processing:v1",
+                payload={"claim_id": claim.id, "order_id": claim.order_id,
+                         "order_item_id": claim.order_item_id, "quantity": claim.quantity,
+                         "resolution_type": claim.resolution_type, "refund_timing": claim.refund_timing,
+                         "pickup_handoff_id": pickup.id},
+            )
     return claim
 
 
@@ -633,24 +658,40 @@ def record_inspection(session: Session, claim_id: int, *, actor_id: int, inspect
            note=notes.strip(), data={"inspection_id": row.id, "inspection_type": inspection_type,
                                      "outcome": outcome, "condition_code": condition_code,
                                      "handoff_id": handoff_id})
-    if (
-        inspection_type == "physical_pickup"
-        and outcome == "passed"
-        and claim.resolution_type == "refund"
-    ):
-        payments = _department_by_name(session, "Payments & Refunds")
-        delivery = _department_by_name(session, "Order & Delivery")
-        _create_handoff(
-            session,
-            claim,
-            source=delivery,
-            destination=payments,
-            handoff_type="refund_processing",
-            actor_id=actor_id,
-            idempotency_key=f"return-claim:{claim.id}:refund_processing:v1",
-            payload={"claim_id": claim.id, "order_id": claim.order_id,
-                     "order_item_id": claim.order_item_id, "quantity": claim.quantity,
-                     "resolution_type": claim.resolution_type, "pickup_handoff_id": handoff_id,
-                     "inspection_id": row.id},
-        )
     return row
+
+
+def create_after_collection_refund_handoff(
+    session: Session, pickup: ReturnHandoff, *, actor_id: int,
+) -> ReturnHandoff | None:
+    """Create deferred Payments work only after an O&D pickup is completed."""
+    if pickup.handoff_type != "refund_pickup" or pickup.status != "completed":
+        return None
+    claim = get_return_claim(session, pickup.return_request_id, lock=True)
+    if claim is None:
+        raise LookupError("Return claim not found.")
+    if claim.resolution_type != "refund" or claim.refund_timing != "after_collection":
+        return None
+    delivery = _department_by_name(session, "Order & Delivery")
+    returns = _department_by_name(session, "Returns & Replacement")
+    if pickup.destination_department_id != delivery.id or pickup.source_department_id != returns.id:
+        raise ValueError("Collection must be confirmed on the Order & Delivery pickup handoff.")
+    _event(
+        session, claim, "collection_confirmed", actor_id,
+        previous="in_progress", new="completed",
+        data={"handoff_id": pickup.id, "handoff_type": pickup.handoff_type},
+    )
+    payments = _department_by_name(session, "Payments & Refunds")
+    return _create_handoff(
+        session,
+        claim,
+        source=delivery,
+        destination=payments,
+        handoff_type="refund_processing",
+        actor_id=actor_id,
+        idempotency_key=f"return-claim:{claim.id}:refund_processing:v1",
+        payload={"claim_id": claim.id, "order_id": claim.order_id,
+                 "order_item_id": claim.order_item_id, "quantity": claim.quantity,
+                 "resolution_type": claim.resolution_type, "refund_timing": claim.refund_timing,
+                 "pickup_handoff_id": pickup.id},
+    )

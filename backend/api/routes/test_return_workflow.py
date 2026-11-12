@@ -68,6 +68,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.db.flush()
         self.claim = ReturnRequest(order_id=self.order.id, order_item_id=self.item.id, quantity=1,
                                    reason="Damaged", status="requested", resolution_type="refund",
+                                   refund_timing="immediate",
                                    reason_code="damaged", description="Cover is bent", workflow_status="submitted")
         self.db.add(self.claim)
         self.db.flush()
@@ -116,6 +117,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             "order_item_id": self.item.id,
             "quantity": 1,
             "resolution_type": "refund",
+            "refund_timing": "immediate",
             "reason_code": "damaged",
             "description": "Item arrived damaged",
         }
@@ -257,10 +259,12 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.close_seed_claim()
         refund = self.client.post("/api/account/returns", json={
             "order_id": self.order.id, "order_item_id": self.item.id,
-            "quantity": 1, "resolution_type": "refund", "reason_code": "damaged",
+            "quantity": 1, "resolution_type": "refund", "refund_timing": "immediate",
+            "reason_code": "damaged",
         })
         self.assertEqual(refund.status_code, 201, refund.text)
         self.assertEqual(refund.json()["return_request"]["workflow_status"], "submitted")
+        self.assertEqual(refund.json()["return_request"]["refund_timing"], "immediate")
         submitted_refund_id = refund.json()["return_request"]["id"]
         submitted_refund = self.db.get(ReturnRequest, submitted_refund_id)
         submitted_refund.status = "rejected"
@@ -273,6 +277,37 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(replacement.status_code, 201, replacement.text)
         self.assertEqual(replacement.json()["return_request"]["resolution_type"], "replacement")
         self.assertEqual(replacement.json()["return_request"]["workflow_status"], "submitted")
+
+    def test_claim_intake_validates_refund_timing(self):
+        self.close_seed_claim()
+        bad = self.client.post("/api/account/returns", json={
+            "order_id": self.order.id, "order_item_id": self.item.id,
+            "quantity": 1, "resolution_type": "refund", "refund_timing": "later",
+            "reason_code": "damaged",
+        })
+        self.assertEqual(bad.status_code, 422)
+        good = self.client.post("/api/account/returns", json={
+            "order_id": self.order.id, "order_item_id": self.item.id,
+            "quantity": 1, "resolution_type": "refund", "refund_timing": "after_collection",
+            "reason_code": "damaged",
+        })
+        self.assertEqual(good.status_code, 201, good.text)
+        self.assertEqual(good.json()["return_request"]["refund_timing"], "after_collection")
+
+    def test_refund_without_timing_is_not_defaulted_or_approvable(self):
+        self.close_seed_claim()
+        submitted = self.client.post("/api/account/returns", json={
+            "order_id": self.order.id, "order_item_id": self.item.id,
+            "quantity": 1, "resolution_type": "refund", "reason_code": "damaged",
+        })
+        self.assertEqual(submitted.status_code, 201, submitted.text)
+        claim_id = submitted.json()["return_request"]["id"]
+        self.assertIsNone(submitted.json()["return_request"]["refund_timing"])
+        self.actor = self.handler
+        approval = self.client.post(f"/api/v1/departments/returns/{claim_id}/approve",
+                                    json={"note": "Refund approved"})
+        self.assertEqual(approval.status_code, 409)
+        self.assertEqual(self.db.query(ReturnHandoff).filter_by(return_request_id=claim_id).count(), 0)
 
     def test_refund_disabled_submission_still_allows_replacement(self):
         self.close_seed_claim()
@@ -366,7 +401,13 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(handoff.destination_department_id, self.delivery_department.id)
         self.assertEqual(handoff.handoff_type, "refund_pickup")
         self.assertEqual(handoff.status, "pending")
+        payments = self.db.scalars(select(ReturnHandoff).where(
+            ReturnHandoff.return_request_id == self.claim.id,
+            ReturnHandoff.handoff_type == "refund_processing",
+        )).all()
+        self.assertEqual(len(payments), 1)
         self.assertEqual(self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve", json={"note": "Duplicate"}).status_code, 409)
+        self.assertEqual(self.db.query(ReturnHandoff).filter_by(return_request_id=self.claim.id).count(), 2)
 
     def test_evidence_upload_validates_and_is_only_returned_via_authorized_endpoint(self):
         response = self.client.post(f"/api/account/returns/{self.claim.id}/evidence", files={
@@ -411,6 +452,8 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertIsNotNone(event)
 
     def test_evidence_review_is_separate_from_physical_inspection(self):
+        self.claim.refund_timing = "after_collection"
+        self.db.commit()
         self.actor = self.handler
         approved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
                                     json={"note": "Photo evidence reviewed"})
@@ -480,9 +523,49 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             ReturnHandoff.return_request_id == self.claim.id,
             ReturnHandoff.handoff_type == "refund_processing",
         )).all()
+        self.assertEqual(processing, [])
+
+    def test_after_collection_refund_waits_for_completed_pickup_handoff(self):
+        self.claim.refund_timing = "after_collection"
+        self.db.commit()
+        self.actor = self.handler
+        approved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
+                                    json={"note": "Refund after collection"})
+        self.assertEqual(approved.status_code, 200, approved.text)
+        pickup = self.db.scalar(select(ReturnHandoff).where(
+            ReturnHandoff.return_request_id == self.claim.id,
+            ReturnHandoff.handoff_type == "refund_pickup",
+        ))
+        self.assertIsNotNone(pickup)
+        self.assertEqual(self.db.query(ReturnHandoff).filter_by(
+            return_request_id=self.claim.id, handoff_type="refund_processing",
+        ).count(), 0)
+        self.actor = self.delivery_handler
+        for state in ("accepted", "in_progress"):
+            response = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
+                                         json={"status": state, "note": f"Pickup {state}"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(self.db.query(ReturnHandoff).filter_by(
+                return_request_id=self.claim.id, handoff_type="refund_processing",
+            ).count(), 0)
+        completed = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
+                                      json={"status": "completed", "note": "Collection confirmed"})
+        self.assertEqual(completed.status_code, 200, completed.text)
+        processing = self.db.scalars(select(ReturnHandoff).where(
+            ReturnHandoff.return_request_id == self.claim.id,
+            ReturnHandoff.handoff_type == "refund_processing",
+        )).all()
         self.assertEqual(len(processing), 1)
-        self.assertEqual(processing[0].destination_department_id, self.other_department.id)
-        self.assertEqual(processing[0].source_department_id, self.delivery_department.id)
+        self.assertEqual(processing[0].payload["pickup_handoff_id"], pickup.id)
+        retried = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
+                                    json={"status": "completed", "note": "Retry"})
+        self.assertEqual(retried.status_code, 409)
+        self.assertEqual(self.db.query(ReturnHandoff).filter_by(
+            return_request_id=self.claim.id, handoff_type="refund_processing",
+        ).count(), 1)
+        self.assertEqual(self.db.query(ReturnRequestEvent).filter_by(
+            return_request_id=self.claim.id, event_type="collection_confirmed",
+        ).count(), 1)
 
     def test_replacement_routing(self):
         replacement = ReturnRequest(order_id=self.order.id, order_item_id=self.item.id, quantity=1,
@@ -497,6 +580,9 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         handoff = self.db.scalar(select(ReturnHandoff).where(ReturnHandoff.return_request_id == replacement.id))
         self.assertEqual(handoff.destination_department_id, self.delivery_department.id)
         self.assertEqual(handoff.handoff_type, "replacement_fulfillment")
+        self.assertEqual(self.db.query(ReturnHandoff).filter_by(
+            return_request_id=replacement.id, handoff_type="refund_processing",
+        ).count(), 0)
 
     def test_approval_rolls_back_when_order_delivery_is_not_configured(self):
         self.db.delete(self.delivery_department)
@@ -509,7 +595,9 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(self.claim.workflow_status, "submitted")
         self.assertIsNone(self.db.scalar(select(ReturnHandoff.id).where(ReturnHandoff.return_request_id == self.claim.id)))
 
-    def test_inspection_rolls_back_when_payments_is_not_configured(self):
+    def test_collection_completion_rolls_back_when_payments_is_not_configured(self):
+        self.claim.refund_timing = "after_collection"
+        self.db.commit()
         self.actor = self.handler
         approved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
                                     json={"note": "Pickup approved"})
@@ -522,10 +610,13 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.db.delete(self.other_department)
         self.db.commit()
         self.actor = self.delivery_handler
-        failed = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/inspections", json={
-            "inspection_type": "physical_pickup", "outcome": "passed", "notes": "Item received",
-        })
+        self.assertEqual(self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
+                                           json={"status": "in_progress", "note": "At warehouse"}).status_code, 200)
+        failed = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
+                                   json={"status": "completed", "note": "Collected"})
         self.assertEqual(failed.status_code, 404)
+        self.db.refresh(pickup)
+        self.assertEqual(pickup.status, "in_progress")
         from backend.Database.models import ReturnInspection
         self.assertEqual(self.db.query(ReturnInspection).filter_by(return_request_id=self.claim.id).count(), 0)
         self.assertEqual(self.db.query(ReturnHandoff).filter_by(
