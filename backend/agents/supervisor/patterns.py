@@ -83,9 +83,12 @@ CART_PATTERNS = _patterns(
     r"\bhow\s+many\s+(?:items?|products?)\s+(?:are|do\s+i\s+have)\s+in\s+my\s+(?:shopping\s+)?(?:cart|basket)\b",
     r"\bshow\s+(?:me\s+)?(?:the\s+)?products?\s+in\s+my\s+(?:shopping\s+)?(?:cart|basket)\b",
     r"\b(?:show|display)\s+(?:me\s+)?(?:my\s+)?selected\s+products\b",
-    r"\b(?:add|increase|decrease|reduce|update|change|set|make)\b.{0,45}\b(?:quantity|units?|more|less)\b",
-    r"\bi\s+(?:want|need)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+more\s+of\s+(?:this\s+|the\s+)?(?:product|item|one)\b",
-    r"\b(?:make\s+it|change\s+it\s+to|reduce\s+it\s+to|increase\s+it\s+to)\s+(?:\w+|\d+)\s+(?:units?|items?)\b",
+    r"\b(?:increase|decrease|reduce|update|change|set)\b.{0,55}\bquantity\b.{0,45}\b(?:cart|basket)\s+(?:item|product)\b",
+    r"\b(?:increase|decrease|reduce|update|change|set)\b.{0,55}\bquantity\b.{0,45}\b(?:item|product)\b.{0,35}\bin\s+(?:my\s+)?(?:cart|basket)\b",
+    r"\b(?:increase|decrease|reduce|update|change|set)\b.{0,45}\b(?:cart|basket)\s+(?:item|product)(?:'s)?\b.{0,30}\bquantity\b",
+    r"\b(?:increase|decrease|reduce|update|change|set)\b.{0,45}\bquantity\b.{0,30}\bin\s+(?:my\s+)?(?:cart|basket)\b",
+    r"\b(?:make\s+it|change\s+it\s+to|reduce\s+it\s+to|increase\s+it\s+to)\s+(?:\w+|\d+)\s+(?:units?|items?)\b.{0,25}\bin\s+(?:my\s+)?(?:cart|basket)\b",
+    r"\bi\s+(?:want|need)\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+more\s+of\s+(?:this\s+|the\s+)?(?:product|item|one)\b.{0,30}\bin\s+(?:my\s+)?(?:cart|basket)\b",
 )
 
 # Customer order records, including status filters and purchased-item details.
@@ -95,6 +98,7 @@ ORDER_PATTERNS = _patterns(
     r"\bwhat\s+(?:have\s+i\s+ordered|did\s+i\s+order|have\s+i\s+purchased)\b",
     r"\bwhich\s+products?\s+did\s+i\s+(?:order|purchase)\b",
     r"\bshow\s+(?:me\s+)?my\s+purchased\s+products\b",
+    r"\bshow\s+(?:me\s+)?my\s+purchased\b.{1,50}",
     r"\b(?:show|list|view)\s+(?:me\s+)?(?:the\s+)?(?:items|products)\s+(?:in|from)\s+(?:my\s+)?(?:previous|past|recent)\s+order\b",
     r"\b(?:order\s+history|past\s+orders|my\s+orders|my\s+purchases)\b",
     r"\b(?:details|information|total\s+amount|order\s+date|order\s+number|order\s+id)\b.{0,45}\border\b",
@@ -103,12 +107,27 @@ ORDER_PATTERNS = _patterns(
     r"\b(?:current\s+)?status\s+of\s+(?:my\s+)?order\b",
     r"\bmy\s+order\s+(?:current\s+)?status\b",
     r"\border\s+(?:current\s+)?status\b",
-    r"\b(?:cancel|cancel\s+the)\b.{0,30}\b(?:my\s+)?order\b",
     r"\b(?:what\s+is|show\s+me)\s+(?:my\s+)?order\s+(?:number|id)\b",
 )
 
 # Catalogue discovery, product details, comparison, price, and availability.
+_PRODUCT_QUERY_DETERMINERS = r"(?:a|an|some|any|the|available)"
+_NON_PRODUCT_QUERY_STARTS = (
+    r"(?:me|my|out|how|what|whether|something|anything|more|it|that|those|these|"
+    r"second|first|one|way|problem|issue|help|question|answer|reason|explanation|"
+    r"details?|information|status|tracking|update|order|orders|cart|basket|purchased|"
+    r"ordered|return|refund|replacement|policy|shipping|delivery|shipment|package|"
+    r"account|support|website|platform|cancellation)"
+)
+
 PRODUCT_PATTERNS = _patterns(
+    rf"\b(?:find|search\s+for|look\s+for|looking\s+for|browse|recommend)\s+(?:me\s+)?(?!(?:{_PRODUCT_QUERY_DETERMINERS}\s+)?{_NON_PRODUCT_QUERY_STARTS}\b)(?:{_PRODUCT_QUERY_DETERMINERS}\s+)?[\w][\w'’&./+-]*(?:\s+[\w][\w'’&./+-]*){{0,7}}",
+    rf"\bshow\s+me\s+(?![^\n]*\b(?:in|from)\s+(?:my\s+)?(?:cart|basket)\b)(?!(?:{_PRODUCT_QUERY_DETERMINERS}\s+)?{_NON_PRODUCT_QUERY_STARTS}\b)(?:(?:{_PRODUCT_QUERY_DETERMINERS}|all)\s+)?[\w][\w'’&./+-]*(?:\s+[\w][\w'’&./+-]*){{0,7}}",
+    rf"\bdo\s+you\s+(?:sell|have)\s+(?!(?:{_PRODUCT_QUERY_DETERMINERS}\s+)?{_NON_PRODUCT_QUERY_STARTS}\b)(?:{_PRODUCT_QUERY_DETERMINERS}\s+)?[\w][\w'’&./+-]*(?:\s+[\w][\w'’&./+-]*){{0,7}}",
+    r"\b(?:find|search\s+for|look\s+for|looking\s+for|browse|recommend|show\s+me)\b.{0,60}\bunder\s+(?:₹|rs\.?\s*)?\d[\d,]*(?:\s*(?:inr|rupees?))?\b",
+    r"\b(?:find|search\s+for|look\s+for|looking\s+for|browse|recommend)\s+(?:me\s+)?products?\s+from\s+(?:the\s+)?[\w' -]+\s+categor(?:y|ies)\b",
+    r"\b(?:tell\s+me\s+about|details\s+about|information\s+about|specifications\s+for)\s+(?!.*\b(?:flatkart|company|order|return|refund|replacement|cart|basket|policy|account|website|platform)\b)(?:(?:a|an|the|this)\s+)?[\w][\w'’&./+-]*(?:\s+[\w][\w'’&./+-]*){0,6}",
+    r"\b(?:is|are)\s+(?:(?:a|an|the|this|available)\s+)?(?!(?:my|order|cart|basket|return|refund|replacement|policy|shipping|delivery|shipment|package|account|support|website|platform|status)\b)[\w][\w'’&./+-]*(?:\s+[\w][\w'’&./+-]*){0,5}\s+(?:available|in\s+stock)\b",
     r"\b(?:find|search\s+for|look\s+for|looking\s+for|browse|recommend)\b.{0,35}\b(?:men'?s\s+|women'?s\s+|running\s+|wireless\s+|home\s+|electronics\s+)?(?:shirts?|dresses?|shoes?|headphones?|laptops?|phones?|products?|items?|clothing|appliances?|electronics\s+category)\b",
     r"\bshow(?:\s+me)?\s+(?:(?:some|available|all)\s+)?(?:men'?s\s+|women'?s\s+|running\s+|wireless\s+|home\s+|electronics\s+)?(?:shirts?|dresses?|shoes?|headphones?|laptops?|phones?|products?|items?|clothing|appliances?|electronics\s+category)\b(?!\s+in\s+(?:my\s+)?(?:cart|basket))",
     r"\bdo\s+you\s+(?:sell|have)\b.{0,35}\b(?:men'?s\s+|women'?s\s+|running\s+|wireless\s+|home\s+)?(?:shirts?|dresses?|shoes?|headphones?|laptops?|phones?|products?|items?|clothing|appliances?)\b",

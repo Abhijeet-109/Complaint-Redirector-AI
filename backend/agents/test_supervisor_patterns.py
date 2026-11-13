@@ -41,9 +41,9 @@ POSITIVE_CASES = {
         "Has my order been confirmed?",
         "Is my order processing?",
         "Is my order delivered?",
+        "Has my order been cancelled?",
         "What is the current status of order #123?",
         "Order status.",
-        "Cancel my order.",
         "Show my purchased products.",
     ),
     "shipping": (
@@ -73,12 +73,12 @@ POSITIVE_CASES = {
         "Add this product to my cart.",
         "Put this shirt in my cart.",
         "I want to add this product to my basket.",
-        "Add two units of this item.",
-        "Increase the quantity of this item.",
-        "Make it three units.",
-        "Reduce the quantity to one.",
-        "Update the quantity of this product.",
-        "I want two more of this product.",
+        "Add two units of this item to my cart.",
+        "Increase the quantity of this cart item.",
+        "Reduce the quantity of the item in my basket to one.",
+        "Set the cart item's quantity to three.",
+        "Update the quantity of this product in my cart.",
+        "I want two more of this product in my cart.",
         "Remove this item from my cart.",
         "Delete the selected product from my basket.",
         "Clear my cart.",
@@ -87,6 +87,16 @@ POSITIVE_CASES = {
     ),
     "product": (
         "Find me a men's shirt.",
+        "Find me a Samsung Galaxy S25.",
+        "Show me Nike Air Max.",
+        "Tell me about Samsung Galaxy S25.",
+        "Search for a gaming keyboard.",
+        "Find a wooden study table.",
+        "Do you have a refrigerator?",
+        "I am looking for a Bluetooth speaker.",
+        "Show me products under ₹5,000.",
+        "Find a product from the electronics category.",
+        "Is a gaming keyboard available?",
         "Show me women's dresses.",
         "I am looking for running shoes.",
         "Do you sell wireless headphones?",
@@ -122,6 +132,7 @@ POSITIVE_CASES = {
         "What are your terms and conditions?",
         "How can I contact customer support?",
         "How do I return this item?",
+        "How do I cancel an order?",
         "Can I get a refund under your policy?",
     ),
     "support": (
@@ -165,12 +176,52 @@ OWNERSHIP_CASES = (
 )
 
 
+PRODUCT_CART_OWNERSHIP_CASES = (
+    ("Find me a gaming keyboard.", "product"),
+    ("Add this gaming keyboard to my cart.", "cart"),
+    ("Show my purchased keyboard.", "order"),
+    ("Is the keyboard I ordered eligible for return?", "knowledge"),
+    ("I want to return my keyboard.", "returns"),
+)
+
+
+ORDER_CANCELLATION_CASES = (
+    ("Cancel my order.", None),
+    ("I want to cancel order #123.", None),
+    ("What is your cancellation policy?", "knowledge"),
+    ("How do I cancel an order?", "knowledge"),
+    ("Show my cancelled orders.", "order"),
+    ("Has my order been cancelled?", "order"),
+)
+
+
+CART_QUANTITY_CASES = (
+    ("Increase the quantity of this cart item.", "cart"),
+    ("Reduce the quantity of the item in my basket to one.", "cart"),
+    ("Set the cart item's quantity to three.", "cart"),
+    ("Add two units of this item to my cart.", "cart"),
+    ("I want two more of this product in my cart.", "cart"),
+    ("Make it three units in my cart.", "cart"),
+    ("What is the required quantity for this recipe?", None),
+    ("How many units does this product contain?", None),
+    ("Update the quantity in my order.", None),
+    ("Make it three units.", None),
+)
+
+
 AMBIGUOUS_CASES = (
     "I have an issue with my order.",
+    "Find me a problem with my order.",
     "I need help with a product.",
     "I want to know about my order and return.",
     "I need assistance with delivery and refund.",
     "Can you help me with this?",
+    "What about now?",
+    "Make it three.",
+    "Show the second one.",
+    "What is its status?",
+    "Make it three units.",
+    "Make it three units while my cart is open.",
     "Find me a shirt and add one to my cart.",
     "List my orders and check my return request.",
     "Track my package and check my return pickup status.",
@@ -227,6 +278,22 @@ class SupervisorPatternTests(unittest.TestCase):
             with self.subTest(question=question):
                 self.assertEqual(detect_intent_deterministic(question), route)
                 self.assertEqual(matched_routes(question), {route})
+
+    def test_product_cart_ownership_contrasts(self):
+        for question, route in PRODUCT_CART_OWNERSHIP_CASES:
+            with self.subTest(question=question):
+                self.assertEqual(detect_intent_deterministic(question), route)
+                self.assertEqual(matched_routes(question), {route})
+
+    def test_order_cancellation_requests_are_not_routed_to_order(self):
+        for question, expected in ORDER_CANCELLATION_CASES:
+            with self.subTest(question=question):
+                self.assertEqual(detect_intent_deterministic(question), expected)
+
+    def test_cart_quantity_requires_cart_or_basket_context(self):
+        for question, expected in CART_QUANTITY_CASES:
+            with self.subTest(question=question):
+                self.assertEqual(detect_intent_deterministic(question), expected)
 
     def test_ambiguous_and_multi_intent_messages_fall_back(self):
         for question in AMBIGUOUS_CASES:
