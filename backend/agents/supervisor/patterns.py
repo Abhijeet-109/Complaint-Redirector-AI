@@ -82,7 +82,7 @@ CART_PATTERNS = _patterns(
     r"\bwhat\s+(?:is\s+in|items?\s+are\s+in|products?\s+are\s+in)\s+my\s+(?:shopping\s+)?(?:cart|basket)\b",
     r"\bhow\s+many\s+(?:items?|products?)\s+(?:are|do\s+i\s+have)\s+in\s+my\s+(?:shopping\s+)?(?:cart|basket)\b",
     r"\bshow\s+(?:me\s+)?(?:the\s+)?products?\s+in\s+my\s+(?:shopping\s+)?(?:cart|basket)\b",
-    r"\b(?:show|display)\s+(?:me\s+)?(?:my\s+)?selected\s+products\b",
+    r"\b(?:show|display)\s+(?:me\s+)?(?:my\s+)?selected\s+products?\s+(?:in|from)\s+(?:my\s+|the\s+)?(?:shopping\s+)?(?:cart|basket)\b",
     r"\b(?:increase|decrease|reduce|update|change|set)\b.{0,55}\bquantity\b.{0,45}\b(?:cart|basket)\s+(?:item|product)\b",
     r"\b(?:increase|decrease|reduce|update|change|set)\b.{0,55}\bquantity\b.{0,45}\b(?:item|product)\b.{0,35}\bin\s+(?:my\s+)?(?:cart|basket)\b",
     r"\b(?:increase|decrease|reduce|update|change|set)\b.{0,45}\b(?:cart|basket)\s+(?:item|product)(?:'s)?\b.{0,30}\bquantity\b",
@@ -114,7 +114,7 @@ ORDER_PATTERNS = _patterns(
 _PRODUCT_QUERY_DETERMINERS = r"(?:a|an|some|any|the|available)"
 _NON_PRODUCT_QUERY_STARTS = (
     r"(?:me|my|out|how|what|whether|something|anything|more|it|that|those|these|"
-    r"second|first|one|way|problem|issue|help|question|answer|reason|explanation|"
+    r"second|first|one|way|problem|issue|solution|suggestions?|help|question|answer|reason|explanation|"
     r"details?|information|status|tracking|update|order|orders|cart|basket|purchased|"
     r"ordered|return|refund|replacement|policy|shipping|delivery|shipment|package|"
     r"account|support|website|platform|cancellation)"

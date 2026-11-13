@@ -209,6 +209,39 @@ CART_QUANTITY_CASES = (
 )
 
 
+GENERIC_PRODUCT_FALSE_POSITIVE_CASES = (
+    ("Do you have any suggestions?", None),
+    ("Show me something.", None),
+    ("Find me a solution.", None),
+    ("Can you help me?", None),
+    ("Do you have any information?", None),
+    ("What about the second one?", None),
+    ("Show the second one.", None),
+    ("What is its status?", None),
+    ("Find me a problem with my order.", None),
+)
+
+
+ARBITRARY_PRODUCT_CASES = (
+    ("Find me a Samsung Galaxy S25.", "product"),
+    ("Show me Nike Air Max.", "product"),
+    ("Search for a gaming keyboard.", "product"),
+    ("Find a wooden study table.", "product"),
+    ("Do you have a refrigerator?", "product"),
+    ("I am looking for a Bluetooth speaker.", "product"),
+    ("Show me products under â‚¹5,000.", "product"),
+    ("Find products in the electronics category.", "product"),
+)
+
+
+SELECTED_PRODUCTS_CART_CASES = (
+    ("Show selected products.", None),
+    ("Display my selected products.", None),
+    ("Show my selected products in the cart.", "cart"),
+    ("Show the products in my basket.", "cart"),
+)
+
+
 AMBIGUOUS_CASES = (
     "I have an issue with my order.",
     "Find me a problem with my order.",
@@ -292,6 +325,21 @@ class SupervisorPatternTests(unittest.TestCase):
 
     def test_cart_quantity_requires_cart_or_basket_context(self):
         for question, expected in CART_QUANTITY_CASES:
+            with self.subTest(question=question):
+                self.assertEqual(detect_intent_deterministic(question), expected)
+
+    def test_generic_product_questions_fall_back(self):
+        for question, expected in GENERIC_PRODUCT_FALSE_POSITIVE_CASES:
+            with self.subTest(question=question):
+                self.assertEqual(detect_intent_deterministic(question), expected)
+
+    def test_arbitrary_catalogue_searches_route_to_product(self):
+        for question, expected in ARBITRARY_PRODUCT_CASES:
+            with self.subTest(question=question):
+                self.assertEqual(detect_intent_deterministic(question), expected)
+
+    def test_selected_products_require_cart_or_basket_context(self):
+        for question, expected in SELECTED_PRODUCTS_CART_CASES:
             with self.subTest(question=question):
                 self.assertEqual(detect_intent_deterministic(question), expected)
 
