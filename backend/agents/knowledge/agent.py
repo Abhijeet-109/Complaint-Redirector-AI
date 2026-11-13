@@ -1,3 +1,4 @@
+"""Knowledge agent implementation and execution logic."""
 
 from backend.chatbot.answer_pipeline import answer_question
 from backend.agents.response_schema import text_response

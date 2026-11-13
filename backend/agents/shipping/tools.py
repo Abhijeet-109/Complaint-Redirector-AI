@@ -1,3 +1,5 @@
+"""Shipping agent tools."""
+
 import logging
 
 from langchain.tools import tool

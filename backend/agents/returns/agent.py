@@ -1,20 +1,11 @@
+"""Returns agent implementation and execution logic."""
+
 from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
-from backend.agents.returns_tools import build_returns_tools
+from backend.agents.returns.tools import build_returns_tools
+from backend.agents.returns.prompts import RETURNS_SYSTEM_PROMPT
 from backend.agents.response_builder import build_agent_response
-
-
-RETURNS_SYSTEM_PROMPT = """
-You are the Returns Specialist Agent for Flatkart.
-
-Use the tools to retrieve existing return requests belonging to the
-authenticated customer. Report only database returned request details and
-status. If no request exists, say so clearly. The backend can read return
-requests but does not create, cancel, approve, reject, or process returns or
-refunds. Do not infer eligibility, policy, or an outcome from a request's
-status. Keep answers concise and customer-friendly.
-"""
 
 
 def build_returns_agent(user_id: int):

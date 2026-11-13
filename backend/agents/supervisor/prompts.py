@@ -1,47 +1,4 @@
-from backend.agents.model_factory import get_model
-
-
-ALLOWED_ROUTES = {
-    "knowledge",
-    "product",
-    "cart",
-    "order",
-    "shipping",
-    "returns",
-    "support",
-}
-
-def _format_chat_history(chat_history, max_messages=10):
-    """Format recent LangGraph messages for supervisor routing."""
-
-    formatted_messages = []
-
-    for message in (chat_history or [])[-max_messages:]:
-        message_type = getattr(message, "type", None)
-        content = getattr(message, "content", "")
-
-        if message_type not in {"human", "ai"}:
-            continue
-
-        if not isinstance(content, str):
-            continue
-
-        content = content.strip()
-
-        if not content:
-            continue
-
-        speaker = "Customer" if message_type == "human" else "Assistant"
-
-        formatted_messages.append(
-            f"{speaker}: {content[:1200]}"
-        )
-
-    if not formatted_messages:
-        return "No previous conversation is available."
-
-    return "\n".join(formatted_messages)
-
+"""Supervisor system prompt and prompt templates."""
 
 SUPERVISOR_PROMPT = """
 You are the Supervisor of Flatkart's multi-agent e-commerce support system.
@@ -85,6 +42,9 @@ AVAILABLE AGENTS:
    - Return, refund and cancellation policies.
    - Shipping and payment policies.
    - Information from uploaded documents and the knowledge base.
+
+   Return/refund policy questions go to knowledge.
+   Actually checking an existing return request goes to returns.
 
 7. support
    - General platform guidance.
@@ -188,34 +148,3 @@ RECENT CONVERSATION HISTORY:
 CURRENT CUSTOMER REQUEST:
 {question}
 """
-
-
-def select_route(question: str, chat_history=None) -> str:
-
-    model = get_model("supervisor")
-
-    formatted_history = _format_chat_history(chat_history)
-
-    response = model.invoke(
-        SUPERVISOR_PROMPT.format(
-            question=question,
-            chat_history=formatted_history,
-        )
-    )
-
-    route = response.content.strip().lower()
-
-    if route not in ALLOWED_ROUTES:
-        raise ValueError(f"Invalid supervisor route: {route}")
-
-    return route
-
-
-def supervisor_route(state: dict) -> str:
-
-    route = state.get("route")
-
-    if route not in ALLOWED_ROUTES:
-        raise ValueError(f"Invalid supervisor route: {route}")
-
-    return route

@@ -1,21 +1,11 @@
+"""Shipping agent implementation and execution logic."""
+
 from langchain.agents import create_agent
 
 from backend.agents.model_factory import get_model
-from backend.agents.shipping_tools import build_shipping_tools
+from backend.agents.shipping.tools import build_shipping_tools
+from backend.agents.shipping.prompts import SHIPPING_SYSTEM_PROMPT
 from backend.agents.response_builder import build_agent_response
-
-
-SHIPPING_SYSTEM_PROMPT = """
-You are the Shipping Specialist Agent for Flatkart.
-
-Use tools to retrieve stored shipment information for the authenticated
-customer's orders. Only report the shipment status, tracking reference, shipped
-date, and delivered date returned by the database. If no shipment record or
-tracking reference exists, say that the stored information is not available.
-This system does not provide live courier tracking, so never imply a carrier
-was contacted or a live location was checked. Never reveal another customer's
-order or shipment details. Keep answers concise and customer-friendly.
-"""
 
 
 def build_shipping_agent(user_id: int):

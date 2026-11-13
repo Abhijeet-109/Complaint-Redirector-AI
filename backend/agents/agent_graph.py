@@ -6,18 +6,18 @@ from langgraph.graph import StateGraph, START, END
 from backend.agents.graph_state import GraphState
 from backend.agents.response_schema import AgentResponse, STRUCTURED_RESPONSE_KEY, text_response
 
-from backend.agents.supervisor_agent import (
+from backend.agents.supervisor import (
     select_route,
     supervisor_route,
 )
 
-from backend.agents.knowledge_agent import run_knowledge_rag
-from backend.agents.product_agent import run_product_agent
-from backend.agents.cart_agent import run_cart_agent
-from backend.agents.order_agent import run_order_agent
-from backend.agents.shipping_agent import run_shipping_agent
-from backend.agents.returns_agent import run_returns_agent
-from backend.agents.support_agent import run_support_agent
+from backend.agents.knowledge import run_knowledge_rag
+from backend.agents.product import run_product_agent
+from backend.agents.cart import run_cart_agent
+from backend.agents.order import run_order_agent
+from backend.agents.shipping import run_shipping_agent
+from backend.agents.returns import run_returns_agent
+from backend.agents.support import run_support_agent
 
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,6 @@ def supervisor_node(state: GraphState):
     return {
         "route": route
     }
-
 
 
 def knowledge_node(state: GraphState):
@@ -192,7 +191,6 @@ def support_node(state: GraphState):
     return {
         "answer": result
     }
-
 
 
 def build_graph(checkpointer=None):

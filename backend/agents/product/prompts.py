@@ -1,9 +1,4 @@
-from langchain.agents import create_agent
-
-from backend.agents.model_factory import get_model
-from backend.agents.product_tools import build_product_tools
-from backend.agents.response_builder import build_agent_response
-
+"""Product agent system prompt."""
 
 PRODUCT_SYSTEM_PROMPT = """
 You are the Product Specialist Agent for Flatkart.
@@ -34,36 +29,3 @@ If the customer asks about orders, shipping, returns, cart, or checkout,
 do not invent an answer. Those specialist capabilities will be handled
 by their respective agents.
 """
-
-
-def build_product_agent():
-
-    tools = build_product_tools()
-
-    return create_agent(
-        model=get_model("product"),
-        tools=tools,
-        system_prompt=PRODUCT_SYSTEM_PROMPT,
-    )
-
-
-def run_product_agent(
-    question: str,
-    chat_history=None,
-) -> dict:
-
-    product_agent = build_product_agent()
-
-    messages = list(chat_history or [])
-    messages.append({
-        "role": "user",
-        "content": question,
-    })
-
-    result = product_agent.invoke({
-        "messages": messages,
-    })
-
-    messages = result.get("messages", [])
-    answer = messages[-1].content if messages else "I couldn't retrieve product information right now."
-    return build_agent_response("product", messages, answer)
