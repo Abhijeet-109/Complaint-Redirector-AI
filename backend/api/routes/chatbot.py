@@ -4,7 +4,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -16,7 +16,11 @@ from backend.chatbot.answer_pipeline import (
     detect_obvious_security_request,
 )
 from backend.Database.connection import SessionLocal
-from backend.Database.models import ChatbotTelemetry, ChatConversation
+from backend.Database.models import ChatbotTelemetry, ChatConversation, CommerceOrder, CommerceOrderItem
+from backend.Database.return_evidence_storage import (
+    MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES, clear_staged_evidence,
+    list_staged_evidence, stage_evidence,
+)
 from backend.auth.dependencies import get_db, require_role
 from backend.agents.agent_graph import agent_graph
 from backend.agents.response_schema import AgentResponse, STRUCTURED_RESPONSE_KEY, text_response
@@ -33,6 +37,8 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(None, min_length=1, max_length=100)
     # Reuse this value when retrying a request whose response may have been lost.
     request_id: str | None = Field(None, min_length=1, max_length=255)
+    order_id: int | None = Field(None, gt=0)
+    order_item_id: int | None = Field(None, gt=0)
 
 
 class ConversationCreateRequest(BaseModel):
@@ -171,6 +177,11 @@ def delete_conversation(
     checkpointer = getattr(request.app.state, "chat_checkpointer", None)
     if checkpointer is not None:
         checkpointer.delete_thread(thread_id)
+    try:
+        clear_staged_evidence(list_staged_evidence(current_user.id, thread_id))
+    except Exception as exc:
+        logger.warning("Could not remove staged return evidence during conversation deletion (%s)",
+                       type(exc).__name__)
     db.delete(conversation)
     db.commit()
     return None
@@ -226,6 +237,58 @@ def chatbot_health():
     return {"status": "available", "service": "chatbot"}
 
 
+@router.post("/returns/evidence", status_code=202)
+def upload_chat_return_evidence(
+    thread_id: str,
+    order_id: int,
+    order_item_id: int,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    """Stage private evidence for an owned conversation and purchased order line."""
+    conversation = db.query(ChatConversation).filter(
+        ChatConversation.thread_id == thread_id,
+        ChatConversation.user_id == current_user.id,
+    ).first()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    order = db.query(CommerceOrder).filter(
+        CommerceOrder.id == order_id, CommerceOrder.user_id == current_user.id,
+    ).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    item = db.query(CommerceOrderItem.id).filter(
+        CommerceOrderItem.id == order_item_id, CommerceOrderItem.order_id == order.id,
+    ).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Order item not found.")
+    try:
+        staged = list_staged_evidence(current_user.id, thread_id)
+    except Exception as exc:
+        logger.error("Could not inspect staged return evidence (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Evidence storage is unavailable.") from exc
+    if not files or len(staged) + len(files) > MAX_EVIDENCE_FILES:
+        raise HTTPException(status_code=400, detail="Upload between 1 and 5 evidence images per request.")
+    results = []
+    for upload in files:
+        try:
+            data = upload.file.read(MAX_EVIDENCE_BYTES + 1)
+            metadata = stage_evidence(data, upload.filename or "", upload.content_type or "",
+                                      current_user.id, thread_id, order_id, order_item_id)
+            results.append({"status": "pending_submission", **metadata})
+        except ValueError as exc:
+            results.append({"status": "failed", "filename": upload.filename or "",
+                            "message": str(exc)})
+        except Exception as exc:
+            logger.error("Chat evidence upload failed (%s)", type(exc).__name__)
+            results.append({"status": "failed", "filename": upload.filename or "",
+                            "message": "This image could not be uploaded. Please retry."})
+    return {"status": "pending_submission" if any(item["status"] == "pending_submission" for item in results)
+            else "failed", "thread_id": thread_id,
+            "order_id": order_id, "order_item_id": order_item_id, "files": results}
+
+
 @router.post("/ask")
 def ask_chatbot(
     request: ChatRequest,
@@ -236,6 +299,21 @@ def ask_chatbot(
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Question cannot be empty.")
+    if (request.order_id is None) != (request.order_item_id is None):
+        raise HTTPException(status_code=422, detail="Provide both order_id and order_item_id.")
+    if request.order_id is not None:
+        owned_order = db.query(CommerceOrder.id).filter(
+            CommerceOrder.id == request.order_id,
+            CommerceOrder.user_id == _current_user.id,
+        ).first()
+        owned_item = db.query(CommerceOrderItem.id).filter(
+            CommerceOrderItem.id == request.order_item_id,
+            CommerceOrderItem.order_id == request.order_id,
+        ).first()
+        if owned_order is None:
+            raise HTTPException(status_code=404, detail="Order not found.")
+        if owned_item is None:
+            raise HTTPException(status_code=404, detail="Order item not found.")
 
     started = time.perf_counter()
     try:
@@ -340,11 +418,17 @@ def ask_chatbot(
                     )
 
             else:
-                graph_result = graph.invoke({
+                graph_input = {
                     "question": question,
                     "user_id": _current_user.id,
                     "request_id": request.request_id,
-                }, config=config)
+                    "thread_id": conversation.thread_id,
+                }
+                if request.order_id is not None:
+                    graph_input["order_id"] = request.order_id
+                if request.order_item_id is not None:
+                    graph_input["order_item_id"] = request.order_item_id
+                graph_result = graph.invoke(graph_input, config=config)
 
                 result = _validated_response(graph_result.get("answer"))
 

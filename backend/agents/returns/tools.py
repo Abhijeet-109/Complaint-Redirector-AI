@@ -8,8 +8,12 @@ from sqlalchemy.orm import selectinload
 from langchain.tools import tool
 
 from backend.Database.connection import SessionLocal
-from backend.Database.models import CommerceOrder, Refund, ReturnEvidence, ReturnHandoff, ReturnRequest
-from backend.Database.return_services import claim_details, evaluate_return_eligibility
+from backend.Database.models import (CommerceOrder, CommerceOrderItem, Refund, ReturnEvidence,
+                                     ReturnHandoff, ReturnRequest, ReturnRequestEvent)
+from backend.Database.return_services import claim_details, create_return_claim, evaluate_return_eligibility
+from backend.Database.return_evidence_storage import (
+    MAX_EVIDENCE_FILES, finalize_staged_evidence, list_staged_evidence,
+)
 from backend.Database.services import get_order_by_number
 
 
@@ -112,7 +116,9 @@ def _serialize_return_request(request):
     }
 
 
-def build_returns_tools(user_id: int):
+def build_returns_tools(user_id: int, thread_id: str | None = None,
+                        context_order_id: int | None = None,
+                        context_order_item_id: int | None = None):
     if not _valid_user_id(user_id):
         raise ValueError("A valid authenticated user ID is required.")
 
@@ -338,6 +344,30 @@ def build_returns_tools(user_id: int):
             return {"success": False, "message": "Unable to retrieve return request details right now."}
 
     @tool
+    def get_my_return_by_order_and_request_id(order_id: int, return_request_id: int) -> dict:
+        """Retrieve a request only when both IDs match an order owned by this customer."""
+        if not _positive_int(order_id, "order ID")[0] or not _positive_int(return_request_id, "return request ID")[0]:
+            return {"success": False, "message": "Provide a valid Order ID and Return Request ID."}
+        try:
+            with SessionLocal() as session:
+                claim = session.scalar(
+                    select(ReturnRequest)
+                    .join(CommerceOrder, ReturnRequest.order_id == CommerceOrder.id)
+                    .where(ReturnRequest.id == return_request_id,
+                           CommerceOrder.id == order_id,
+                           CommerceOrder.user_id == user_id)
+                )
+                if claim is None:
+                    return {"success": False, "message": "Return request not found for that order."}
+                details = get_my_return_request_details.invoke({"return_request_id": claim.id})
+                if not isinstance(details, dict) or details.get("success") is not True:
+                    return {"success": False, "message": "Unable to retrieve return request details right now."}
+                return details
+        except Exception:
+            logger.exception("Return request pair lookup failed.")
+            return {"success": False, "message": "Unable to retrieve return request right now."}
+
+    @tool
     def check_my_return_eligibility(
         order_number: str,
         order_item_id: int,
@@ -406,9 +436,90 @@ def build_returns_tools(user_id: int):
             logger.exception("Return eligibility check failed.")
             return {"success": False, "message": "Unable to check return eligibility right now."}
 
+    @tool
+    def submit_my_return_request(
+        order_id: int, order_item_id: int, quantity: int, resolution_type: str,
+        refund_timing: str | None, reason_code: str, description: str | None = None,
+    ) -> dict:
+        """Submit an eligible claim with all evidence staged in this authenticated chat."""
+        for value, name in ((order_id, "order ID"), (order_item_id, "order item ID"),
+                            (quantity, "quantity")):
+            ok, error = _positive_int(value, name)
+            if not ok:
+                return {"success": False, "message": error}
+        if not thread_id:
+            return {"success": False, "message": "Start this request in a saved conversation before submitting."}
+        if context_order_id and context_order_id != order_id:
+            return {"success": False, "message": "The submitted order does not match the selected order."}
+        if context_order_item_id and context_order_item_id != order_item_id:
+            return {"success": False, "message": "The submitted item does not match the selected purchased item."}
+        if resolution_type not in {"refund", "replacement"}:
+            return {"success": False, "message": "Resolution must be refund or replacement."}
+        if resolution_type == "refund" and refund_timing not in {"immediate", "after_collection"}:
+            return {"success": False, "message": "Choose immediate refund or refund after collection."}
+        if resolution_type == "replacement" and refund_timing not in {None, ""}:
+            return {"success": False, "message": "Replacement requests do not use refund timing."}
+        if not isinstance(reason_code, str) or not reason_code.strip() or len(reason_code.strip()) > 40:
+            return {"success": False, "message": "Provide a valid supported reason code."}
+        if description is not None and (not isinstance(description, str) or len(description) > 2000):
+            return {"success": False, "message": "Description cannot exceed 2000 characters."}
+        staged = list_staged_evidence(user_id, thread_id)
+        matching = [item for item in staged if item.get("order_id") == order_id
+                    and item.get("order_item_id") == order_item_id]
+        if not matching:
+            return {"success": False, "message": "Upload at least one evidence image before submitting."}
+        if len(matching) > MAX_EVIDENCE_FILES:
+            return {"success": False, "message": "No more than five evidence images may be attached."}
+        try:
+            with SessionLocal() as session:
+                order = session.scalar(select(CommerceOrder).where(
+                    CommerceOrder.id == order_id, CommerceOrder.user_id == user_id))
+                if order is None or session.scalar(select(CommerceOrderItem.id).where(
+                    CommerceOrderItem.id == order_item_id, CommerceOrderItem.order_id == order_id)) is None:
+                    return {"success": False, "message": "Order or purchased item not found."}
+                claim = create_return_claim(
+                    session, user_id=user_id, order_id=order_id, order_item_id=order_item_id,
+                    quantity=quantity, resolution_type=resolution_type,
+                    refund_timing=refund_timing or None, reason_code=reason_code.strip(),
+                    description=description,
+                )
+                for item in matching:
+                    evidence = ReturnEvidence(
+                        return_request_id=claim.id, storage_provider="local_private",
+                        storage_key=item["storage_key"], provider_file_id=None,
+                        original_filename=item["filename"], mime_type=item["mime_type"],
+                        size_bytes=item["size_bytes"], sha256=item["sha256"],
+                        uploaded_by_id=user_id, is_active=True,
+                    )
+                    session.add(evidence)
+                    session.flush()
+                    session.add(ReturnRequestEvent(
+                        return_request_id=claim.id, event_type="evidence_uploaded",
+                        actor_user_id=user_id, event_data={"evidence_id": evidence.id,
+                            "content_type": evidence.mime_type, "size_bytes": evidence.size_bytes,
+                            "sha256": evidence.sha256},
+                    ))
+                session.commit()
+                session.refresh(claim)
+                request_id = claim.id
+            try:
+                finalize_staged_evidence(matching)
+            except OSError:
+                logger.warning("Committed return request but intake manifest cleanup failed.")
+            return {"success": True, "return_request_id": request_id,
+                    "order_id": order_id, "evidence_filenames": [item["filename"] for item in matching]}
+        except (LookupError, ValueError, RuntimeError) as exc:
+            logger.info("Return submission was rejected: %s", type(exc).__name__)
+            return {"success": False, "message": str(exc)}
+        except Exception:
+            logger.exception("Chat return submission failed.")
+            return {"success": False, "message": "The request could not be submitted. Your uploaded images are available to retry."}
+
     return [
         list_my_return_requests,
         get_my_order_return_requests,
         get_my_return_request_details,
+        get_my_return_by_order_and_request_id,
         check_my_return_eligibility,
+        submit_my_return_request,
     ]

@@ -42,6 +42,8 @@ RETURNS_PATTERNS = _patterns(
     r"\b(?:i\s+(?:want|need|would\s+like)\s+to\s+request\s+a\s+refund)\b.{0,45}\breturn(?:ing|ed)?\b",
     r"\b(?:check|show|track|get)\s+(?:the\s+)?(?:status\s+of\s+)?(?:(?:my|the|existing)\s+){1,2}(?:return|refund|replacement|exchange)\s+(?:request|claim|status)\b",
     r"\b(?:what\s+is\s+happening|what\s+happened)\s+(?:with|to)\s+(?:my\s+)?(?:return|refund|replacement|exchange)\b",
+    r"\bwhat\s+happened\s+to\s+my\s+return\s+order\b",
+    r"\bwhat\s+about\s+my\s+refund\b",
     r"\bwhere\s+is\s+my\s+refund\s+for\s+my\s+return\b",
     r"\bhas\s+my\s+(?:return|replacement|exchange)\s+(?:request\s+)?(?:been\s+)?(?:approved|processed|updated)\b",
     r"\bhas\s+my\s+refund\s+(?:request|claim)\s+(?:been\s+)?(?:approved|processed|updated)\b",

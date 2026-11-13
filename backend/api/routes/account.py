@@ -20,7 +20,7 @@ from backend.Database.return_services import (
 )
 from backend.Database.models import ReturnEvidence, ReturnRequestEvent
 from backend.Database.return_evidence_storage import (
-    MAX_EVIDENCE_BYTES, delete_evidence, save_evidence,
+    MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES, delete_evidence, save_evidence,
 )
 from backend.auth.dependencies import get_current_user, get_db
 from backend.auth.security import hash_password, verify_password
@@ -397,8 +397,8 @@ def customer_return_claim(claim_id: int, db: Session = Depends(get_db), user=Dep
 
 
 def _save_claim_evidence(db: Session, claim_id: int, actor_id: int, files: list[UploadFile]):
-    if not files or len(files) > 5:
-        raise HTTPException(status_code=400, detail="Upload between 1 and 5 evidence images.")
+    if not files or len(files) > MAX_EVIDENCE_FILES:
+        raise HTTPException(status_code=400, detail=f"Upload between 1 and {MAX_EVIDENCE_FILES} evidence images.")
     created = []
     try:
         for upload in files:

@@ -30,6 +30,9 @@ TOOL_TYPES = {
     "get_my_shipment": ("shipment_details", "shipment"),
     "list_my_return_requests": ("return_request_list", "return_requests"),
     "get_my_order_return_requests": ("return_request_list", "return_requests"),
+    "get_my_return_request_details": ("return_request_details", "details"),
+    "get_my_return_by_order_and_request_id": ("return_request_details", "details"),
+    "submit_my_return_request": ("return_submission", "submission"),
 }
 
 
@@ -58,6 +61,10 @@ def _tool_output(message: ToolMessage) -> Mapping | None:
 
 def _project_output(kind: str, key: str, value: Mapping):
     if kind == "order_status":
+        return value
+    if kind == "return_submission":
+        return value
+    if kind == "return_request_details":
         return value
     output = value.get(key)
     if output is None:
@@ -101,6 +108,10 @@ def _structured_data(messages, response_type: str):
         return {"shipments": [item for result in selected for item in result]}
     if response_type == "return_request_list":
         return {"return_requests": [item for result in selected for item in result]}
+    if response_type == "return_submission":
+        return selected[-1]
+    if response_type == "return_request_details":
+        return selected[-1]
     if response_type in {"cart_summary", "cart_update"}:
         return selected[-1]
     if response_type == "product_details":
@@ -145,6 +156,19 @@ def _structured_summary(response: AgentResponse) -> str:
     if response_type == "return_request_list":
         count = len(data.return_requests)
         return f"Here are your {count} existing return requests." if count else "You don't have any existing return requests."
+    if response_type == "return_submission":
+        return (
+            "Your return/replacement request has been submitted successfully. "
+            f"Your Request ID is {data.return_request_id}. The relevant team will review it and contact you."
+        )
+    if response_type == "return_request_details":
+        request = data.request
+        request_id = request.get("return_request_id", "the request")
+        status = request.get("workflow_status") or request.get("status") or "unknown"
+        refunds = data.refund_history
+        processed = any(item.get("status") == "processed" for item in refunds)
+        refund_text = " A linked refund record is marked processed." if processed else " No processed refund is recorded."
+        return f"Return Request {request_id} is currently recorded as {status}.{refund_text}"
     return response.answer
 
 
@@ -165,6 +189,20 @@ def build_agent_response(agent: str, messages, answer: str) -> dict:
     response_type = TOOL_TYPES[latest.name][0]
     latest_result = _decoded_tool_output(latest)
     if _tool_output(latest) is None:
+        if latest.name == "submit_my_return_request":
+            failure_message = latest_result.get("message") if latest_result else None
+            return text_response(
+                agent,
+                failure_message if isinstance(failure_message, str) and failure_message.strip()
+                else "I couldn't confirm that return request was submitted.",
+            )
+        if latest.name in {"get_my_return_request_details", "get_my_return_by_order_and_request_id"}:
+            failure_message = latest_result.get("message") if latest_result else None
+            return text_response(
+                agent,
+                failure_message if isinstance(failure_message, str) and failure_message.strip()
+                else "I couldn't verify the current return request details.",
+            )
         if response_type == "cart_update":
             failure_message = latest_result.get("message") if latest_result else None
             return text_response(
@@ -188,4 +226,8 @@ def build_agent_response(agent: str, messages, answer: str) -> dict:
         return validated.model_copy(update={"answer": _structured_summary(validated)}).as_json()
     except (ValidationError, TypeError, ValueError, KeyError):
         logger.info("Agent structured response validation failed; returning text.")
+        if response_type == "return_submission":
+            return text_response("returns", "I couldn't confirm that your return or replacement request was submitted.")
+        if response_type == "return_request_details":
+            return text_response("returns", "I couldn't verify the current return request details.")
         return text_response(agent, safe_answer)

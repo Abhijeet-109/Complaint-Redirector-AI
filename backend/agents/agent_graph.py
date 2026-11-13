@@ -172,6 +172,9 @@ def returns_node(state: GraphState):
         question=_question(state),
         user_id=user_id,
         chat_history=_chat_history(state),
+        thread_id=state.get("thread_id"),
+        order_id=state.get("order_id"),
+        order_item_id=state.get("order_item_id"),
     )
 
     return {
