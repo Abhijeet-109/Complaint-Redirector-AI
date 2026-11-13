@@ -73,6 +73,11 @@ class CommerceServiceTests(unittest.TestCase):
         self.assertEqual(len(list_products(self.session)), len(PRODUCTS))
         self.assertEqual(len(list_products(self.session, search="Roadster")), 2)
         self.assertEqual(len(list_products(self.session, limit=1)), 1)
+        visible_ids = {category.id for category in list_categories(self.session)}
+        self.assertEqual(
+            len(list_products(self.session, visible_category_ids=visible_ids)),
+            len(PRODUCTS),
+        )
         with self.assertRaises(ValueError):
             list_products(self.session, limit=101)
 
@@ -151,6 +156,33 @@ class CommerceServiceTests(unittest.TestCase):
             for root in all_tree
             for child in root["children"]
         })
+
+    def test_product_visibility_filter_is_opt_in_and_preserves_uncategorized_products(self):
+        product = self.session.scalar(select(Product).where(Product.slug == "men-sold-casual-shirt"))
+        product.category.parent.is_active = False
+        uncategorized = Product(
+            category_id=None, name="Uncategorized Test Product", slug="uncategorized-test-product",
+            brand="Test", is_active=True,
+        )
+        self.session.add(uncategorized)
+        self.session.commit()
+
+        # Existing callers keep their active-product-only behavior unless they
+        # explicitly request customer-visible category filtering.
+        self.assertIn(product.id, {row.id for row in list_products(self.session)})
+        visible_ids = set()
+
+        def collect(nodes):
+            for node in nodes:
+                visible_ids.add(node["id"])
+                collect(node["children"])
+
+        collect(get_category_tree(self.session, active_only=True))
+        filtered_ids = {
+            row.id for row in list_products(self.session, visible_category_ids=visible_ids)
+        }
+        self.assertNotIn(product.id, filtered_ids)
+        self.assertIn(uncategorized.id, filtered_ids)
 
     def test_category_tree_detects_corrupt_multi_node_cycle(self):
         categories = {category.slug: category for category in list_categories(self.session)}

@@ -92,7 +92,14 @@ class CustomerAgentToolTests(unittest.TestCase):
             product_id=self.product.id, sku="SPEAKER-BLU", name="Blue",
             price=Decimal("32.00"), mrp=Decimal("40.00"), is_available=True,
         )
-        self.db.add_all([self.variant, self.out_of_stock_variant, self.new_variant])
+        self.no_inventory_variant = ProductVariant(
+            product_id=self.product.id, sku="SPEAKER-GRN", name="Green",
+            price=Decimal("28.00"), mrp=Decimal("35.00"), is_available=True,
+        )
+        self.db.add_all([
+            self.variant, self.out_of_stock_variant, self.new_variant,
+            self.no_inventory_variant,
+        ])
         self.db.flush()
         self.db.add_all([
             Inventory(variant_id=self.variant.id, available_stock=5, reserved_stock=0, total_stock=5, stock_status="in_stock"),
@@ -203,11 +210,17 @@ class CustomerAgentToolTests(unittest.TestCase):
         self.assertEqual(details["specifications"], {"power": "10W"})
         self.assertEqual(details["images"][0]["url"], "https://cdn.example/speaker.jpg")
         self.assertNotIn("storage_key", str(details))
+        self.assertNotIn("provider", str(details))
+        self.assertNotIn("provider_file_id", str(details))
         variants = {row["sku"]: row for row in details["variants"]}
         self.assertEqual(variants["SPEAKER-BLK"]["available_stock"], 5)
+        self.assertEqual(variants["SPEAKER-BLK"]["price"], "30.00")
+        self.assertEqual(variants["SPEAKER-BLK"]["mrp"], "40.00")
         self.assertTrue(variants["SPEAKER-BLK"]["is_available"])
         self.assertEqual(variants["SPEAKER-WHT"]["available_stock"], 0)
         self.assertFalse(variants["SPEAKER-WHT"]["is_available"])
+        self.assertIsNone(variants["SPEAKER-GRN"]["available_stock"])
+        self.assertFalse(variants["SPEAKER-GRN"]["is_available"])
 
     def test_product_tools_reject_bad_inputs_and_hide_inactive_catalogue(self):
         tools = self.tools(product_tools)
@@ -225,6 +238,113 @@ class CustomerAgentToolTests(unittest.TestCase):
         self.assertEqual(compared["not_found"], [self.inactive_product.id])
         for invalid in ("1,,2", "-1", "0", "1,999999999999999999999"):
             self.assertFalse(tools["compare_products"].invoke({"product_ids": invalid})["success"])
+
+    def test_product_tools_enforce_category_ancestor_visibility(self):
+        active_child = ProductCategory(
+            name="Portable Audio", slug="portable-audio", is_active=True,
+            parent_id=self.active_category.id,
+        )
+        inactive_child = ProductCategory(
+            name="Hidden Audio", slug="hidden-audio", is_active=False,
+            parent_id=self.active_category.id,
+        )
+        hidden_branch_child = ProductCategory(
+            name="Hidden Parent Child", slug="hidden-parent-child", is_active=True,
+            parent_id=self.inactive_category.id,
+        )
+        self.db.add_all([active_child, inactive_child, hidden_branch_child])
+        self.db.flush()
+        visible_child_product = Product(
+            category_id=active_child.id, name="Visible Child Speaker",
+            slug="visible-child-speaker", brand="Clear Sound", is_active=True,
+        )
+        hidden_child_product = Product(
+            category_id=inactive_child.id, name="Inactive Child Speaker",
+            slug="inactive-child-speaker", brand="Private Sound", is_active=True,
+        )
+        hidden_ancestor_product = Product(
+            category_id=hidden_branch_child.id, name="Ancestor Hidden Speaker",
+            slug="ancestor-hidden-speaker", brand="Secret Sound", is_active=True,
+        )
+        uncategorized_product = Product(
+            category_id=None, name="Uncategorized Speaker", slug="uncategorized-speaker",
+            brand="Open Sound", is_active=True,
+        )
+        self.db.add_all([
+            visible_child_product, hidden_child_product,
+            hidden_ancestor_product, uncategorized_product,
+        ])
+        limited_products = [
+            Product(
+                category_id=None, name=f"Limit Check Product {index:02d}",
+                slug=f"limit-check-product-{index:02d}", brand="Limit Check",
+                is_active=True,
+            )
+            for index in range(51)
+        ]
+        self.db.add_all(limited_products)
+        self.db.commit()
+
+        tools = self.tools(product_tools)
+        hidden_products = {
+            self.hidden_category_product.id,
+            hidden_child_product.id,
+            hidden_ancestor_product.id,
+        }
+        for query in ("Hidden Category Product", "Private Sound", "Ancestor Hidden"):
+            with self.subTest(search=query):
+                result = tools["search_products"].invoke({"query": query})
+                self.assertTrue(result["success"], result.get("message"))
+                self.assertEqual(result["products"], [])
+
+        visible_search = tools["search_products"].invoke({"query": "Speaker"})
+        visible_ids = {row["product_id"] for row in visible_search["products"]}
+        self.assertTrue(visible_search["success"])
+        self.assertTrue(hidden_products.isdisjoint(visible_ids))
+        self.assertIn(visible_child_product.id, visible_ids)
+        self.assertIn(uncategorized_product.id, visible_ids)
+        limited = tools["search_products"].invoke({"query": "Limit Check"})
+        self.assertEqual(limited["count"], 50)
+
+        for hidden_name in ("Hidden", "Hidden Audio", "Hidden Parent Child"):
+            with self.subTest(category=hidden_name):
+                result = tools["search_products_by_category"].invoke({"category": hidden_name})
+                self.assertFalse(result["success"])
+                self.assertEqual(result["message"], "Category not found.")
+        child_results = tools["search_products_by_category"].invoke({"category": "portable-audio"})
+        self.assertEqual(
+            [row["product_id"] for row in child_results["products"]],
+            [visible_child_product.id],
+        )
+
+        for hidden_id in hidden_products:
+            with self.subTest(product_id=hidden_id):
+                details = tools["get_product_details"].invoke({"product_id": hidden_id})
+                self.assertFalse(details["success"])
+                compared = tools["compare_products"].invoke({"product_ids": str(hidden_id)})
+                self.assertTrue(compared["success"])
+                self.assertEqual(compared["products"], [])
+                self.assertEqual(compared["not_found"], [hidden_id])
+                self.assertEqual(compared["unavailable"], [hidden_id])
+
+        comparison = tools["compare_products"].invoke({
+            "product_ids": f"{visible_child_product.id},{visible_child_product.id},{hidden_ancestor_product.id}",
+        })
+        self.assertEqual([row["product_id"] for row in comparison["products"]], [visible_child_product.id])
+        self.assertEqual(comparison["not_found"], [hidden_ancestor_product.id])
+        category_listing = tools["list_product_categories"].invoke({})
+        flattened_slugs = set()
+
+        def visit(nodes):
+            for node in nodes:
+                flattened_slugs.add(node["slug"])
+                visit(node["children"])
+
+        visit(category_listing["categories"])
+        self.assertIn("portable-audio", flattened_slugs)
+        self.assertNotIn("hidden", flattened_slugs)
+        self.assertNotIn("hidden-audio", flattened_slugs)
+        self.assertNotIn("hidden-parent-child", flattened_slugs)
 
     def test_cart_read_add_update_remove_and_ownership(self):
         tools = self.tools(cart_tools)

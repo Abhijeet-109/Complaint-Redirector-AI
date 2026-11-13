@@ -99,12 +99,27 @@ def _find_category_id_by_name(session, name):
     if not term:
         return None
 
-    categories = list_categories(session, active_only=True)
-    for category in categories:
-        if category.name.casefold() == term.casefold() or category.slug.casefold() == term.casefold():
-            return category.id
+    def find(nodes):
+        for node in nodes:
+            if node["name"].casefold() == term.casefold() or node["slug"].casefold() == term.casefold():
+                return node["id"]
+            found = find(node["children"])
+            if found is not None:
+                return found
+        return None
 
-    return None
+    return find(get_category_tree(session, active_only=True))
+
+
+def _customer_visible_category_ids(session):
+    def collect(nodes):
+        result = set()
+        for node in nodes:
+            result.add(node["id"])
+            result.update(collect(node["children"]))
+        return result
+
+    return collect(get_category_tree(session, active_only=True))
 
 
 def _public_category(node):
@@ -136,7 +151,11 @@ def build_product_tools():
 
         try:
             with SessionLocal() as session:
-                products = list_products(session, search=query, limit=50)
+                visible_category_ids = _customer_visible_category_ids(session)
+                products = list_products(
+                    session, search=query, limit=50,
+                    visible_category_ids=visible_category_ids,
+                )
                 serialized = _serialize_products(session, products)
                 return {
                     "success": True,
@@ -166,6 +185,7 @@ def build_product_tools():
 
         try:
             with SessionLocal() as session:
+                visible_category_ids = _customer_visible_category_ids(session)
                 category_id = _find_category_id_by_name(session, category)
                 if category_id is None:
                     return {
@@ -173,7 +193,10 @@ def build_product_tools():
                         "message": "Category not found.",
                     }
 
-                products = list_products(session, category_id=category_id, limit=50)
+                products = list_products(
+                    session, category_id=category_id, limit=50,
+                    visible_category_ids=visible_category_ids,
+                )
                 serialized = _serialize_products(session, products)
                 return {
                     "success": True,
@@ -206,7 +229,11 @@ def build_product_tools():
         try:
             with SessionLocal() as session:
                 product = get_product(session, product_id)
-                if product is None:
+                visible_category_ids = _customer_visible_category_ids(session)
+                if product is None or (
+                    product.category_id is not None
+                    and product.category_id not in visible_category_ids
+                ):
                     return {
                         "success": False,
                         "message": "Product not found.",
@@ -270,10 +297,16 @@ def build_product_tools():
                 }
 
             with SessionLocal() as session:
+                visible_category_ids = _customer_visible_category_ids(session)
                 products = session.scalars(
                     select(Product)
                     .options(selectinload(Product.variants), selectinload(Product.images))
-                    .where(Product.id.in_(ids), Product.is_active.is_(True))
+                    .where(
+                        Product.id.in_(ids),
+                        Product.is_active.is_(True),
+                        Product.category_id.is_(None)
+                        | Product.category_id.in_(visible_category_ids),
+                    )
                 ).all()
                 products_by_id = {product.id: product for product in products}
                 ordered_products = [products_by_id[pid] for pid in ids if pid in products_by_id]

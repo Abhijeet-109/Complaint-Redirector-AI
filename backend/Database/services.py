@@ -128,11 +128,17 @@ def list_products(
     category_id: int | None = None,
     search: str | None = None,
     limit: int = 50,
+    visible_category_ids: set[int] | None = None,
 ) -> list[Product]:
     if not 1 <= limit <= 100:
         raise ValueError("limit must be between 1 and 100")
     query = select(Product).options(selectinload(Product.variants), selectinload(Product.images))
     query = query.where(Product.is_active.is_(True))
+    if visible_category_ids is not None:
+        query = query.where(
+            Product.category_id.is_(None)
+            | Product.category_id.in_(visible_category_ids)
+        )
     if category_id is not None:
         query = query.where(Product.category_id == category_id)
     if search:
