@@ -15,6 +15,7 @@ from backend.Database.models import (
     ReturnInspection,
     ReturnRequest,
     ReturnRequestEvent,
+    Refund,
     Shipment,
 )
 
@@ -695,3 +696,42 @@ def create_after_collection_refund_handoff(
                  "resolution_type": claim.resolution_type, "refund_timing": claim.refund_timing,
                  "pickup_handoff_id": pickup.id},
     )
+
+
+def resolve_return_claim(session: Session, claim_id: int, *, actor_id: int, note: str):
+    """Manually resolve a return only after its required department work is complete."""
+    claim = get_return_claim(session, claim_id, lock=True)
+    if claim is None:
+        raise LookupError("Return claim not found.")
+    if claim.workflow_status != "approved":
+        raise ValueError("Only an approved return request can be resolved.")
+    if not note.strip():
+        raise ValueError("A resolution note is required.")
+
+    handoffs = session.scalars(
+        select(ReturnHandoff).where(ReturnHandoff.return_request_id == claim.id).with_for_update()
+    ).all()
+    required_type = "refund_pickup" if claim.resolution_type == "refund" else "replacement_fulfillment"
+    delivery_done = any(row.handoff_type == required_type and row.status == "completed" for row in handoffs)
+    if not delivery_done:
+        raise ValueError("Order & Delivery work must be completed before resolving this request.")
+
+    if claim.resolution_type == "refund":
+        payments_handoff = next((row for row in handoffs if row.handoff_type == "refund_processing"), None)
+        if payments_handoff is None or payments_handoff.status != "completed":
+            raise ValueError("Payments work must be completed before resolving this refund request.")
+        processed_refund = session.scalar(select(Refund.id).where(
+            Refund.return_request_id == claim.id, Refund.status == "processed",
+        ).limit(1))
+        if processed_refund is None:
+            raise ValueError("A processed financial refund is required before resolving this request.")
+    elif claim.resolution_type != "replacement":
+        raise ValueError("This request has no supported resolution type.")
+
+    previous = claim.workflow_status
+    claim.workflow_status = "resolved"
+    claim.status = "completed"
+    claim.updated_at = _utcnow_naive()
+    _event(session, claim, "request_manually_resolved", actor_id, previous=previous,
+           new="resolved", note=note.strip())
+    return claim

@@ -976,6 +976,95 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             return_request_id=self.claim.id, handoff_type="refund_processing",
         ).count(), 0)
 
+    def test_department_handoff_lists_are_scoped_and_returns_tracking_is_consolidated(self):
+        handoff, _ = self.prepare_refund_handoff(payment_method="cod")
+        self.actor = self.delivery_handler
+        delivery = self.client.get("/api/v1/departments/order-delivery/return-handoffs")
+        self.assertEqual(delivery.status_code, 200, delivery.text)
+        self.assertEqual(delivery.json()["items"][0]["return_request_id"], self.claim.id)
+        self.assertEqual(delivery.json()["items"][0]["item"]["product_name"], "Notebook")
+        self.assertEqual(self.client.get("/api/v1/departments/payments/refund-handoffs").status_code, 403)
+        self.actor = self.handler
+        tracking = self.client.get("/api/v1/departments/returns-tracking")
+        self.assertEqual(tracking.status_code, 200, tracking.text)
+        self.assertEqual(tracking.json()["total"], 1)
+        row = tracking.json()["items"][0]
+        self.assertEqual(row["return_request_id"], self.claim.id)
+        self.assertEqual(row["product_id"], self.variant.product_id)
+        self.assertEqual(row["order_delivery_status"], "pending")
+        self.assertEqual(row["payments_handoff_status"], "pending")
+        self.assertEqual(row["financial_refund_status"], [])
+        self.actor = self.payments_handler
+        payments = self.client.get("/api/v1/departments/payments/refund-handoffs")
+        self.assertEqual(payments.status_code, 200, payments.text)
+        self.assertEqual(payments.json()["items"][0]["customer"]["name"], self.customer.name)
+        self.assertEqual(self.client.get("/api/v1/departments/order-delivery/return-handoffs").status_code, 403)
+
+    def test_returns_can_manually_resolve_completed_replacement(self):
+        replacement = ReturnRequest(
+            order_id=self.order.id, order_item_id=self.item.id, quantity=1,
+            reason="Replace", status="requested", resolution_type="replacement",
+            reason_code="defective", workflow_status="submitted",
+        )
+        self.db.add(replacement)
+        self.db.commit()
+        self.actor = self.handler
+        approved = self.client.post(f"/api/v1/departments/returns/{replacement.id}/approve",
+                                    json={"note": "Replacement approved"})
+        self.assertEqual(approved.status_code, 200, approved.text)
+        handoff = self.db.scalar(select(ReturnHandoff).where(
+            ReturnHandoff.return_request_id == replacement.id,
+            ReturnHandoff.handoff_type == "replacement_fulfillment",
+        ))
+        self.actor = self.delivery_handler
+        for state in ("accepted", "in_progress", "completed"):
+            response = self.client.patch(f"/api/v1/departments/return-handoffs/{handoff.id}/status",
+                                         json={"status": state, "note": f"Replacement {state}"})
+            self.assertEqual(response.status_code, 200, response.text)
+        self.actor = self.handler
+        resolved = self.client.post(f"/api/v1/departments/returns/{replacement.id}/resolve",
+                                    json={"note": "Replacement delivery completed"})
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+        tracking = self.client.get("/api/v1/departments/returns-tracking").json()
+        row = next(item for item in tracking["items"] if item["return_request_id"] == replacement.id)
+        self.assertEqual(row["payments_handoff_status"], "N/A")
+        self.assertEqual(row["financial_refund_status"], [])
+
+    def test_only_returns_can_manually_resolve_after_all_required_work(self):
+        handoff, _ = self.prepare_refund_handoff(payment_method="cod")
+        self.accept_payment_handoff(handoff)
+        processed = self.client.post(
+            f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund",
+            json={"external_reference": "BANK-RESOLVE-001"},
+        )
+        self.assertEqual(processed.status_code, 200, processed.text)
+        pickup = self.db.scalar(select(ReturnHandoff).where(
+            ReturnHandoff.return_request_id == self.claim.id,
+            ReturnHandoff.handoff_type == "refund_pickup",
+        ))
+        self.actor = self.handler
+        incomplete = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/resolve",
+                                      json={"note": "Resolve after review"})
+        self.assertEqual(incomplete.status_code, 409)
+        self.actor = self.delivery_handler
+        self.assertEqual(self.client.post(f"/api/v1/departments/returns/{self.claim.id}/resolve",
+                                          json={"note": "Wrong department"}).status_code, 403)
+        for state in ("accepted", "in_progress", "completed"):
+            response = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
+                                         json={"status": state, "note": f"Pickup {state}"})
+            self.assertEqual(response.status_code, 200, response.text)
+        self.actor = self.handler
+        resolved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/resolve",
+                                    json={"note": "Refund and pickup verified"})
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+        self.assertEqual(resolved.json()["workflow_status"], "resolved")
+        self.assertEqual(resolved.json()["status"], "completed")
+        event = self.db.scalar(select(ReturnRequestEvent).where(
+            ReturnRequestEvent.return_request_id == self.claim.id,
+            ReturnRequestEvent.event_type == "request_manually_resolved",
+        ))
+        self.assertEqual(event.actor_user_id, self.handler.id)
+
 
 if __name__ == "__main__":
     unittest.main()

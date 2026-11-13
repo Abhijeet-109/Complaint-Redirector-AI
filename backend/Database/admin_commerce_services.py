@@ -2178,7 +2178,7 @@ def list_return_refund_handoffs(db: Session, *, status: str | None, limit: int, 
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     handoffs = db.scalars(
         query.options(
-            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order),
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
             selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
         ).order_by(ReturnHandoff.updated_at.desc(), ReturnHandoff.id.desc())
         .offset(offset).limit(limit)
@@ -2187,6 +2187,7 @@ def list_return_refund_handoffs(db: Session, *, status: str | None, limit: int, 
     for handoff in handoffs:
         claim = handoff.return_request
         order = claim.order if claim else None
+        customer = order.user if order else None
         item = claim.order_item if claim else None
         refund = db.scalar(
             select(Refund).where(Refund.return_request_id == claim.id)
@@ -2201,6 +2202,7 @@ def list_return_refund_handoffs(db: Session, *, status: str | None, limit: int, 
             "refund_timing": claim.refund_timing if claim else None,
             "order_id": order.id if order else None,
             "order_number": order.order_number if order else None,
+            "customer": ({"name": customer.name, "email": customer.email} if customer else None),
             "payment_method": order.payment_method if order else None,
             "item": ({"order_item_id": item.id, "product_name": item.product_name,
                       "variant_name": item.variant_name, "sku": item.sku,

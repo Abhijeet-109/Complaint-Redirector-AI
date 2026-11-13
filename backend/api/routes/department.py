@@ -19,7 +19,7 @@ from backend.Database.models import (
 )
 from backend.Database.return_services import (
     apply_claim_decision, claim_details, create_after_collection_refund_handoff,
-    get_return_claim, record_inspection,
+    get_return_claim, record_inspection, resolve_return_claim,
 )
 from backend.Database.admin_commerce_services import (
     execute_return_refund, get_return_refund_tracking, list_return_refund_handoffs,
@@ -66,6 +66,11 @@ class ReturnHandoffStatusInput(BaseModel):
 class ReturnRefundExecutionInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     external_reference: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class ReturnResolutionInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    note: str = Field(min_length=3, max_length=2000)
 
 
 def _returns_department(db: Session):
@@ -610,6 +615,120 @@ def handler_return_claim_details(
         "event_history": details["audit_history"],
     }
     return details
+
+
+@handler_router.get("/returns-tracking")
+def list_return_tracking(
+    workflow_status: str | None = Query(default=None),
+    resolution_type: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_returns_handler(db, actor)
+    query = db.query(ReturnRequest).options(
+        selectinload(ReturnRequest.order_item),
+        selectinload(ReturnRequest.order),
+    )
+    if workflow_status and workflow_status != "all":
+        query = query.filter(ReturnRequest.workflow_status == workflow_status)
+    if resolution_type and resolution_type != "all":
+        query = query.filter(ReturnRequest.resolution_type == resolution_type)
+    total = query.count()
+    claims = query.order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc()).offset(offset).limit(limit).all()
+    rows = []
+    for claim in claims:
+        item = claim.order_item
+        variant = item.variant if item else None
+        tracking = get_return_refund_tracking(db, claim.id)
+        events = db.scalars(select(ReturnRequestEvent).where(
+            ReturnRequestEvent.return_request_id == claim.id,
+        ).order_by(ReturnRequestEvent.created_at, ReturnRequestEvent.id)).all()
+        payments = tracking["payments"]
+        actual_refunds = payments.get("refunds", []) if isinstance(payments, dict) else []
+        rows.append({
+            "return_request_id": claim.id,
+            "product_id": variant.product_id if variant else None,
+            "order_id": claim.order_id,
+            "request_type": claim.resolution_type,
+            "returns_status": claim.workflow_status,
+            "order_delivery_status": tracking["order_delivery"]["status"] if tracking["order_delivery"] else None,
+            "payments_handoff_status": payments["handoff_status"] if isinstance(payments, dict) else "N/A",
+            "financial_refund_status": [row["status"] for row in actual_refunds],
+            "overall_status": claim.workflow_status,
+            "requested_at": claim.requested_at.isoformat() if claim.requested_at else None,
+            "updated_at": claim.updated_at.isoformat() if claim.updated_at else None,
+            "history": [{"event_type": event.event_type,
+                         "previous_status": event.previous_status,
+                         "new_status": event.new_status,
+                         "actor_user_id": event.actor_user_id,
+                         "note": event.note,
+                         "created_at": event.created_at.isoformat() if event.created_at else None}
+                        for event in events],
+        })
+    return {"items": rows, "total": total, "limit": limit, "offset": offset}
+
+
+@handler_router.get("/order-delivery/return-handoffs")
+def list_order_delivery_return_handoffs(
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    department = db.scalar(select(Department).where(Department.name == "Order & Delivery"))
+    if department is None:
+        raise HTTPException(status_code=500, detail="Order & Delivery department is not configured.")
+    query = db.query(ReturnHandoff).filter(
+        ReturnHandoff.destination_department_id == department.id,
+        ReturnHandoff.handoff_type.in_(("refund_pickup", "replacement_fulfillment")),
+    )
+    if status_filter and status_filter != "all":
+        query = query.filter(ReturnHandoff.status == status_filter)
+    total = query.count()
+    handoffs = query.options(
+        selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order),
+        selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
+    ).order_by(ReturnHandoff.updated_at.desc(), ReturnHandoff.id.desc()).offset(offset).limit(limit).all()
+    items = []
+    for handoff in handoffs:
+        claim = handoff.return_request
+        order = claim.order if claim else None
+        product_item = claim.order_item if claim else None
+        customer = db.get(User, order.user_id) if order else None
+        items.append({
+            "handoff_id": handoff.id,
+            "return_request_id": claim.id if claim else None,
+            "handoff_type": handoff.handoff_type,
+            "handoff_status": handoff.status,
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else None,
+            "customer_name": customer.name if customer else None,
+            "item": ({"order_item_id": product_item.id, "product_name": product_item.product_name,
+                      "variant_name": product_item.variant_name, "sku": product_item.sku,
+                      "quantity": claim.quantity} if product_item and claim else None),
+            "order_status": order.status if order else None,
+            "created_at": handoff.created_at.isoformat() if handoff.created_at else None,
+            "updated_at": handoff.updated_at.isoformat() if handoff.updated_at else None,
+        })
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@handler_router.post("/returns/{claim_id}/resolve")
+def resolve_return_claim_handler(
+    claim_id: int,
+    payload: ReturnResolutionInput,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_claim_access(db, claim_id, actor)
+    claim = _commit_claim_operation(db, lambda: resolve_return_claim(
+        db, claim_id, actor_id=actor.id, note=payload.note,
+    ))
+    return {"id": claim.id, "workflow_status": claim.workflow_status, "status": claim.status}
 
 
 @handler_router.get("/payments/refund-handoffs")
