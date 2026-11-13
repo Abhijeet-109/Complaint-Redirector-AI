@@ -18,6 +18,7 @@ from backend.Database.models import (
     Refund,
     Shipment,
 )
+from backend.Database.return_reason_codes import normalize_return_reason_code
 
 
 ACTIVE_LEGACY_STATUSES = (
@@ -261,6 +262,7 @@ def create_return_claim(
     refund_timing: str | None = None,
     reason_code: str,
     description: str | None = None,
+    submission_key: str | None = None,
 ) -> ReturnRequest:
     """
     Validate and create a customer return/replacement claim.
@@ -278,9 +280,13 @@ def create_return_claim(
     if refund_timing not in {None, "immediate", "after_collection"}:
         raise ValueError("Invalid refund timing.")
 
-    reason_code = reason_code.strip()
-    if not reason_code:
-        raise ValueError("A reason code is required.")
+    reason_code = normalize_return_reason_code(reason_code)
+    if submission_key is not None:
+        import uuid
+        try:
+            submission_key = str(uuid.UUID(submission_key))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError("A valid return submission key is required.") from exc
 
     description = description.strip() if description else None
 
@@ -302,6 +308,27 @@ def create_return_claim(
 
     if order is None:
         raise LookupError("Order not found.")
+
+    if submission_key is not None:
+        existing = session.scalar(
+            select(ReturnRequest)
+            .join(CommerceOrder, ReturnRequest.order_id == CommerceOrder.id)
+            .where(ReturnRequest.submission_key == submission_key,
+                   CommerceOrder.user_id == user_id)
+        )
+        if existing is not None:
+            same_payload = (
+                existing.order_id == order_id
+                and existing.order_item_id == order_item_id
+                and existing.quantity == quantity
+                and existing.resolution_type == resolution_type
+                and existing.refund_timing == (refund_timing if resolution_type == "refund" else None)
+                and existing.reason_code == reason_code
+                and existing.description == (description.strip() if description and description.strip() else None)
+            )
+            if not same_payload:
+                raise ValueError("This return submission key is already associated with another request.")
+            return existing
 
     # Evaluation runs again while the order and item are locked. Preview is
     # informational and cannot authorize a later claim submission.
@@ -333,6 +360,7 @@ def create_return_claim(
         reason_code=reason_code,
         description=description,
         workflow_status="submitted",
+        submission_key=submission_key,
     )
 
     session.add(claim)

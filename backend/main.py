@@ -34,7 +34,7 @@ from fastapi.openapi.utils import get_openapi
 from backend.api.routes.redirection_analytics import (
     router as redirection_analytics_router,
 )
-from backend.Database.connection import engine, DATABASE_URL
+from backend.Database.connection import engine, DATABASE_URL, SessionLocal
 from backend.Database.models import LoginThrottle
 from backend.api.routes.drive import router as drive_router
 from backend.api.routes.products import router as products_router
@@ -48,6 +48,30 @@ from sqlalchemy.engine import make_url
 
 logger = logging.getLogger("flatkart.startup")
 APP_ENV = app_environment()
+
+
+def _cleanup_expired_return_evidence():
+    from backend.Database.return_evidence_storage import cleanup_stale_evidence
+
+    try:
+        with SessionLocal() as session:
+            counts = cleanup_stale_evidence(session)
+        logger.info("Return evidence cleanup finished: manifests=%s files=%s errors=%s",
+                    counts["manifests"], counts["files"], counts["errors"])
+    except Exception as exc:
+        logger.warning("Return evidence cleanup could not finish (%s)", type(exc).__name__)
+
+
+def _recover_pending_chat_deletions(checkpointer):
+    from backend.api.routes.chatbot import recover_pending_conversation_deletions
+
+    try:
+        with SessionLocal() as session:
+            recovered = recover_pending_conversation_deletions(session, checkpointer)
+        if recovered:
+            logger.info("Recovered %s pending chatbot conversation deletion(s)", recovered)
+    except Exception as exc:
+        logger.warning("Pending conversation deletion recovery failed (%s)", type(exc).__name__)
 
 
 @asynccontextmanager
@@ -73,6 +97,8 @@ async def lifespan(_app):
             checkpointer.setup()
             _app.state.chat_checkpointer = checkpointer
             _app.state.agent_graph = build_graph(checkpointer=checkpointer)
+            _recover_pending_chat_deletions(checkpointer)
+            _cleanup_expired_return_evidence()
             yield
         finally:
             checkpoint_context.__exit__(None, None, None)
@@ -84,6 +110,8 @@ async def lifespan(_app):
         checkpointer = MemorySaver()
         _app.state.chat_checkpointer = checkpointer
         _app.state.agent_graph = build_graph(checkpointer=checkpointer)
+        _recover_pending_chat_deletions(checkpointer)
+        _cleanup_expired_return_evidence()
         yield
 
 

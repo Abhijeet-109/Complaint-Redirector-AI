@@ -1,9 +1,26 @@
 """Focused database-backed tests for Returns agent read-only tools."""
 
 import unittest
+import io
+import os
+import sys
+import types
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from PIL import Image
 from unittest.mock import patch
+
+os.environ["DATABASE_URL"] = "sqlite://"
+os.environ.setdefault("GROQ_API_KEY", "test-key")
+
+# Keep the agent package import independent of Hugging Face model downloads.
+_pipeline = types.ModuleType("backend.chatbot.answer_pipeline")
+_pipeline.answer_question = lambda question, chat_history=None: {"answer": "unused", "sources": []}
+_vector_store = types.ModuleType("backend.chatbot.vector_store")
+_vector_store.vectorstore = object()
+sys.modules.setdefault("backend.chatbot.answer_pipeline", _pipeline)
+sys.modules.setdefault("backend.chatbot.vector_store", _vector_store)
 
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
@@ -24,6 +41,7 @@ from backend.Database.models import (
     ReturnRequestEvent,
     Shipment,
     User,
+    ChatConversation,
 )
 from backend.agents.returns import tools as returns_tools
 from backend.agents.returns import agent as returns_agent
@@ -37,7 +55,7 @@ class ReturnsToolsTests(unittest.TestCase):
             poolclass=StaticPool,
         )
         table_names = (
-            "users", "departments", "products", "product_variants", "commerce_orders",
+            "users", "departments", "products", "product_variants", "commerce_orders", "chat_conversations",
             "commerce_order_items", "return_requests", "return_request_events",
             "return_evidence", "return_handoffs", "return_inspections", "refunds", "shipments",
         )
@@ -98,6 +116,9 @@ class ReturnsToolsTests(unittest.TestCase):
         )
         self.db.add_all([self.request, self.other_request, self.empty_order])
         self.db.flush()
+        self.thread_id = f"returns-test-{uuid.uuid4()}"
+        self.db.add(ChatConversation(thread_id=self.thread_id, user_id=self.customer.id, title="Return test"))
+        self.db.flush()
         self.db.add(Shipment(
             order_id=self.order.id, status="delivered",
             delivered_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2),
@@ -124,7 +145,9 @@ class ReturnsToolsTests(unittest.TestCase):
                 "list_my_return_requests",
                 "get_my_order_return_requests",
                 "get_my_return_request_details",
+                "get_my_return_by_order_and_request_id",
                 "check_my_return_eligibility",
+                "submit_my_return_request",
             },
         )
 
@@ -137,6 +160,61 @@ class ReturnsToolsTests(unittest.TestCase):
             {item.name for item in constructed["tools"]},
             {item.name for item in returns_tools.build_returns_tools(self.customer.id)},
         )
+
+    def _png(self):
+        output = io.BytesIO()
+        Image.new("RGB", (2, 2), "blue").save(output, format="PNG")
+        return output.getvalue()
+
+    def test_chat_submission_retry_reuses_request_and_evidence_rows(self):
+        from backend.Database.return_evidence_storage import delete_evidence, stage_evidence
+
+        key = str(uuid.uuid4())
+        root = os.path.join(os.getcwd(), "backend", "private_return_evidence")
+        with patch.dict(os.environ, {"RETURN_EVIDENCE_DIR": root}):
+            stage_evidence(self._png(), "proof.png", "image/png", self.customer.id,
+                           self.thread_id, self.order.id, self.item.id, key)
+            self.request.status = "rejected"
+            self.request.workflow_status = "rejected"
+            self.db.commit()
+            tool = {item.name: item for item in returns_tools.build_returns_tools(
+                self.customer.id, self.thread_id, self.order.id, self.item.id, key
+            )}["submit_my_return_request"]
+            payload = {
+                "order_id": self.order.id, "order_item_id": self.item.id, "quantity": 1,
+                "resolution_type": "refund", "refund_timing": "immediate",
+                "reason_code": "damaged", "description": "Photo evidence attached",
+            }
+            first = tool.invoke(payload)
+            retry = tool.invoke(payload)
+            self.assertTrue(first["success"], first)
+            self.assertTrue(retry["success"], retry)
+            self.assertEqual(first["return_request_id"], retry["return_request_id"])
+            self.assertEqual(self.db.query(ReturnRequest).filter_by(submission_key=key).count(), 1)
+            self.assertEqual(self.db.query(ReturnEvidence).filter_by(
+                return_request_id=first["return_request_id"]
+            ).count(), 1)
+            original_claim = self.db.get(ReturnRequest, first["return_request_id"])
+            original_claim.status = "rejected"
+            original_claim.workflow_status = "rejected"
+            self.db.commit()
+
+            next_key = str(uuid.uuid4())
+            stage_evidence(self._png(), "proof-2.png", "image/png", self.customer.id,
+                           self.thread_id, self.order.id, self.item.id, next_key)
+            next_tool = {item.name: item for item in returns_tools.build_returns_tools(
+                self.customer.id, self.thread_id, self.order.id, self.item.id, next_key
+            )}["submit_my_return_request"]
+            next_result = next_tool.invoke(payload)
+            self.assertTrue(next_result["success"], next_result)
+            self.assertNotEqual(next_result["return_request_id"], first["return_request_id"])
+            self.assertEqual(self.db.query(ReturnRequest).filter(
+                ReturnRequest.submission_key.in_([key, next_key])
+            ).count(), 2)
+
+            for claim_id in (first["return_request_id"], next_result["return_request_id"]):
+                evidence = self.db.query(ReturnEvidence).filter_by(return_request_id=claim_id).first()
+                delete_evidence(evidence.storage_key)
 
     def test_read_tools_close_their_database_sessions(self):
         closed = []

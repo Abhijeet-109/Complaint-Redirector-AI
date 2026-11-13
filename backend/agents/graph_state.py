@@ -22,6 +22,8 @@ class GraphState(TypedDict, total=False):
 
     order_item_id: int | None
 
+    return_submission_key: str | None
+
     route: str
 
     answer: dict[str, Any]

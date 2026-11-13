@@ -175,6 +175,7 @@ def returns_node(state: GraphState):
         thread_id=state.get("thread_id"),
         order_id=state.get("order_id"),
         order_item_id=state.get("order_item_id"),
+        submission_key=state.get("return_submission_key"),
     )
 
     return {

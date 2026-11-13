@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -353,6 +355,45 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         })
         self.assertEqual(good.status_code, 201, good.text)
         self.assertEqual(good.json()["return_request"]["refund_timing"], "after_collection")
+
+    def test_return_submission_key_returns_the_original_claim_on_retry(self):
+        key = str(uuid.uuid4())
+        first = self.create_customer_claim(submission_key=key)
+        self.db.commit()
+        retry = self.create_customer_claim(submission_key=key)
+        self.assertEqual(retry.id, first.id)
+        self.assertEqual(self.db.query(ReturnRequest).filter_by(submission_key=key).count(), 1)
+
+    def test_return_submission_key_cannot_be_reused_for_different_payload(self):
+        key = str(uuid.uuid4())
+        self.create_customer_claim(submission_key=key)
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, "already associated"):
+            self.create_customer_claim(submission_key=key, quantity=2)
+        self.assertEqual(self.db.query(ReturnRequest).filter_by(submission_key=key).count(), 1)
+
+    def test_return_submission_key_has_a_database_unique_constraint(self):
+        key = str(uuid.uuid4())
+        claim = self.create_customer_claim(submission_key=key)
+        self.db.commit()
+        self.db.add(ReturnRequest(
+            order_id=self.order.id, order_item_id=self.item.id, quantity=1,
+            reason="Duplicate", status="requested", resolution_type="refund",
+            refund_timing="immediate", reason_code="damaged", workflow_status="submitted",
+            submission_key=key,
+        ))
+        with self.assertRaises(IntegrityError):
+            self.db.flush()
+        self.db.rollback()
+        self.assertIsNotNone(self.db.get(ReturnRequest, claim.id))
+
+    def test_service_normalizes_supported_reason_and_rejects_unknown_reason(self):
+        self.close_seed_claim()
+        claim = self.create_customer_claim(reason_code="  DAMAGED ")
+        self.assertEqual(claim.reason_code, "damaged")
+        self.close_seed_claim()
+        with self.assertRaisesRegex(ValueError, "supported return reason"):
+            self.create_customer_claim(reason_code="customer_dissatisfaction")
 
     def test_refund_without_timing_is_not_defaulted_or_approvable(self):
         self.close_seed_claim()

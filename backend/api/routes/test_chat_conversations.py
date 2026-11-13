@@ -4,8 +4,11 @@ import os
 import sys
 import types
 import unittest
+import io
+import importlib
 from types import SimpleNamespace
 from unittest.mock import patch
+from PIL import Image
 
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("GROQ_API_KEY", "test-key")
@@ -13,6 +16,7 @@ os.environ.setdefault("GROQ_API_KEY", "test-key")
 # Keep API tests independent of ChromaDB, model downloads, and external services.
 _pipeline = types.ModuleType("backend.chatbot.answer_pipeline")
 _pipeline.answer_question = lambda question, chat_history=None: {"answer": "Test answer", "sources": []}
+_pipeline.detect_obvious_security_request = lambda question: None
 _vector_store = types.ModuleType("backend.chatbot.vector_store")
 _vector_store.vectorstore = object()
 sys.modules.setdefault("backend.chatbot.answer_pipeline", _pipeline)
@@ -27,6 +31,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend.Database.connection import Base
+from backend.Database.models import CommerceOrder, CommerceOrderItem, Product, ProductVariant
+from backend.Database.return_evidence_storage import list_staged_evidence
 from backend.auth.dependencies import get_current_user, get_db
 from backend.api.routes import chatbot as chatbot_module
 from backend.api.routes.chatbot import router
@@ -50,6 +56,7 @@ class _FakeGraph:
         answer = {"answer": "Test answer", "sources": []}
         state["answer"] = answer
         state["last_request_id"] = input_state.get("request_id")
+        state["return_submission_key"] = input_state.get("return_submission_key")
         return {"answer": answer}
 
 
@@ -67,7 +74,10 @@ class ChatConversationApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-        Base.metadata.create_all(cls.engine)
+        Base.metadata.create_all(
+            cls.engine,
+            tables=[table for table in Base.metadata.sorted_tables if table.name != "knowledge_chunks"],
+        )
         cls.Session = sessionmaker(bind=cls.engine, autoflush=False, autocommit=False)
 
     @classmethod
@@ -118,6 +128,56 @@ class ChatConversationApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/chatbot/conversations").json()["conversations"][0]["thread_id"], thread_id)
         self.assertEqual(self.client.delete(f"/chatbot/conversations/{thread_id}").status_code, 204)
         self.assertEqual(self.checkpointer.deleted, [thread_id])
+
+    def test_chat_evidence_limit_counts_only_successful_uploads_and_delete_cleans_staging(self):
+        thread_id = self.created["thread_id"]
+        with self.Session() as db:
+            order = CommerceOrder(order_number=f"CHAT-{thread_id[:8]}", user_id=701, status="delivered")
+            product = Product(name="Photo test item", slug=f"photo-{thread_id[:8]}",
+                              is_returnable=True, return_window_days=30, is_refundable=True)
+            db.add_all([order, product])
+            db.flush()
+            variant = ProductVariant(product_id=product.id, sku=f"PHOTO-{thread_id[:8]}",
+                                     name="Default", price=10, mrp=10)
+            db.add(variant)
+            db.flush()
+            item = CommerceOrderItem(order_id=order.id, variant_id=variant.id,
+                                     product_name=product.name, variant_name="Default",
+                                     sku=variant.sku, quantity=1, unit_price=10)
+            db.add(item)
+            db.commit()
+            order_id = order.id
+            order_item_id = item.id
+
+        ask = self.client.post("/chatbot/ask", json={
+            "thread_id": thread_id, "question": "I want to return this item",
+            "order_id": order_id, "order_item_id": order_item_id,
+        })
+        self.assertEqual(ask.status_code, 200, ask.text)
+        params = {"thread_id": thread_id, "order_id": order_id, "order_item_id": order_item_id,
+                  "return_submission_key": ask.json()["return_submission_key"]}
+        image_data = io.BytesIO()
+        Image.new("RGB", (2, 2), "red").save(image_data, format="PNG")
+        png = image_data.getvalue()
+        storage = os.path.join(os.getcwd(), "backend", "private_return_evidence")
+        with patch.dict(os.environ, {"RETURN_EVIDENCE_DIR": storage}):
+            failed = self.client.post("/chatbot/returns/evidence", params=params,
+                                      files=[("files", ("bad.png", b"not image", "image/png"))])
+            self.assertEqual(failed.status_code, 202, failed.text)
+            self.assertEqual(failed.json()["files"][0]["status"], "failed")
+            accepted = self.client.post("/chatbot/returns/evidence", params=params,
+                                        files=[("files", (f"proof-{i}.png", png, "image/png")) for i in range(5)])
+            self.assertEqual(accepted.status_code, 202, accepted.text)
+            self.assertEqual(len(list_staged_evidence(701, thread_id)), 5)
+            sixth = self.client.post("/chatbot/returns/evidence", params=params,
+                                     files=[("files", ("sixth.png", png, "image/png"))])
+            self.assertEqual(sixth.status_code, 400)
+            with patch.object(chatbot_module, "clear_staged_evidence", side_effect=OSError("temporary storage failure")):
+                failed_delete = self.client.delete(f"/chatbot/conversations/{thread_id}")
+            self.assertEqual(failed_delete.status_code, 503)
+            self.assertEqual(len(list_staged_evidence(701, thread_id)), 5)
+            self.assertEqual(self.client.delete(f"/chatbot/conversations/{thread_id}").status_code, 204)
+            self.assertEqual(list_staged_evidence(701, thread_id), [])
         self.assertEqual(self.client.get(f"/chatbot/conversations/{thread_id}").status_code, 404)
 
     def test_legacy_session_id_creates_owned_conversation_and_other_owner_is_hidden(self):
@@ -146,7 +206,7 @@ class ChatConversationApiTests(unittest.TestCase):
         self.assertEqual([message["role"] for message in messages], ["user", "assistant"])
 
     def test_graph_checkpointer_resumes_messages_without_duplicate_turns(self):
-        from backend.agents import agent_graph as graph_module
+        graph_module = importlib.import_module("backend.agents.agent_graph")
 
         graph = graph_module.build_graph(checkpointer=MemorySaver())
         config = {"configurable": {"thread_id": "isolated-thread"}}
@@ -173,7 +233,7 @@ class ChatConversationApiTests(unittest.TestCase):
         self.assertEqual([message.content for message in other_messages if message.type == "human"], ["Other thread question"])
 
     def test_failed_agent_retry_does_not_checkpoint_a_duplicate_user_turn(self):
-        from backend.agents import agent_graph as graph_module
+        graph_module = importlib.import_module("backend.agents.agent_graph")
 
         graph = graph_module.build_graph(checkpointer=MemorySaver())
         config = {"configurable": {"thread_id": "retry-thread"}}

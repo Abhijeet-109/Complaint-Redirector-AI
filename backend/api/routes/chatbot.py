@@ -16,7 +16,9 @@ from backend.chatbot.answer_pipeline import (
     detect_obvious_security_request,
 )
 from backend.Database.connection import SessionLocal
-from backend.Database.models import ChatbotTelemetry, ChatConversation, CommerceOrder, CommerceOrderItem
+from backend.Database.models import (
+    ChatbotTelemetry, ChatConversation, CommerceOrder, CommerceOrderItem, ReturnEvidence,
+)
 from backend.Database.return_evidence_storage import (
     MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES, clear_staged_evidence,
     list_staged_evidence, stage_evidence,
@@ -39,6 +41,7 @@ class ChatRequest(BaseModel):
     request_id: str | None = Field(None, min_length=1, max_length=255)
     order_id: int | None = Field(None, gt=0)
     order_item_id: int | None = Field(None, gt=0)
+    new_return_intake: bool = False
 
 
 class ConversationCreateRequest(BaseModel):
@@ -92,7 +95,7 @@ def _get_owned_conversation(db, thread_id, user_id, *, lock=False):
     if lock:
         query = query.with_for_update()
     conversation = query.first()
-    if conversation is None:
+    if conversation is None or (conversation.delete_pending and not lock):
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return conversation
 
@@ -141,6 +144,7 @@ def list_conversations(
 ):
     conversations = db.query(ChatConversation).filter(
         ChatConversation.user_id == current_user.id,
+        ChatConversation.delete_pending.is_(False),
     ).order_by(ChatConversation.updated_at.desc(), ChatConversation.thread_id.desc()).all()
     return {"conversations": [_conversation_payload(item) for item in conversations]}
 
@@ -175,16 +179,46 @@ def delete_conversation(
 ):
     conversation = _get_owned_conversation(db, thread_id, current_user.id, lock=True)
     checkpointer = getattr(request.app.state, "chat_checkpointer", None)
-    if checkpointer is not None:
-        checkpointer.delete_thread(thread_id)
+    conversation.delete_pending = True
+    db.commit()
     try:
-        clear_staged_evidence(list_staged_evidence(current_user.id, thread_id))
+        _finish_conversation_deletion(db, conversation, checkpointer)
     except Exception as exc:
-        logger.warning("Could not remove staged return evidence during conversation deletion (%s)",
-                       type(exc).__name__)
+        db.rollback()
+        logger.warning("Conversation deletion is pending recovery (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Conversation deletion could not finish and will be retried.") from exc
+    return None
+
+
+def _finish_conversation_deletion(db, conversation, checkpointer):
+    if checkpointer is not None:
+        checkpointer.delete_thread(conversation.thread_id)
+    staged = list_staged_evidence(conversation.user_id, conversation.thread_id)
+    committed_keys = db.query(ReturnEvidence.storage_key).filter(
+        ReturnEvidence.storage_key.in_([item.get("storage_key") for item in staged])
+    ).all() if staged else []
+    clear_staged_evidence(staged, (row[0] for row in committed_keys))
     db.delete(conversation)
     db.commit()
-    return None
+
+
+def recover_pending_conversation_deletions(db, checkpointer=None) -> int:
+    """Finish durable deletion tombstones after interruptions or storage failures."""
+    recovered = 0
+    while True:
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.delete_pending.is_(True),
+        ).with_for_update(skip_locked=True).first()
+        if conversation is None:
+            break
+        try:
+            _finish_conversation_deletion(db, conversation, checkpointer)
+            recovered += 1
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Pending conversation deletion recovery failed (%s)", type(exc).__name__)
+            break
+    return recovered
 
 
 def _safe_question_preview(question: str) -> str:
@@ -239,9 +273,11 @@ def chatbot_health():
 
 @router.post("/returns/evidence", status_code=202)
 def upload_chat_return_evidence(
+    http_request: Request,
     thread_id: str,
     order_id: int,
     order_item_id: int,
+    return_submission_key: str,
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user=Depends(require_role("user")),
@@ -250,9 +286,11 @@ def upload_chat_return_evidence(
     conversation = db.query(ChatConversation).filter(
         ChatConversation.thread_id == thread_id,
         ChatConversation.user_id == current_user.id,
-    ).first()
+    ).with_for_update().first()
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    if conversation.delete_pending:
+        raise HTTPException(status_code=409, detail="Conversation is being deleted.")
     order = db.query(CommerceOrder).filter(
         CommerceOrder.id == order_id, CommerceOrder.user_id == current_user.id,
     ).first()
@@ -263,6 +301,15 @@ def upload_chat_return_evidence(
     ).first()
     if item is None:
         raise HTTPException(status_code=404, detail="Order item not found.")
+    try:
+        return_submission_key = str(uuid.UUID(return_submission_key))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="A valid return intake key is required.") from exc
+    graph = getattr(http_request.app.state, "agent_graph", agent_graph)
+    state = _thread_state(graph, thread_id)
+    state_key = ((state.values or {}).get("return_submission_key") if state else None)
+    if state_key != return_submission_key:
+        raise HTTPException(status_code=409, detail="Return intake is no longer active. Start or continue the current intake.")
     try:
         staged = list_staged_evidence(current_user.id, thread_id)
     except Exception as exc:
@@ -275,7 +322,8 @@ def upload_chat_return_evidence(
         try:
             data = upload.file.read(MAX_EVIDENCE_BYTES + 1)
             metadata = stage_evidence(data, upload.filename or "", upload.content_type or "",
-                                      current_user.id, thread_id, order_id, order_item_id)
+                                      current_user.id, thread_id, order_id, order_item_id,
+                                      return_submission_key)
             results.append({"status": "pending_submission", **metadata})
         except ValueError as exc:
             results.append({"status": "failed", "filename": upload.filename or "",
@@ -284,6 +332,7 @@ def upload_chat_return_evidence(
             logger.error("Chat evidence upload failed (%s)", type(exc).__name__)
             results.append({"status": "failed", "filename": upload.filename or "",
                             "message": "This image could not be uploaded. Please retry."})
+    db.commit()
     return {"status": "pending_submission" if any(item["status"] == "pending_submission" for item in results)
             else "failed", "thread_id": thread_id,
             "order_id": order_id, "order_item_id": order_item_id, "files": results}
@@ -301,6 +350,8 @@ def ask_chatbot(
         raise HTTPException(status_code=422, detail="Question cannot be empty.")
     if (request.order_id is None) != (request.order_item_id is None):
         raise HTTPException(status_code=422, detail="Provide both order_id and order_item_id.")
+    if request.new_return_intake and request.order_id is None:
+        raise HTTPException(status_code=422, detail="A new return intake requires order and item context.")
     if request.order_id is not None:
         owned_order = db.query(CommerceOrder.id).filter(
             CommerceOrder.id == request.order_id,
@@ -324,6 +375,8 @@ def ask_chatbot(
                 ChatConversation.thread_id == requested_thread_id,
             ).with_for_update().first()
             if conversation is not None and conversation.user_id != _current_user.id:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            if conversation is not None and conversation.delete_pending:
                 raise HTTPException(status_code=404, detail="Conversation not found.")
             if conversation is None and request.thread_id:
                 raise HTTPException(status_code=404, detail="Conversation not found.")
@@ -367,6 +420,12 @@ def ask_chatbot(
         completed_request_values = _completed_request_values(
             graph, config, request.request_id, previous_values
         )
+        if completed_request_values is not None:
+            return_submission_key = completed_request_values.get("return_submission_key")
+        elif request.new_return_intake:
+            return_submission_key = str(uuid.uuid4())
+        else:
+            return_submission_key = previous_values.get("return_submission_key") or str(uuid.uuid4())
         
         prefilter_blocked = False
 
@@ -423,6 +482,7 @@ def ask_chatbot(
                     "user_id": _current_user.id,
                     "request_id": request.request_id,
                     "thread_id": conversation.thread_id,
+                    "return_submission_key": return_submission_key,
                 }
                 if request.order_id is not None:
                     graph_input["order_id"] = request.order_id
@@ -443,6 +503,7 @@ def ask_chatbot(
             "thread_id": conversation.thread_id,
             "title": conversation.title,
             "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+            "return_submission_key": return_submission_key,
         }
         result = {**_validated_response(result), **meta}
         

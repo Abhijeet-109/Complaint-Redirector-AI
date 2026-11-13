@@ -1,16 +1,19 @@
 """Returns agent tools."""
 
 import logging
+import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from langchain.tools import tool
 
 from backend.Database.connection import SessionLocal
 from backend.Database.models import (CommerceOrder, CommerceOrderItem, Refund, ReturnEvidence,
-                                     ReturnHandoff, ReturnRequest, ReturnRequestEvent)
+                                     ChatConversation, ReturnHandoff, ReturnRequest, ReturnRequestEvent)
 from backend.Database.return_services import claim_details, create_return_claim, evaluate_return_eligibility
+from backend.Database.return_reason_codes import normalize_return_reason_code
 from backend.Database.return_evidence_storage import (
     MAX_EVIDENCE_FILES, finalize_staged_evidence, list_staged_evidence,
 )
@@ -40,6 +43,35 @@ def _non_empty_string(value, field_name):
 
 def _stamp(value):
     return value.isoformat() if value else None
+
+
+def _existing_submission(session, *, user_id, submission_key, order_id, order_item_id,
+                         quantity, resolution_type, refund_timing, reason_code, description):
+    claim = session.scalar(
+        select(ReturnRequest)
+        .join(CommerceOrder, ReturnRequest.order_id == CommerceOrder.id)
+        .where(ReturnRequest.submission_key == submission_key,
+               CommerceOrder.user_id == user_id)
+    )
+    if claim is None:
+        return None
+    same_payload = (
+        claim.order_id == order_id and claim.order_item_id == order_item_id
+        and claim.quantity == quantity and claim.resolution_type == resolution_type
+        and claim.refund_timing == (refund_timing if resolution_type == "refund" else None)
+        and claim.reason_code == reason_code
+        and claim.description == (description.strip() if description and description.strip() else None)
+    )
+    if not same_payload:
+        return {"success": False, "message": "This return submission key is already associated with another request."}
+    evidence = session.scalars(
+        select(ReturnEvidence).where(ReturnEvidence.return_request_id == claim.id,
+                                     ReturnEvidence.is_active.is_(True))
+        .order_by(ReturnEvidence.uploaded_at, ReturnEvidence.id)
+    ).all()
+    return {"success": True, "return_request_id": claim.id, "order_id": claim.order_id,
+            "evidence_filenames": [row.original_filename for row in evidence],
+            "evidence_storage_keys": [row.storage_key for row in evidence]}
 
 
 # Keys safe to disclose to customers from ReturnRequestEvent.event_data JSON.
@@ -118,7 +150,8 @@ def _serialize_return_request(request):
 
 def build_returns_tools(user_id: int, thread_id: str | None = None,
                         context_order_id: int | None = None,
-                        context_order_item_id: int | None = None):
+                        context_order_item_id: int | None = None,
+                        submission_key: str | None = None):
     if not _valid_user_id(user_id):
         raise ValueError("A valid authenticated user ID is required.")
 
@@ -449,6 +482,10 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
                 return {"success": False, "message": error}
         if not thread_id:
             return {"success": False, "message": "Start this request in a saved conversation before submitting."}
+        try:
+            stable_submission_key = str(uuid.UUID(submission_key))
+        except (AttributeError, TypeError, ValueError):
+            return {"success": False, "message": "A valid intake submission identity is unavailable. Start a new return intake."}
         if context_order_id and context_order_id != order_id:
             return {"success": False, "message": "The submitted order does not match the selected order."}
         if context_order_item_id and context_order_item_id != order_item_id:
@@ -459,19 +496,41 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
             return {"success": False, "message": "Choose immediate refund or refund after collection."}
         if resolution_type == "replacement" and refund_timing not in {None, ""}:
             return {"success": False, "message": "Replacement requests do not use refund timing."}
-        if not isinstance(reason_code, str) or not reason_code.strip() or len(reason_code.strip()) > 40:
-            return {"success": False, "message": "Provide a valid supported reason code."}
+        try:
+            reason_code = normalize_return_reason_code(reason_code)
+        except ValueError as exc:
+            return {"success": False, "message": str(exc)}
         if description is not None and (not isinstance(description, str) or len(description) > 2000):
             return {"success": False, "message": "Description cannot exceed 2000 characters."}
-        staged = list_staged_evidence(user_id, thread_id)
-        matching = [item for item in staged if item.get("order_id") == order_id
-                    and item.get("order_item_id") == order_item_id]
-        if not matching:
-            return {"success": False, "message": "Upload at least one evidence image before submitting."}
-        if len(matching) > MAX_EVIDENCE_FILES:
-            return {"success": False, "message": "No more than five evidence images may be attached."}
+        matching = []
         try:
             with SessionLocal() as session:
+                conversation = session.scalar(select(ChatConversation).where(
+                    ChatConversation.thread_id == thread_id,
+                    ChatConversation.user_id == user_id,
+                ).with_for_update())
+                if conversation is None or conversation.delete_pending:
+                    return {"success": False, "message": "Conversation not found."}
+                existing = _existing_submission(
+                    session, user_id=user_id, submission_key=stable_submission_key,
+                    order_id=order_id, order_item_id=order_item_id, quantity=quantity,
+                    resolution_type=resolution_type, refund_timing=refund_timing or None,
+                    reason_code=reason_code, description=description,
+                )
+                if existing is not None:
+                    staged = list_staged_evidence(user_id, thread_id)
+                    committed_keys = set(existing.pop("evidence_storage_keys", []))
+                    finalize_staged_evidence([item for item in staged
+                                              if item.get("storage_key") in committed_keys])
+                    return existing
+                staged = list_staged_evidence(user_id, thread_id)
+                matching = [item for item in staged if item.get("order_id") == order_id
+                            and item.get("order_item_id") == order_item_id
+                            and item.get("submission_key") == stable_submission_key]
+                if not matching:
+                    return {"success": False, "message": "Upload at least one evidence image before submitting."}
+                if len(matching) > MAX_EVIDENCE_FILES:
+                    return {"success": False, "message": "No more than five evidence images may be attached."}
                 order = session.scalar(select(CommerceOrder).where(
                     CommerceOrder.id == order_id, CommerceOrder.user_id == user_id))
                 if order is None or session.scalar(select(CommerceOrderItem.id).where(
@@ -480,8 +539,8 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
                 claim = create_return_claim(
                     session, user_id=user_id, order_id=order_id, order_item_id=order_item_id,
                     quantity=quantity, resolution_type=resolution_type,
-                    refund_timing=refund_timing or None, reason_code=reason_code.strip(),
-                    description=description,
+                    refund_timing=refund_timing or None, reason_code=reason_code,
+                    description=description, submission_key=stable_submission_key,
                 )
                 for item in matching:
                     evidence = ReturnEvidence(
@@ -504,12 +563,25 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
                 request_id = claim.id
             try:
                 finalize_staged_evidence(matching)
-            except OSError:
+            except Exception:
                 logger.warning("Committed return request but intake manifest cleanup failed.")
             return {"success": True, "return_request_id": request_id,
                     "order_id": order_id, "evidence_filenames": [item["filename"] for item in matching]}
-        except (LookupError, ValueError, RuntimeError) as exc:
-            logger.info("Return submission was rejected: %s", type(exc).__name__)
+        except (IntegrityError, LookupError, ValueError, RuntimeError) as exc:
+            logger.info("Return submission required idempotency recovery (%s)", type(exc).__name__)
+            try:
+                with SessionLocal() as session:
+                    existing = _existing_submission(
+                        session, user_id=user_id, submission_key=stable_submission_key,
+                        order_id=order_id, order_item_id=order_item_id, quantity=quantity,
+                        resolution_type=resolution_type, refund_timing=refund_timing or None,
+                        reason_code=reason_code, description=description,
+                    )
+                if existing is not None:
+                    existing.pop("evidence_storage_keys", None)
+                    return existing
+            except Exception:
+                logger.exception("Return submission idempotency recovery failed.")
             return {"success": False, "message": str(exc)}
         except Exception:
             logger.exception("Chat return submission failed.")

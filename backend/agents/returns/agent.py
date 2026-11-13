@@ -11,8 +11,9 @@ from backend.agents.returns.prompts import RETURNS_SYSTEM_PROMPT
 from backend.agents.response_builder import build_agent_response
 
 
-def build_returns_agent(user_id: int, thread_id=None, order_id=None, order_item_id=None):
-    tools = build_returns_tools(user_id, thread_id, order_id, order_item_id)
+def build_returns_agent(user_id: int, thread_id=None, order_id=None, order_item_id=None,
+                        submission_key=None):
+    tools = build_returns_tools(user_id, thread_id, order_id, order_item_id, submission_key)
     return create_agent(
         model=get_model("returns"),
         tools=tools,
@@ -27,9 +28,10 @@ def run_returns_agent(
     thread_id=None,
     order_id=None,
     order_item_id=None,
+    submission_key=None,
 ) -> dict:
 
-    returns_agent = build_returns_agent(user_id, thread_id, order_id, order_item_id)
+    returns_agent = build_returns_agent(user_id, thread_id, order_id, order_item_id, submission_key)
 
     messages = list(chat_history or [])
     messages.append({

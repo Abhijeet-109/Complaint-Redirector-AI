@@ -224,6 +224,7 @@ class ChatConversation(Base):
     thread_id = Column(String(255), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String(120), nullable=False, default="New chat")
+    delete_pending = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
 
@@ -613,6 +614,7 @@ class ReturnRequest(Base):
             ["commerce_order_items.id", "commerce_order_items.order_id"],
             name="fk_return_requests_item_belongs_to_order",
         ),
+        UniqueConstraint("submission_key", name="uq_return_requests_submission_key"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -639,6 +641,7 @@ class ReturnRequest(Base):
     reason_code = Column(String(40), nullable=True)
     description = Column(Text, nullable=True)
     refund_timing = Column(String(24), nullable=True)
+    submission_key = Column(String(36), nullable=True)
 
     # Separate workflow status; nullable for legacy records.
     workflow_status = Column(String(40), nullable=True, index=True)

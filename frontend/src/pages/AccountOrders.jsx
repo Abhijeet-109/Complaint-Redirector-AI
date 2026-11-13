@@ -90,12 +90,12 @@ const humanize = (value) =>
 const itemId = (item) => item?.id ?? item?.order_item_id;
 
 const RETURN_REASON_OPTIONS = [
-  'Item is defective / not working properly',
-  'Damaged during delivery / transit',
-  'Wrong item or variant delivered',
-  'Missing accessories or parts in package',
-  'Quality not as expected / description mismatch',
-  'Changed mind / No longer needed',
+  { value: 'defective', label: 'Item is defective / not working properly' },
+  { value: 'damaged', label: 'Damaged during delivery / transit' },
+  { value: 'wrong_item', label: 'Wrong item or variant delivered' },
+  { value: 'missing_parts', label: 'Missing accessories or parts in package' },
+  { value: 'not_as_described', label: 'Quality not as expected / description mismatch' },
+  { value: 'changed_mind', label: 'Changed mind / No longer needed' },
 ];
 
 export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger }) {
@@ -195,7 +195,7 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
         [targetItemId]: {
           resolution: defaultResolution,
           quantity: initialQty,
-          reason: RETURN_REASON_OPTIONS[0],
+          reason: RETURN_REASON_OPTIONS[0].value,
           description: '',
           submitting: false,
           error: '',
@@ -298,7 +298,7 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
         order_item_id: currentItemId,
         quantity: qty,
         resolution_type: itemForm.resolution,
-        reason_code: itemForm.reason.slice(0, 40),
+        reason_code: itemForm.reason,
         description: itemForm.description?.trim() ? itemForm.description.trim().slice(0, 500) : undefined,
       };
 
@@ -405,7 +405,7 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
             const itemForm = formState[currentItemId] || {
               resolution: 'refund',
               quantity: 1,
-              reason: RETURN_REASON_OPTIONS[0],
+              reason: RETURN_REASON_OPTIONS[0].value,
               description: '',
               submitting: false,
               error: '',
@@ -900,8 +900,8 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                                   required
                                 >
                                   {RETURN_REASON_OPTIONS.map((opt) => (
-                                    <option key={opt} value={opt}>
-                                      {opt}
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
                                     </option>
                                   ))}
                                 </select>
