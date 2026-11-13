@@ -183,8 +183,11 @@ def support_node(state: GraphState):
 
     logger.info("[SUPPORT_AGENT] Activated.")
 
+    user_id = state["user_id"]
+
     result = run_support_agent(
         question=_question(state),
+        user_id=user_id,
         chat_history=_chat_history(state),
     )
 

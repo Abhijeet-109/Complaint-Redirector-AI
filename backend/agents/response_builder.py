@@ -22,6 +22,7 @@ TOOL_TYPES = {
     "get_my_cart": ("cart_summary", "cart"),
     "add_item_to_my_cart": ("cart_update", "cart"),
     "remove_item_from_my_cart": ("cart_update", "cart"),
+    "update_my_cart_item_quantity": ("cart_update", "cart"),
     "list_my_orders": ("order_list", "orders"),
     "get_order_details": ("order_details", "order"),
     "get_order_status": ("order_status", None),

@@ -283,7 +283,13 @@ def get_cart(session: Session, user_id: int) -> Cart | None:
     )
 
 
-def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[CommerceOrder]:
+def list_orders(
+    session: Session,
+    user_id: int,
+    *,
+    limit: int = 50,
+    status: str | None = None,
+) -> list[CommerceOrder]:
     if not 1 <= limit <= 100:
         raise ValueError("limit must be between 1 and 100")
     query = (
@@ -296,9 +302,10 @@ def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[Comm
             selectinload(CommerceOrder.shipment).selectinload(Shipment.events),
         )
         .where(CommerceOrder.user_id == user_id)
-        .order_by(CommerceOrder.created_at.desc())
-        .limit(limit)
     )
+    if status is not None:
+        query = query.where(CommerceOrder.status == status)
+    query = query.order_by(CommerceOrder.created_at.desc()).limit(limit)
     return list(session.scalars(query))
 
 
