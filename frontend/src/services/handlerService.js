@@ -1,6 +1,48 @@
 import { apiRequest } from './api';
 
 export const handlerService = {
+  getOrderDeliveryOrders(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/orders${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  updateOrderDeliveryOrderStatus(orderId, status, note) {
+    return apiRequest(`/api/v1/departments/order-delivery/orders/${orderId}/status`, {
+      method: 'PATCH', body: JSON.stringify({ status, note: note || null }),
+    });
+  },
+  getOrderDeliveryShipments(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/shipments${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  updateOrderDeliveryShipmentStatus(orderId, status, note) {
+    return apiRequest(`/api/v1/departments/order-delivery/shipments/${orderId}/status`, {
+      method: 'PATCH', body: JSON.stringify({ status, note: note || null }),
+    });
+  },
+  getOrderDeliveryReturnHandoffs(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/return-handoffs${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryReturnHandoffDetails(handoffId) {
+    return apiRequest(`/api/v1/departments/order-delivery/return-handoffs/${handoffId}`, { method: 'GET' });
+  },
+  recordOrderDeliveryMilestone(handoffId, milestone, note) {
+    return apiRequest(`/api/v1/departments/order-delivery/return-handoffs/${handoffId}/milestones`, {
+      method: 'PATCH', body: JSON.stringify({ milestone, note }),
+    });
+  },
   /**
    * Get complaints assigned to the current handler's department.
    * GET /api/v1/handler/complaints

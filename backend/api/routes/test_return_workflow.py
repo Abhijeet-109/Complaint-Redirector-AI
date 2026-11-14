@@ -110,6 +110,21 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         Image.new("RGB", (2, 2), "red").save(stream, format="PNG")
         return stream.getvalue()
 
+    def progress_delivery_handoff(self, handoff, milestones):
+        self.actor = self.delivery_handler
+        for state in ("accepted", "in_progress"):
+            response = self.client.patch(
+                f"/api/v1/departments/return-handoffs/{handoff.id}/status",
+                json={"status": state, "note": f"Handoff {state}"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+        for milestone in milestones:
+            response = self.client.patch(
+                f"/api/v1/departments/order-delivery/return-handoffs/{handoff.id}/milestones",
+                json={"milestone": milestone, "note": f"Confirmed {milestone}"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
     def create_customer_claim(self, **overrides):
         # Isolate service validation from the manually-created claim used by
         # the API tests above.
@@ -155,11 +170,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
                 ReturnHandoff.return_request_id == self.claim.id,
                 ReturnHandoff.handoff_type == "refund_pickup",
             ))
-            self.actor = self.delivery_handler
-            for state in ("accepted", "in_progress", "completed"):
-                response = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
-                                             json={"status": state, "note": f"Pickup {state}"})
-                self.assertEqual(response.status_code, 200, response.text)
+            self.progress_delivery_handoff(pickup, ("pickup_scheduled", "item_collected"))
         payment_handoff = self.db.scalar(select(ReturnHandoff).where(
             ReturnHandoff.return_request_id == self.claim.id,
             ReturnHandoff.handoff_type == "refund_processing",
@@ -649,9 +660,12 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             self.assertEqual(self.db.query(ReturnHandoff).filter_by(
                 return_request_id=self.claim.id, handoff_type="refund_processing",
             ).count(), 0)
-        completed = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
-                                      json={"status": "completed", "note": "Collection confirmed"})
-        self.assertEqual(completed.status_code, 200, completed.text)
+        for milestone in ("pickup_scheduled", "item_collected"):
+            completed = self.client.patch(
+                f"/api/v1/departments/order-delivery/return-handoffs/{pickup.id}/milestones",
+                json={"milestone": milestone, "note": "Collection confirmed"},
+            )
+            self.assertEqual(completed.status_code, 200, completed.text)
         processing = self.db.scalars(select(ReturnHandoff).where(
             ReturnHandoff.return_request_id == self.claim.id,
             ReturnHandoff.handoff_type == "refund_processing",
@@ -1006,8 +1020,15 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.actor = self.delivery_handler
         self.assertEqual(self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
                                            json={"status": "in_progress", "note": "At warehouse"}).status_code, 200)
-        failed = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
-                                   json={"status": "completed", "note": "Collected"})
+        scheduled = self.client.patch(
+            f"/api/v1/departments/order-delivery/return-handoffs/{pickup.id}/milestones",
+            json={"milestone": "pickup_scheduled", "note": "Pickup scheduled"},
+        )
+        self.assertEqual(scheduled.status_code, 200, scheduled.text)
+        failed = self.client.patch(
+            f"/api/v1/departments/order-delivery/return-handoffs/{pickup.id}/milestones",
+            json={"milestone": "item_collected", "note": "Collected"},
+        )
         self.assertEqual(failed.status_code, 404)
         self.db.refresh(pickup)
         self.assertEqual(pickup.status, "in_progress")
@@ -1058,10 +1079,37 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             ReturnHandoff.handoff_type == "replacement_fulfillment",
         ))
         self.actor = self.delivery_handler
-        for state in ("accepted", "in_progress", "completed"):
+        for state in ("accepted", "in_progress"):
             response = self.client.patch(f"/api/v1/departments/return-handoffs/{handoff.id}/status",
                                          json={"status": state, "note": f"Replacement {state}"})
             self.assertEqual(response.status_code, 200, response.text)
+        skipped = self.client.patch(
+            f"/api/v1/departments/order-delivery/return-handoffs/{handoff.id}/milestones",
+            json={"milestone": "replacement_ready_to_ship", "note": "Attempt to skip preparation"},
+        )
+        self.assertEqual(skipped.status_code, 409)
+        premature = self.client.patch(
+            f"/api/v1/departments/return-handoffs/{handoff.id}/status",
+            json={"status": "completed", "note": "Attempt to complete early"},
+        )
+        self.assertEqual(premature.status_code, 409)
+        self.db.refresh(handoff)
+        self.assertEqual(handoff.status, "in_progress")
+        for milestone in ("pickup_scheduled", "item_collected", "replacement_prepared",
+                          "replacement_ready_to_ship", "replacement_out_for_delivery"):
+            response = self.client.patch(
+                f"/api/v1/departments/order-delivery/return-handoffs/{handoff.id}/milestones",
+                json={"milestone": milestone, "note": f"Confirmed {milestone}"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(handoff.status, "in_progress")
+        delivered = self.client.patch(
+            f"/api/v1/departments/order-delivery/return-handoffs/{handoff.id}/milestones",
+            json={"milestone": "replacement_delivered", "note": "Customer received replacement"},
+        )
+        self.assertEqual(delivered.status_code, 200, delivered.text)
+        self.db.refresh(handoff)
+        self.assertEqual(handoff.status, "completed")
         self.actor = self.handler
         resolved = self.client.post(f"/api/v1/departments/returns/{replacement.id}/resolve",
                                     json={"note": "Replacement delivery completed"})
@@ -1090,9 +1138,15 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.actor = self.delivery_handler
         self.assertEqual(self.client.post(f"/api/v1/departments/returns/{self.claim.id}/resolve",
                                           json={"note": "Wrong department"}).status_code, 403)
-        for state in ("accepted", "in_progress", "completed"):
+        for state in ("accepted", "in_progress"):
             response = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
                                          json={"status": state, "note": f"Pickup {state}"})
+            self.assertEqual(response.status_code, 200, response.text)
+        for milestone in ("pickup_scheduled", "item_collected"):
+            response = self.client.patch(
+                f"/api/v1/departments/order-delivery/return-handoffs/{pickup.id}/milestones",
+                json={"milestone": milestone, "note": f"Pickup milestone {milestone}"},
+            )
             self.assertEqual(response.status_code, 200, response.text)
         self.actor = self.handler
         resolved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/resolve",

@@ -112,6 +112,53 @@ class MigrationTests(unittest.TestCase):
                 ("FK-LEGACY-1", "placed"),
             )
 
+    def test_order_and_shipment_event_migration_preserves_legacy_rows_and_guards_downgrade(self):
+        migration_path = Path(__file__).parent / "migrations" / "versions" / "f2b8c6d4a109_separate_order_and_shipment_events.py"
+        spec = importlib.util.spec_from_file_location("order_shipment_event_migration", migration_path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with self.engine.begin() as connection:
+            connection.exec_driver_sql("CREATE TABLE users (id INTEGER PRIMARY KEY)")
+            connection.exec_driver_sql("CREATE TABLE commerce_orders (id INTEGER PRIMARY KEY)")
+            connection.exec_driver_sql("CREATE TABLE shipments (id INTEGER PRIMARY KEY)")
+            connection.exec_driver_sql(
+                "CREATE TABLE shipment_events ("
+                "id INTEGER PRIMARY KEY, shipment_id INTEGER NOT NULL REFERENCES shipments(id), "
+                "previous_status VARCHAR(32), new_status VARCHAR(32) NOT NULL, "
+                "changed_by_id INTEGER REFERENCES users(id), note VARCHAR(500), "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+            connection.exec_driver_sql("INSERT INTO commerce_orders (id) VALUES (1)")
+            connection.exec_driver_sql("INSERT INTO shipments (id) VALUES (1)")
+            connection.exec_driver_sql(
+                "INSERT INTO shipment_events (id, shipment_id, new_status) VALUES (1, 1, 'shipped')"
+            )
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+
+            legacy = connection.exec_driver_sql(
+                "SELECT event_type, order_id, shipment_id, new_status FROM shipment_events WHERE id = 1"
+            ).one()
+            self.assertEqual(tuple(legacy), ("shipment_status", None, 1, "shipped"))
+            connection.exec_driver_sql(
+                "INSERT INTO shipment_events (event_type, order_id, shipment_id, new_status) "
+                "VALUES ('order_status', 1, NULL, 'accepted')"
+            )
+            with self.assertRaisesRegex(RuntimeError, "order status history exists"):
+                with Operations.context(MigrationContext.configure(connection)):
+                    migration.downgrade()
+
+            connection.exec_driver_sql("DELETE FROM shipment_events WHERE event_type = 'order_status'")
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.downgrade()
+            self.assertNotIn("event_type", {column["name"] for column in inspect(connection).get_columns("shipment_events")})
+            shipment_id = next(column for column in inspect(connection).get_columns("shipment_events") if column["name"] == "shipment_id")
+            self.assertFalse(shipment_id["nullable"])
+            self.assertEqual(
+                connection.exec_driver_sql("SELECT shipment_id, new_status FROM shipment_events WHERE id = 1").one(),
+                (1, "shipped"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

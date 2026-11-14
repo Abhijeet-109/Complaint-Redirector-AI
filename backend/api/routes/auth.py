@@ -1,10 +1,10 @@
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.Database.models import User
+from backend.Database.models import Department, User
 from backend.Database.schemas import userCreate, UserResponse, LoginRequest
 from backend.auth.dependencies import get_db, get_current_user
 from backend.auth.security import hash_password, verify_password, create_access_token
@@ -101,12 +101,16 @@ def login(
 
 @router.get("/me")
 def get_current_user_profile(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    department = db.scalar(select(Department).where(Department.id == current_user.department_id)) if current_user.department_id else None
     return {
         "id": current_user.id,
         "name": current_user.name,
         "email": current_user.email,
         "role": current_user.role,
+        "department_id": current_user.department_id,
+        "department_name": department.name if department else None,
         "mobile_number": current_user.mobile_number,
     }

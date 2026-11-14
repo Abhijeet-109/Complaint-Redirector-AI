@@ -58,11 +58,17 @@ const calculateDaysLeft = (deadline) => {
 const labels = {
   pending_payment: 'Payment pending',
   placed: 'Order confirmed',
+  accepted: 'Order accepted',
   payment_failed: 'Payment failed',
   captured: 'Paid',
   pending: 'Pending',
   failed: 'Failed',
   processing: 'Processing',
+  packed: 'Packed',
+  ready_to_ship: 'Ready to ship',
+  ready_for_dispatch: 'Ready for dispatch',
+  received: 'Shipment received',
+  scheduled: 'Delivery scheduled',
   shipped: 'Shipped',
   delivered: 'Delivered',
   cancelled: 'Cancelled',
@@ -97,6 +103,35 @@ const RETURN_REASON_OPTIONS = [
   { value: 'not_as_described', label: 'Quality not as expected / description mismatch' },
   { value: 'changed_mind', label: 'Changed mind / No longer needed' },
 ];
+
+function OrderLifecycleTimeline({ order }) {
+  const events = order.tracking_events || [];
+  if (events.length === 0) {
+    return <div className="fk-tracking-empty">No tracking events yet</div>;
+  }
+
+  return (
+    <div className="fk-delivery-timeline-block">
+      {events.map((event, index) => (
+        <div className="fk-timeline-step is-completed" key={`${event.event_type}-${event.id}`}>
+          <div className="fk-timeline-marker">
+            <span className="fk-marker-dot"><Check size={11} strokeWidth={3} /></span>
+            {index < events.length - 1 && <span className="fk-timeline-line is-completed" />}
+          </div>
+          <div className="fk-timeline-content">
+            <strong className="fk-timeline-label">
+              {event.event_type === 'shipment_status' ? 'Shipment: ' : 'Order: '}{humanize(event.new_status)}
+            </strong>
+            {event.note && <span className="fk-timeline-time">{event.note}</span>}
+            <span className="fk-timeline-time">
+              {event.created_at ? formatShortDateTime(event.created_at) : 'Timestamp unavailable'}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger }) {
   const [orders, setOrders] = useState([]);
@@ -394,9 +429,7 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
             const activeItemId = activeItemByOrder[order.id] || itemId(items[0]);
             const currentItem = items.find((it) => itemId(it) === activeItemId) || items[0] || {};
             const isDelivered = String(order.status || '').toLowerCase() === 'delivered';
-            const deliveredDateStr =
-              order.shipment?.delivered_at ||
-              (isDelivered ? order.created_at : null);
+            const deliveredDateStr = order.delivered_at || order.shipment?.delivered_at || null;
 
             // Item-level eligibility & form data
             const currentItemId = itemId(currentItem);
@@ -413,6 +446,12 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
             const currentClaim =
               activeClaimState[currentItemId] ||
               (currentItem.return_claims && currentItem.return_claims[0]);
+
+            // Detect pre-delivery state authoritatively via backend reason_code 'not_delivered' or undelivered order status
+            const isPreDeliveryState =
+              !currentClaim &&
+              (currentEligibility?.reason_code === 'not_delivered' ||
+                (!isDelivered && (eligibilityLoading || !currentEligibility)));
 
             // Days left calculation
             const returnDeadline = currentEligibility?.return_deadline;
@@ -475,9 +514,9 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
 
                   {/* Zone 3 (Right): Supporting info & Chevron */}
                   <div className="fk-order-summary-right">
-                    {deliveredDateStr && isDelivered && (
+                    {isDelivered && (
                       <span className="fk-delivery-date-text">
-                        Delivered on {formatDateOnly(deliveredDateStr)}
+                        Delivered on {deliveredDateStr ? formatDateOnly(deliveredDateStr) : 'Delivery timestamp unavailable'}
                       </span>
                     )}
 
@@ -522,7 +561,69 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                       </div>
                     )}
 
-                    <div className="fk-order-body-columns">
+                    {isPreDeliveryState ? (
+                      <div className="fk-pre-delivery-layout">
+                        <div className="fk-pre-delivery-main-row">
+                          <section className="fk-pre-delivery-product">
+                            <div className="fk-product-image-box">
+                              {currentItem.image ? (
+                                <img
+                                  src={currentItem.image}
+                                  alt={currentItem.product_name || 'Product'}
+                                  className="fk-product-hero-img"
+                                />
+                              ) : (
+                                <Package size={52} className="fk-product-placeholder-icon" />
+                              )}
+                            </div>
+
+                            <div className="fk-product-details-block">
+                              <h2 className="fk-product-name-heading">
+                                {currentItem.product_name}
+                              </h2>
+                              <div className="fk-product-attributes-text">
+                                {currentItem.variant_name && <span>Color: {currentItem.variant_name}</span>}
+                                {currentItem.variant_name && <span> | </span>}
+                                <span>Qty: {currentItem.quantity}</span>
+                              </div>
+                              <div className="fk-product-price-tag">
+                                {money(currentItem.line_total || currentItem.unit_price, order.currency)}
+                              </div>
+                            </div>
+                          </section>
+
+                          <section className="fk-pre-delivery-timeline">
+                          <OrderLifecycleTimeline order={order} />
+                          </section>
+                        </div>
+
+                        <div className="fk-pre-delivery-notice" role="note">
+                          <AlertCircle size={20} className="fk-pre-delivery-notice-icon" />
+                          <div className="fk-pre-delivery-notice-content">
+                            <strong>
+                              Your post-delivery options will appear here.
+                            </strong>
+                            <p>
+                              Once your order is delivered, you can view the available options for this item.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="fk-pre-delivery-actions">
+                          <button
+                            type="button"
+                            className="fk-timeline-updates-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTrackingModalOrder(order);
+                            }}
+                          >
+                            See All Updates &gt;
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="fk-order-body-columns">
                       {/* LEFT COLUMN: Product Overview & Delivery Progression */}
                       <div className="fk-order-left-column">
                         {/* Large Product Image Container */}
@@ -554,75 +655,8 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                         </div>
 
                         {/* Delivery Progression Timeline */}
-                        <div className="fk-delivery-timeline-block">
-                          {/* Step 1: Order Confirmed */}
-                          <div className="fk-timeline-step is-completed">
-                            <div className="fk-timeline-marker">
-                              <span className="fk-marker-dot">
-                                <Check size={11} strokeWidth={3} />
-                              </span>
-                              <span className="fk-timeline-line is-completed" />
-                            </div>
-                            <div className="fk-timeline-content">
-                              <strong className="fk-timeline-label">Order Confirmed</strong>
-                              <span className="fk-timeline-time">
-                                {formatShortDateTime(order.created_at)}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Step 2: Shipped */}
-                          <div
-                            className={`fk-timeline-step ${
-                              order.status === 'shipped' || isDelivered ? 'is-completed' : 'is-pending'
-                            }`}
-                          >
-                            <div className="fk-timeline-marker">
-                              <span className="fk-marker-dot">
-                                {order.status === 'shipped' || isDelivered ? (
-                                  <Check size={11} strokeWidth={3} />
-                                ) : (
-                                  <span className="fk-hollow-dot" />
-                                )}
-                              </span>
-                              <span
-                                className={`fk-timeline-line ${
-                                  isDelivered ? 'is-completed' : 'is-pending'
-                                }`}
-                              />
-                            </div>
-                            <div className="fk-timeline-content">
-                              <strong className="fk-timeline-label">Shipped</strong>
-                              <span className="fk-timeline-time">
-                                {order.shipment?.shipped_at
-                                  ? formatShortDateTime(order.shipment.shipped_at)
-                                  : isDelivered
-                                  ? formatShortDateTime(order.created_at)
-                                  : 'Pending dispatch'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Step 3: Delivered */}
-                          <div className={`fk-timeline-step ${isDelivered ? 'is-completed' : 'is-pending'}`}>
-                            <div className="fk-timeline-marker">
-                              <span className="fk-marker-dot">
-                                {isDelivered ? (
-                                  <Check size={11} strokeWidth={3} />
-                                ) : (
-                                  <span className="fk-hollow-dot" />
-                                )}
-                              </span>
-                            </div>
-                            <div className="fk-timeline-content">
-                              <strong className="fk-timeline-label">Delivered</strong>
-                              <span className="fk-timeline-time">
-                                {deliveredDateStr
-                                  ? formatShortDateTime(deliveredDateStr)
-                                  : 'Estimated delivery soon'}
-                              </span>
-                            </div>
-                          </div>
+                        <div>
+                          <OrderLifecycleTimeline order={order} />
 
                           {/* See all updates link */}
                           <button
@@ -965,8 +999,9 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                         )}
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+              )}
               </article>
             );
           })}
@@ -1002,11 +1037,11 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
               <div className="fk-tracking-shipment-meta">
                 <div>
                   <span className="fk-meta-label">Carrier</span>
-                  <strong>{trackingModalOrder.shipment?.carrier || 'Flatkart Express Logistics'}</strong>
+                  <strong>{trackingModalOrder.shipment?.carrier || 'Not assigned'}</strong>
                 </div>
                 <div>
                   <span className="fk-meta-label">Tracking Number</span>
-                  <strong>{trackingModalOrder.shipment?.tracking_reference || 'TRK-' + trackingModalOrder.order_number}</strong>
+                  <strong>{trackingModalOrder.shipment?.tracking_reference || 'Not available'}</strong>
                 </div>
                 <div>
                   <span className="fk-meta-label">Current Status</span>
@@ -1039,14 +1074,14 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
               {/* Events timeline */}
               <div className="fk-tracking-events-list">
                 <span className="fk-meta-label">Activity Updates</span>
-                {trackingModalOrder.shipment?.events && trackingModalOrder.shipment.events.length > 0 ? (
-                  trackingModalOrder.shipment.events.map((ev, idx) => (
+                {trackingModalOrder.tracking_events && trackingModalOrder.tracking_events.length > 0 ? (
+                  trackingModalOrder.tracking_events.map((ev, idx) => (
                     <div key={ev.id || idx} className="fk-tracking-event-item">
                       <div className="fk-event-dot" />
                       <div className="fk-event-details">
-                        <strong>{humanize(ev.new_status)}</strong>
+                        <strong>{ev.event_type === 'shipment_status' ? 'Shipment: ' : 'Order: '}{humanize(ev.new_status)}</strong>
                         {ev.note && <p>{ev.note}</p>}
-                        <span>{formatOrderDateTime(ev.created_at)}</span>
+                        <span>{ev.created_at ? formatOrderDateTime(ev.created_at) : 'Timestamp unavailable'}</span>
                       </div>
                     </div>
                   ))
@@ -1054,9 +1089,7 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                   <div className="fk-tracking-event-item">
                     <div className="fk-event-dot" />
                     <div className="fk-event-details">
-                      <strong>Order Placed & Confirmed</strong>
-                      <p>Order has been confirmed and verified by Flatkart fulfilment system.</p>
-                      <span>{formatOrderDateTime(trackingModalOrder.created_at)}</span>
+                      <strong>No tracking events yet</strong>
                     </div>
                   </div>
                 )}

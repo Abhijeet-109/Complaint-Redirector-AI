@@ -9,6 +9,8 @@ import {
   ChartNoAxesColumn,
   LogOut,
   ShoppingCart,
+  PackageCheck,
+  Truck,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -20,6 +22,7 @@ export function HandlerSidebar({
   collapsed = false,
   setCollapsed,
   queueCount = 0,
+  departmentName = 'Returns & Replacement',
 }) {
   const { logout } = useAuth();
 
@@ -30,7 +33,7 @@ export function HandlerSidebar({
     }
   };
 
-  const navItems = [
+  const returnsNavItems = [
     {
       label: 'Dashboard',
       path: '/handler/dashboard',
@@ -75,6 +78,13 @@ export function HandlerSidebar({
       activeMatch: (p) => p.startsWith('/handler/reports'),
     },
   ];
+  const orderDeliveryNavItems = [
+    returnsNavItems[0],
+    { label: 'Order Management', path: '/handler/orders', icon: PackageCheck, activeMatch: (p) => p.startsWith('/handler/orders') },
+    { label: 'Shipment Management', path: '/handler/shipments', icon: Truck, activeMatch: (p) => p.startsWith('/handler/shipments') },
+    { label: 'Returns & Replacement', path: '/handler/tracking', icon: ArrowLeftRight, activeMatch: (p) => p.startsWith('/handler/tracking') },
+  ];
+  const navItems = departmentName === 'Order & Delivery' ? orderDeliveryNavItems : returnsNavItems;
 
   const handleItemClick = (path) => {
     if (onNavigate) {
@@ -117,7 +127,7 @@ export function HandlerSidebar({
       {/* Section Title */}
       {!collapsed && (
         <div className="hd-sidebar-section-title">
-          RETURNS & REPLACEMENT
+          {departmentName.toUpperCase()}
         </div>
       )}
 

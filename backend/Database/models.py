@@ -453,6 +453,12 @@ class CommerceOrder(Base):
     shipment = relationship("Shipment", back_populates="order", uselist=False, cascade="all, delete-orphan")
     payment_attempts = relationship("PaymentAttempt", back_populates="order", cascade="all, delete-orphan")
     user = relationship("User")
+    events = relationship(
+        "ShipmentEvent",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="ShipmentEvent.created_at, ShipmentEvent.id",
+    )
 
 
 class CommerceOrderItem(Base):
@@ -535,18 +541,27 @@ class Shipment(Base):
         "ShipmentEvent",
         back_populates="shipment",
         cascade="all, delete-orphan",
-        order_by="ShipmentEvent.created_at",
+        order_by="ShipmentEvent.created_at, ShipmentEvent.id",
     )
 
 
 class ShipmentEvent(Base):
     __tablename__ = "shipment_events"
+    __table_args__ = (
+        CheckConstraint(
+            "(event_type = 'order_status' AND order_id IS NOT NULL AND shipment_id IS NULL) OR "
+            "(event_type = 'shipment_status' AND shipment_id IS NOT NULL AND order_id IS NULL)",
+            name="ck_shipment_events_owner_matches_type",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
+    event_type = Column(String(24), nullable=False, default="shipment_status", server_default="shipment_status")
+    order_id = Column(Integer, ForeignKey("commerce_orders.id", ondelete="CASCADE"), nullable=True, index=True)
     shipment_id = Column(
         Integer,
         ForeignKey("shipments.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     previous_status = Column(String(32), nullable=True)
@@ -555,6 +570,7 @@ class ShipmentEvent(Base):
     note = Column(String(500), nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     shipment = relationship("Shipment", back_populates="events")
+    order = relationship("CommerceOrder", back_populates="events")
     changed_by = relationship("User", foreign_keys=[changed_by_id])
 
 

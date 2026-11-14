@@ -11,7 +11,7 @@ import {
 import { handlerService } from '../../services/handlerService';
 import { HandlerStatusBadge } from './HandlerStatusBadge';
 
-export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefresh }) {
+export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefresh, isOrderDelivery = false }) {
   const handleBack = () => {
     if (onBack) onBack();
     else if (onNavigate) onNavigate('handler-dashboard', '/handler/tracking');
@@ -22,13 +22,18 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
   const [newStatus, setNewStatus] = useState('');
   const [statusNote, setStatusNote] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [milestone, setMilestone] = useState('');
+  const [milestoneNote, setMilestoneNote] = useState('');
+  const [savingMilestone, setSavingMilestone] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
   const loadHandoff = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await handlerService.getHandoffDetails(handoffId);
+      const data = isOrderDelivery
+        ? await handlerService.getOrderDeliveryReturnHandoffDetails(handoffId)
+        : await handlerService.getHandoffDetails(handoffId);
       setHandoff(data);
       setNewStatus(data.status || 'pending');
     } catch (err) {
@@ -43,7 +48,7 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
     if (handoffId) {
       loadHandoff();
     }
-  }, [handoffId]);
+  }, [handoffId, isOrderDelivery]);
 
   const handleUpdateStatus = async () => {
     if (!newStatus || newStatus === handoff.status) {
@@ -61,6 +66,24 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
       setToastMessage({ type: 'error', text: err.message || 'Transition failed. Check authorization.' });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleRecordMilestone = async () => {
+    if (!milestone || milestoneNote.trim().length < 3 || savingMilestone) return;
+    setSavingMilestone(true);
+    setToastMessage(null);
+    try {
+      await handlerService.recordOrderDeliveryMilestone(handoffId, milestone, milestoneNote.trim());
+      setToastMessage({ type: 'success', text: `${milestone.replace(/_/g, ' ')} recorded.` });
+      setMilestone('');
+      setMilestoneNote('');
+      await loadHandoff();
+      if (onRefresh) await onRefresh();
+    } catch (cause) {
+      setToastMessage({ type: 'error', text: cause.message || 'Milestone could not be recorded.' });
+    } finally {
+      setSavingMilestone(false);
     }
   };
 
@@ -93,6 +116,10 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
     accepted: ['in_progress', 'failed'],
     in_progress: ['completed', 'failed'],
   }[handoff.status] || [];
+  const visibleAllowedTransitions = isOrderDelivery &&
+    ['refund_pickup', 'replacement_fulfillment'].includes(handoff.handoff_type)
+    ? allowedTransitions.filter((status) => status !== 'completed')
+    : allowedTransitions;
 
   return (
     <div className="hd-page hd-detail-page">
@@ -199,7 +226,7 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
               Allowed status transitions are restricted by department authority.
             </p>
 
-            {allowedTransitions.length > 0 ? (
+            {visibleAllowedTransitions.length > 0 ? (
               <div className="hd-action-form">
                 <label className="hd-form-label">Next Permitted Status</label>
                 <select
@@ -208,7 +235,7 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
                   onChange={(e) => setNewStatus(e.target.value)}
                 >
                   <option value={handoff.status}>Select transition...</option>
-                  {allowedTransitions.map((st) => (
+                  {visibleAllowedTransitions.map((st) => (
                     <option key={st} value={st}>
                       {st.replace(/_/g, ' ').toUpperCase()}
                     </option>
@@ -240,6 +267,41 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
               </p>
             )}
           </div>
+
+          {isOrderDelivery && ['refund_pickup', 'replacement_fulfillment'].includes(handoff.handoff_type) && (
+            <div className="hd-card hd-actions-card" style={{ marginTop: 16 }}>
+              <h3 className="hd-detail-section-title">
+                {handoff.handoff_type === 'replacement_fulfillment' ? 'Replacement Fulfilment Milestones' : 'Pickup Milestones'}
+              </h3>
+              {(handoff.milestones || []).length > 0 ? (
+                <ol>
+                  {handoff.milestones.map((item) => (
+                    <li key={item.id}>
+                      <strong>{item.milestone.replace(/_/g, ' ')}</strong>
+                      {item.created_at ? ` · ${new Date(item.created_at).toLocaleString()}` : ''}
+                      {item.note ? <p>{item.note}</p> : null}
+                    </li>
+                  ))}
+                </ol>
+              ) : <p className="hd-card-desc">No fulfilment milestones have been recorded.</p>}
+              {(handoff.next_milestone_options || []).length > 0 ? (
+                <div className="hd-action-form">
+                  <label className="hd-form-label" htmlFor="order-delivery-milestone">Next milestone</label>
+                  <select id="order-delivery-milestone" className="hd-select" value={milestone} onChange={(e) => setMilestone(e.target.value)}>
+                    <option value="">Select next milestone...</option>
+                    {handoff.next_milestone_options.map((item) => (
+                      <option key={item} value={item}>{item.replace(/_/g, ' ').toUpperCase()}</option>
+                    ))}
+                  </select>
+                  <label className="hd-form-label" style={{ marginTop: 10 }} htmlFor="order-delivery-milestone-note">Required operational note</label>
+                  <textarea id="order-delivery-milestone-note" className="hd-textarea" rows={2} maxLength={2000} value={milestoneNote} onChange={(e) => setMilestoneNote(e.target.value)} />
+                  <button type="button" className="hd-btn-approve" style={{ marginTop: 12 }} disabled={!milestone || milestoneNote.trim().length < 3 || savingMilestone} onClick={handleRecordMilestone}>
+                    {savingMilestone ? 'Saving milestone…' : 'Record milestone'}
+                  </button>
+                </div>
+              ) : <p className="hd-empty-text">The next milestone is unavailable until the handoff is in progress or all milestones are complete.</p>}
+            </div>
+          )}
         </div>
       </div>
     </div>

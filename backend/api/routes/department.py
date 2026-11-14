@@ -20,9 +20,11 @@ from backend.Database.models import (
 from backend.Database.return_services import (
     apply_claim_decision, claim_details, create_after_collection_refund_handoff,
     get_return_claim, record_inspection, resolve_return_claim,
+    order_delivery_milestone_state, record_order_delivery_milestone,
 )
 from backend.Database.admin_commerce_services import (
     execute_return_refund, get_return_refund_tracking, list_return_refund_handoffs,
+    list_order_delivery_orders, list_order_delivery_shipments, update_order_status, update_shipment,
 )
 from backend.Database.return_evidence_storage import read_evidence
 from backend.Database.schemas import (
@@ -70,6 +72,24 @@ class ReturnRefundExecutionInput(BaseModel):
 
 class ReturnResolutionInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    note: str = Field(min_length=3, max_length=2000)
+
+
+class OrderDeliveryStatusInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    status: str = Field(min_length=1, max_length=24)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ShipmentStatusInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    status: str = Field(min_length=1, max_length=24)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class OrderDeliveryMilestoneInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    milestone: str = Field(min_length=1, max_length=48)
     note: str = Field(min_length=3, max_length=2000)
 
 
@@ -717,6 +737,126 @@ def list_order_delivery_return_handoffs(
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
+@handler_router.get("/order-delivery/return-handoffs/{handoff_id}")
+def get_order_delivery_return_handoff(
+    handoff_id: int,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    department = db.scalar(select(Department).where(Department.name == "Order & Delivery"))
+    if department is None:
+        raise HTTPException(status_code=500, detail="Order & Delivery department is not configured.")
+    handoff = db.scalar(
+        select(ReturnHandoff)
+        .options(
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+            selectinload(ReturnHandoff.source_department),
+            selectinload(ReturnHandoff.destination_department),
+        )
+        .where(ReturnHandoff.id == handoff_id, ReturnHandoff.destination_department_id == department.id)
+    )
+    if handoff is None or handoff.handoff_type not in ("refund_pickup", "replacement_fulfillment"):
+        raise HTTPException(status_code=404, detail="Order & Delivery handoff not found.")
+    claim = handoff.return_request
+    order = claim.order if claim else None
+    customer = order.user if order else None
+    return {
+        "id": handoff.id,
+        "request_id": claim.id if claim else None,
+        "claim_id": claim.id if claim else None,
+        "order_id": order.id if order else None,
+        "order_number": order.order_number if order else None,
+        "customer_name": customer.name if customer else None,
+        "customer_email": customer.email if customer else None,
+        "current_owner": "Order & Delivery",
+        "destination_department_id": handoff.destination_department_id,
+        "source_department_id": handoff.source_department_id,
+        "handoff_from": handoff.source_department.name if handoff.source_department else "Returns & Replacement",
+        "status": handoff.status,
+        "handoff_type": handoff.handoff_type,
+        "created_at": handoff.created_at.isoformat() if handoff.created_at else None,
+        "last_updated": (handoff.updated_at or handoff.created_at).isoformat() if (handoff.updated_at or handoff.created_at) else None,
+        "completed_at": handoff.completed_at.isoformat() if handoff.completed_at else None,
+        "failure_reason": handoff.failure_reason,
+        "payload": handoff.payload or {},
+        **order_delivery_milestone_state(db, handoff),
+    }
+
+
+@handler_router.patch("/order-delivery/return-handoffs/{handoff_id}/milestones")
+def add_order_delivery_return_handoff_milestone(
+    handoff_id: int,
+    payload: OrderDeliveryMilestoneInput,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    return _commit_claim_operation(db, lambda: record_order_delivery_milestone(
+        db, handoff_id, milestone=payload.milestone, actor_id=actor.id, note=payload.note,
+    ))
+
+
+@handler_router.get("/order-delivery/orders")
+def list_order_delivery_orders_for_handler(
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    try:
+        return list_order_delivery_orders(db, status=status_filter, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@handler_router.patch("/order-delivery/orders/{order_id}/status")
+def patch_order_delivery_order_status(
+    order_id: int,
+    payload: OrderDeliveryStatusInput,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    try:
+        return update_order_status(db, order_id, payload.status, changed_by=actor, note=payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@handler_router.get("/order-delivery/shipments")
+def list_order_delivery_shipments_for_handler(
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    try:
+        return list_order_delivery_shipments(db, status=status_filter, limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@handler_router.patch("/order-delivery/shipments/{order_id}/status")
+def patch_order_delivery_shipment_status(
+    order_id: int,
+    payload: ShipmentStatusInput,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    try:
+        return update_shipment(
+            db, order_id, status=payload.status, notes=payload.note, changed_by=actor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @handler_router.post("/returns/{claim_id}/resolve")
 def resolve_return_claim_handler(
     claim_id: int,
@@ -889,6 +1029,10 @@ def update_return_handoff_status(handoff_id: int, payload: ReturnHandoffStatusIn
         ).limit(1))
         if processed_refund is None:
             raise HTTPException(status_code=409, detail="A Payments refund handoff requires a processed Refund record before completion.")
+    if payload.status == "completed" and handoff.handoff_type in {"refund_pickup", "replacement_fulfillment"}:
+        milestone_state = order_delivery_milestone_state(db, handoff)
+        if not milestone_state["milestone_complete"]:
+            raise HTTPException(status_code=409, detail="Required Order & Delivery milestones must be recorded before completion.")
     from datetime import datetime, timezone
     handoff.status = payload.status
     handoff.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)

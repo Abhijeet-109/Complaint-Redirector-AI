@@ -214,6 +214,21 @@ def set_payment_preference(payload: PaymentPreference, db: Session = Depends(get
 def _order_payload(order, return_claims=None):
     result = serialize_order(order)
     result["created_at"] = order.created_at.isoformat() if order.created_at else None
+    result["delivered_at"] = order.shipment.delivered_at.isoformat() if order.shipment and order.shipment.delivered_at else None
+    order_events = [
+        {
+            "id": event.id,
+            "event_type": event.event_type,
+            "previous_status": event.previous_status,
+            "new_status": event.new_status,
+            "note": event.note,
+            "changed_by": event.changed_by.name if event.changed_by else None,
+            "created_at": event.created_at.isoformat() if event.created_at else None,
+        }
+        for event in (order.events or [])
+        if event.event_type == "order_status"
+    ]
+    shipment_events = []
     if order.shipment:
         result["shipment"] = {
             "status": order.shipment.status,
@@ -226,16 +241,24 @@ def _order_payload(order, return_claims=None):
             "events": [
                 {
                     "id": event.id,
+                    "event_type": event.event_type,
                     "previous_status": event.previous_status,
                     "new_status": event.new_status,
                     "note": event.note,
+                    "changed_by": event.changed_by.name if event.changed_by else None,
                     "created_at": event.created_at.isoformat() if event.created_at else None,
                 }
                 for event in (order.shipment.events or [])
             ],
         }
+        shipment_events = result["shipment"]["events"]
     else:
         result["shipment"] = None
+    result["order_events"] = order_events
+    result["tracking_events"] = sorted(
+        order_events + shipment_events,
+        key=lambda event: (event["created_at"] or "", event["id"]),
+    )
     claims_by_item = {}
     for claim in (return_claims or []):
         claims_by_item.setdefault(claim.order_item_id, []).append({

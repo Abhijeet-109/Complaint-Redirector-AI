@@ -306,6 +306,7 @@ def list_orders(
             .selectinload(ProductVariant.product)
             .selectinload(Product.images),
             selectinload(CommerceOrder.shipment).selectinload(Shipment.events),
+            selectinload(CommerceOrder.events),
         )
         .where(CommerceOrder.user_id == user_id)
     )
@@ -324,6 +325,7 @@ def get_order(session: Session, user_id: int, order_id: int) -> CommerceOrder | 
             .selectinload(ProductVariant.product)
             .selectinload(Product.images),
             selectinload(CommerceOrder.shipment).selectinload(Shipment.events),
+            selectinload(CommerceOrder.events),
         )
         .where(CommerceOrder.id == order_id, CommerceOrder.user_id == user_id)
     )

@@ -20,6 +20,7 @@ export function HandlerLayout({
         collapsed={collapsed}
         setCollapsed={setCollapsed}
         queueCount={queueCount}
+        departmentName={departmentName}
       />
       <div className="hd-main-wrapper">
         <HandlerTopbar departmentName={departmentName} />

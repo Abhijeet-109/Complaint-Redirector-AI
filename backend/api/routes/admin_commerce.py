@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_db, require_role
@@ -42,16 +42,20 @@ admin_access = require_role("admin", "super_admin")
 # ---------------------------------------------------------------------------
 
 class OrderStatusUpdateInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     status: str = Field(..., description="Target order status")
+    reason: str = Field(..., min_length=3, max_length=500, description="Required admin override reason")
 
 
 class ShipmentUpdateInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     status: Optional[str] = Field(None, description="Shipment status")
     carrier: Optional[str] = Field(None, description="Logistics carrier name")
     tracking_reference: Optional[str] = Field(None, description="Waybill / tracking number")
     tracking_url: Optional[str] = Field(None, description="Public tracking URL")
     estimated_delivery_date: Optional[datetime] = Field(None, description="Estimated delivery timestamp")
     notes: Optional[str] = Field(None, description="Shipment notes")
+    reason: str = Field(..., min_length=3, max_length=500, description="Required admin override reason")
 
 
 class ReturnStatusUpdateInput(BaseModel):
@@ -189,11 +193,11 @@ def patch_order_status(
     db: Session = Depends(get_db),
     actor: User = Depends(admin_access),
 ):
-    """Transition order status through valid lifecycle states."""
+    """Apply a privileged, reason-recorded order status override."""
     try:
-        return update_order_status(db, order_id, payload.status, changed_by=actor)
+        return update_order_status(db, order_id, payload.status, changed_by=actor, note=payload.reason)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except Exception as exc:
         logger.error("Failed to update order %s status: %s", order_id, exc)
         raise HTTPException(status_code=500, detail="Failed to update order status")
@@ -223,7 +227,7 @@ def patch_order_shipment(
     db: Session = Depends(get_db),
     actor: User = Depends(admin_access),
 ):
-    """Update shipment carrier, tracking, estimated delivery, and status with audit trail."""
+    """Apply a privileged, reason-recorded shipment update with audit trail."""
     try:
         return update_shipment(
             db,
@@ -234,10 +238,11 @@ def patch_order_shipment(
             tracking_url=payload.tracking_url,
             estimated_delivery_date=payload.estimated_delivery_date,
             notes=payload.notes,
+            audit_reason=payload.reason,
             changed_by=actor,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except Exception as exc:
         logger.error("Failed to update shipment for order %s: %s", order_id, exc)
         raise HTTPException(status_code=500, detail="Failed to update shipment")

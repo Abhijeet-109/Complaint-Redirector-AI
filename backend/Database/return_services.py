@@ -34,6 +34,18 @@ TERMINAL_WORKFLOW_STATUSES = (
     "cancelled",
 )
 
+ORDER_DELIVERY_MILESTONES = {
+    "refund_pickup": ("pickup_scheduled", "item_collected"),
+    "replacement_fulfillment": (
+        "pickup_scheduled",
+        "item_collected",
+        "replacement_prepared",
+        "replacement_ready_to_ship",
+        "replacement_out_for_delivery",
+        "replacement_delivered",
+    ),
+}
+
 
 def _utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -556,6 +568,96 @@ def _create_handoff(
     return handoff
 
 
+def order_delivery_milestone_state(session: Session, handoff: ReturnHandoff) -> dict:
+    sequence = ORDER_DELIVERY_MILESTONES.get(handoff.handoff_type, ())
+    events = session.scalars(
+        select(ReturnRequestEvent)
+        .where(
+            ReturnRequestEvent.return_request_id == handoff.return_request_id,
+            ReturnRequestEvent.event_type == "order_delivery_milestone",
+        )
+        .order_by(ReturnRequestEvent.created_at, ReturnRequestEvent.id)
+    ).all()
+    matching = [
+        event for event in events
+        if (event.event_data or {}).get("handoff_id") == handoff.id
+    ]
+    completed = [event.new_status for event in matching]
+    valid_prefix = list(sequence[:len(completed)]) == completed
+    next_milestone = sequence[len(completed)] if valid_prefix and len(completed) < len(sequence) else None
+    next_options = [next_milestone] if next_milestone and handoff.status == "in_progress" else []
+    return {
+        "milestones": [
+            {
+                "id": event.id,
+                "milestone": event.new_status,
+                "note": event.note,
+                "actor_user_id": event.actor_user_id,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in matching
+        ],
+        "next_milestone_options": next_options,
+        "milestone_complete": bool(sequence) and completed == list(sequence),
+    }
+
+
+def record_order_delivery_milestone(
+    session: Session,
+    handoff_id: int,
+    *,
+    milestone: str,
+    actor_id: int,
+    note: str,
+) -> dict:
+    handoff = session.scalar(
+        select(ReturnHandoff).where(ReturnHandoff.id == handoff_id).with_for_update()
+    )
+    if handoff is None:
+        raise LookupError("Return handoff not found.")
+    sequence = ORDER_DELIVERY_MILESTONES.get(handoff.handoff_type)
+    if sequence is None:
+        raise ValueError("This handoff does not support Order & Delivery milestones.")
+    if handoff.status != "in_progress":
+        raise ValueError("The handoff must be in progress before recording milestones.")
+    state = order_delivery_milestone_state(session, handoff)
+    expected = (state["next_milestone_options"] or [None])[0]
+    if milestone != expected:
+        raise ValueError(f"Invalid milestone transition. Expected: {expected or 'none (milestones complete)'}")
+    if not note.strip():
+        raise ValueError("A milestone note is required.")
+
+    claim = get_return_claim(session, handoff.return_request_id, lock=True)
+    if claim is None:
+        raise LookupError("Return claim not found.")
+    previous = state["milestones"][-1]["milestone"] if state["milestones"] else None
+    _event(
+        session,
+        claim,
+        "order_delivery_milestone",
+        actor_id,
+        previous=previous,
+        new=milestone,
+        note=note.strip(),
+        data={"handoff_id": handoff.id, "handoff_type": handoff.handoff_type},
+    )
+
+    if milestone == sequence[-1]:
+        handoff.status = "completed"
+        handoff.updated_at = _utcnow_naive()
+        handoff.completed_at = handoff.updated_at
+        if handoff.handoff_type == "refund_pickup":
+            create_after_collection_refund_handoff(session, handoff, actor_id=actor_id)
+    else:
+        handoff.updated_at = _utcnow_naive()
+    session.flush()
+    return {
+        "handoff_id": handoff.id,
+        "status": handoff.status,
+        **order_delivery_milestone_state(session, handoff),
+    }
+
+
 def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, decision: str, note: str):
     claim = get_return_claim(session, claim_id, lock=True)
     if claim is None:
@@ -740,9 +842,14 @@ def resolve_return_claim(session: Session, claim_id: int, *, actor_id: int, note
         select(ReturnHandoff).where(ReturnHandoff.return_request_id == claim.id).with_for_update()
     ).all()
     required_type = "refund_pickup" if claim.resolution_type == "refund" else "replacement_fulfillment"
-    delivery_done = any(row.handoff_type == required_type and row.status == "completed" for row in handoffs)
-    if not delivery_done:
+    delivery_handoff = next((row for row in handoffs if row.handoff_type == required_type), None)
+    if delivery_handoff is None or delivery_handoff.status != "completed":
         raise ValueError("Order & Delivery work must be completed before resolving this request.")
+    if claim.resolution_type == "replacement":
+        milestone_state = order_delivery_milestone_state(session, delivery_handoff)
+        # Older completed handoffs predate milestone capture; retain their existing resolution path.
+        if milestone_state["milestones"] and not milestone_state["milestone_complete"]:
+            raise ValueError("The replacement must be delivered before resolving this request.")
 
     if claim.resolution_type == "refund":
         payments_handoff = next((row for row in handoffs if row.handoff_type == "refund_processing"), None)

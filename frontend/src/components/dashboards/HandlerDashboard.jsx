@@ -12,10 +12,12 @@ import { HandlerReportsView } from '../handler/HandlerReportsView';
 import { HandlerRequestDetailView } from '../handler/HandlerRequestDetailView';
 import { HandlerComplaintDetailView } from '../handler/HandlerComplaintDetailView';
 import { HandlerHandoffDetailView } from '../handler/HandlerHandoffDetailView';
+import { HandlerOrderDeliveryView } from '../handler/HandlerOrderDeliveryView';
 import '../handler/HandlerDashboard.css';
 
 export function HandlerDashboard({ onNavigate, routePath }) {
   const { user } = useAuth();
+  const isOrderDelivery = user?.department_name === 'Order & Delivery';
 
   // Normalize current path
   const currentPath = useMemo(() => {
@@ -55,6 +57,8 @@ export function HandlerDashboard({ onNavigate, routePath }) {
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditKpi, setAuditKpi] = useState(null);
   const [reportsData, setReportsData] = useState(null);
+  const [deliveryOrders, setDeliveryOrders] = useState([]);
+  const [deliveryShipments, setDeliveryShipments] = useState([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -68,14 +72,18 @@ export function HandlerDashboard({ onNavigate, routePath }) {
         handoffsRes,
         auditRes,
         reportsRes,
+        deliveryOrdersRes,
+        deliveryShipmentsRes,
       ] = await Promise.allSettled([
-        handlerService.getOverviewStats(),
-        handlerService.getAssignedComplaints(),
-        handlerService.getReturns({ include_all: false, limit: 50 }),
-        handlerService.getReturns({ include_all: true, limit: 50 }),
-        handlerService.getTrackingHandoffs({ limit: 50 }),
-        handlerService.getHistoryAudit({ limit: 50 }),
-        handlerService.getReportsStats(),
+        isOrderDelivery ? Promise.resolve(null) : handlerService.getOverviewStats(),
+        isOrderDelivery ? Promise.resolve(null) : handlerService.getAssignedComplaints(),
+        isOrderDelivery ? Promise.resolve(null) : handlerService.getReturns({ include_all: false, limit: 50 }),
+        isOrderDelivery ? Promise.resolve(null) : handlerService.getReturns({ include_all: true, limit: 50 }),
+        isOrderDelivery ? handlerService.getOrderDeliveryReturnHandoffs({ limit: 50 }) : handlerService.getTrackingHandoffs({ limit: 50 }),
+        isOrderDelivery ? Promise.resolve(null) : handlerService.getHistoryAudit({ limit: 50 }),
+        isOrderDelivery ? Promise.resolve(null) : handlerService.getReportsStats(),
+        isOrderDelivery ? handlerService.getOrderDeliveryOrders({ limit: 100 }) : Promise.resolve(null),
+        isOrderDelivery ? handlerService.getOrderDeliveryShipments({ limit: 100 }) : Promise.resolve(null),
       ]);
 
       if (statsRes.status === 'fulfilled' && statsRes.value) {
@@ -92,7 +100,12 @@ export function HandlerDashboard({ onNavigate, routePath }) {
         setAllRequests(allReqRes.value.items || []);
       }
       if (handoffsRes.status === 'fulfilled' && handoffsRes.value) {
-        setTrackingHandoffs(handoffsRes.value.items || []);
+        setTrackingHandoffs((handoffsRes.value.items || []).map((handoff) => isOrderDelivery ? ({
+          ...handoff,
+          id: handoff.id ?? handoff.handoff_id,
+          status: handoff.status || handoff.handoff_status,
+          current_owner: handoff.current_owner || 'Order & Delivery',
+        }) : handoff));
         if (handoffsRes.value.kpi_counts) setTrackingKpi(handoffsRes.value.kpi_counts);
       }
       if (auditRes.status === 'fulfilled' && auditRes.value) {
@@ -102,13 +115,19 @@ export function HandlerDashboard({ onNavigate, routePath }) {
       if (reportsRes.status === 'fulfilled' && reportsRes.value) {
         setReportsData(reportsRes.value);
       }
+      if (deliveryOrdersRes.status === 'fulfilled' && deliveryOrdersRes.value) {
+        setDeliveryOrders(deliveryOrdersRes.value.items || []);
+      }
+      if (deliveryShipmentsRes.status === 'fulfilled' && deliveryShipmentsRes.value) {
+        setDeliveryShipments(deliveryShipmentsRes.value.items || []);
+      }
     } catch (err) {
       console.error('Failed to load handler dashboard data:', err);
       setError(err.message || 'Error loading dashboard data.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isOrderDelivery]);
 
   useEffect(() => {
     loadData();
@@ -139,12 +158,14 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     }));
   }, [allRequests, reviewQueueClaims]);
 
-  const queueBadgeCount = reviewQueueClaims.length > 0 ? reviewQueueClaims.length : (overviewStats?.pending_review || 0);
+  const queueBadgeCount = isOrderDelivery
+    ? deliveryOrders.filter((order) => order.status === 'placed').length
+    : (reviewQueueClaims.length > 0 ? reviewQueueClaims.length : (overviewStats?.pending_review || 0));
 
   // Render the matching view based on route path
   const renderCurrentView = () => {
     // 1. Dedicated Detail Views (NOT modals)
-    if (requestDetailMatch) {
+    if (!isOrderDelivery && requestDetailMatch) {
       const requestId = requestDetailMatch[1];
       return (
         <HandlerRequestDetailView
@@ -155,7 +176,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
       );
     }
 
-    if (complaintDetailMatch) {
+    if (!isOrderDelivery && complaintDetailMatch) {
       const complaintId = complaintDetailMatch[1];
       return (
         <HandlerComplaintDetailView
@@ -173,8 +194,23 @@ export function HandlerDashboard({ onNavigate, routePath }) {
           handoffId={handoffId}
           onBack={() => onNavigate('handler-dashboard', '/handler/tracking')}
           onRefresh={loadData}
+          isOrderDelivery={isOrderDelivery}
         />
       );
+    }
+
+    if (isOrderDelivery) {
+      switch (currentPath) {
+        case '/handler/orders':
+          return <HandlerOrderDeliveryView kind="orders" orders={deliveryOrders} loading={loading} error={error} onRefresh={loadData} />;
+        case '/handler/shipments':
+          return <HandlerOrderDeliveryView kind="shipments" shipments={deliveryShipments} loading={loading} error={error} onRefresh={loadData} />;
+        case '/handler/tracking':
+          return <HandlerTrackingView handoffs={trackingHandoffs} kpiCounts={trackingKpi} loading={loading} onNavigate={onNavigate} />;
+        case '/handler/dashboard':
+        default:
+          return <HandlerOrderDeliveryView kind="dashboard" orders={deliveryOrders} shipments={deliveryShipments} loading={loading} onNavigate={onNavigate} />;
+      }
     }
 
     // 2. Main Page Views
@@ -248,7 +284,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
       currentPath={activeSidebarPath}
       onNavigate={onNavigate}
       queueCount={queueBadgeCount}
-      departmentName="Returns & Replacement"
+      departmentName={user?.department_name || 'Returns & Replacement'}
     >
       {renderCurrentView()}
     </HandlerLayout>

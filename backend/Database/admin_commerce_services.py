@@ -44,16 +44,27 @@ def _utcnow() -> datetime:
 # Status transition maps
 # ---------------------------------------------------------------------------
 
-VALID_ORDER_TRANSITIONS: dict[str, list[str]] = {
-    "placed": ["processing", "cancelled"],
-    "processing": ["packed", "cancelled"],
-    "packed": ["shipped", "cancelled"],
-    "shipped": ["out_for_delivery"],
-    "out_for_delivery": ["delivered"],
+VALID_ORDER_TRANSITIONS: dict[str, set[str]] = {
+    "placed": {"accepted", "cancelled"},
+    "accepted": {"processing", "cancelled"},
+    "processing": {"packed", "cancelled"},
+    "packed": {"ready_to_ship", "cancelled"},
+    "ready_to_ship": set(),
+    # Historical states remain readable but cannot be advanced by Order Management.
+    "shipped": set(),
+    "out_for_delivery": set(),
     "delivered": [],
     "cancelled": [],
     "pending_payment": [],
     "payment_failed": [],
+}
+
+VALID_SHIPMENT_TRANSITIONS: dict[str, set[str]] = {
+    "ready_for_dispatch": {"received"},
+    "received": {"scheduled"},
+    "scheduled": {"out_for_delivery"},
+    "out_for_delivery": {"delivered"},
+    "delivered": set(),
 }
 
 VALID_RETURN_TRANSITIONS: dict[str, list[str]] = {
@@ -94,9 +105,12 @@ def get_store_dashboard_kpis(db: Session) -> dict:
 
     # COD orders that have been delivered count as collected
     cod_revenue = db.scalar(
-        select(func.coalesce(func.sum(CommerceOrder.total_amount), 0)).where(
+        select(func.coalesce(func.sum(CommerceOrder.total_amount), 0)).join(
+            Shipment, Shipment.order_id == CommerceOrder.id
+        ).where(
             CommerceOrder.payment_method == "cod",
             CommerceOrder.status == "delivered",
+            Shipment.status == "delivered",
         )
     )
 
@@ -119,8 +133,7 @@ def get_store_dashboard_kpis(db: Session) -> dict:
     order_by_status = {row[0]: row[1] for row in order_status_rows}
     total_orders = sum(order_by_status.values())
 
-    # Fulfilment counts: Reconcile CommerceOrder.status and Shipment.status
-    # Exclude terminal/cancelled/failed orders: cancelled, payment_failed, pending_payment
+    # Each KPI uses the status field owned by that workflow.
     fulfilment_query = (
         select(
             CommerceOrder.id,
@@ -133,9 +146,14 @@ def get_store_dashboard_kpis(db: Session) -> dict:
     active_orders = db.execute(fulfilment_query).all()
 
     fc = {
-        "pending": 0,
+        "placed": 0,
+        "accepted": 0,
         "processing": 0,
         "packed": 0,
+        "ready_to_ship": 0,
+        "ready_for_dispatch": 0,
+        "received": 0,
+        "scheduled": 0,
         "shipped": 0,
         "out_for_delivery": 0,
         "delivered": 0,
@@ -143,20 +161,19 @@ def get_store_dashboard_kpis(db: Session) -> dict:
     for row in active_orders:
         ord_st = (row.status or "").lower()
         shp_st = (row.shipment_status or "").lower()
-        if ord_st == "delivered" or shp_st == "delivered":
+        order_stage = ord_st if ord_st in {"placed", "accepted", "processing", "packed", "ready_to_ship"} else None
+        shipment_stage = shp_st if shp_st in {"ready_for_dispatch", "received", "scheduled", "out_for_delivery", "delivered"} else None
+        if order_stage:
+            fc[order_stage] += 1
+        if ord_st == "ready_to_ship" and shipment_stage and shipment_stage != "delivered":
+            fc[shipment_stage] += 1
+        if ord_st == "delivered" and shp_st == "delivered":
             fc["delivered"] += 1
-        elif ord_st == "out_for_delivery" or shp_st == "out_for_delivery":
-            fc["out_for_delivery"] += 1
-        elif ord_st == "shipped" or shp_st == "shipped":
-            fc["shipped"] += 1
-        elif ord_st == "packed":
-            fc["packed"] += 1
-        elif ord_st == "processing":
-            fc["processing"] += 1
-        else:
-            fc["pending"] += 1
+        elif ord_st in {"shipped", "out_for_delivery"}:
+            # Legacy order rows are counted by their persisted historical stage.
+            fc[ord_st] += 1
 
-    pending_fulfilment = fc["pending"] + fc["processing"] + fc["packed"]
+    pending_fulfilment = sum(fc[key] for key in ("placed", "accepted", "processing", "packed", "ready_to_ship"))
 
     # Pending payment capture
     pending_payments = db.scalar(
@@ -202,6 +219,8 @@ def get_store_dashboard_kpis(db: Session) -> dict:
         "total_orders": total_orders,
         "orders_by_status": order_by_status,
         "fulfilment_counts": fc,
+        "order_stage_counts": {key: fc[key] for key in ("placed", "accepted", "processing", "packed", "ready_to_ship")},
+        "shipment_stage_counts": {key: fc[key] for key in ("ready_for_dispatch", "received", "scheduled", "out_for_delivery", "delivered")},
         "pending_fulfilment": pending_fulfilment,
         "pending_payments": pending_payments,
         "total_stock": int(inv_rows[0]),
@@ -237,9 +256,12 @@ def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
             )
         ).all()
         cod_rows = db.execute(
-            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).where(
+            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).join(
+                Shipment, Shipment.order_id == CommerceOrder.id
+            ).where(
                 CommerceOrder.payment_method == "cod",
                 CommerceOrder.status == "delivered",
+                Shipment.status == "delivered",
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) >= start_date,
             )
         ).all()
@@ -288,9 +310,12 @@ def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
             )
         ).all()
         cod_rows = db.execute(
-            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).where(
+            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).join(
+                Shipment, Shipment.order_id == CommerceOrder.id
+            ).where(
                 CommerceOrder.payment_method == "cod",
                 CommerceOrder.status == "delivered",
+                Shipment.status == "delivered",
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) >= monday,
             )
         ).all()
@@ -341,9 +366,12 @@ def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
             )
         ).all()
         cod_rows = db.execute(
-            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).where(
+            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).join(
+                Shipment, Shipment.order_id == CommerceOrder.id
+            ).where(
                 CommerceOrder.payment_method == "cod",
                 CommerceOrder.status == "delivered",
+                Shipment.status == "delivered",
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) >= year_start,
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) < year_end,
             )
@@ -446,8 +474,8 @@ def _serialize_order_summary(order: CommerceOrder) -> dict:
     customer_name = None
     if order.user:
         customer_name = order.user.name or order.user.email
-    if not customer_name and order.shipping_address and isinstance(order.shipping_address, dict):
-        customer_name = order.shipping_address.get("full_name") or order.shipping_address.get("name")
+    if not customer_name and order.delivery_address and isinstance(order.delivery_address, dict):
+        customer_name = order.delivery_address.get("recipient_name") or order.delivery_address.get("name")
 
     prod_summary = None
     first_item = order.items[0] if order.items else None
@@ -464,6 +492,7 @@ def _serialize_order_summary(order: CommerceOrder) -> dict:
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
+        "next_status_options": _order_next_status_options(order),
         "payment_status": order.payment_status,
         "payment_method": order.payment_method,
         "total_amount": str(_money(order.total_amount or 0)),
@@ -476,7 +505,90 @@ def _serialize_order_summary(order: CommerceOrder) -> dict:
         "quantity": total_qty,
         "customer_name": customer_name,
         "product_summary": prod_summary,
+        "delivery_address": order.delivery_address,
+        "items": [
+            {
+                "product_name": item.product_name,
+                "variant_name": item.variant_name,
+                "sku": item.sku,
+                "quantity": item.quantity,
+                "unit_price": str(_money(item.unit_price)),
+            }
+            for item in order.items
+        ],
     }
+
+
+def _order_next_status_options(order: CommerceOrder) -> list[str]:
+    options = set(VALID_ORDER_TRANSITIONS.get(order.status, set()))
+    if order.payment_status in {"captured", "paid"}:
+        options.discard("cancelled")
+    return sorted(options)
+
+
+def list_order_delivery_orders(db: Session, *, status: str | None = None, limit: int = 50, offset: int = 0) -> dict:
+    """List active orders for the Order & Delivery department queue."""
+    actionable = {"placed", "accepted", "processing", "packed", "ready_to_ship"}
+    stmt = (
+        select(CommerceOrder)
+        .options(
+            selectinload(CommerceOrder.items),
+            selectinload(CommerceOrder.shipment),
+            selectinload(CommerceOrder.user),
+        )
+        .where(CommerceOrder.status.in_(actionable))
+        .order_by(CommerceOrder.created_at, CommerceOrder.id)
+    )
+    if status:
+        if status not in actionable:
+            raise ValueError("Unsupported order status filter")
+        stmt = stmt.where(CommerceOrder.status == status)
+    total_stmt = select(func.count(CommerceOrder.id)).where(CommerceOrder.status.in_(actionable))
+    if status:
+        total_stmt = total_stmt.where(CommerceOrder.status == status)
+    items = db.scalars(stmt.offset(offset).limit(limit)).all()
+    return {"items": [_serialize_order_summary(order) for order in items], "total": db.scalar(total_stmt) or 0,
+            "limit": limit, "offset": offset}
+
+
+def list_order_delivery_shipments(db: Session, *, status: str | None = None, limit: int = 50, offset: int = 0) -> dict:
+    """List shipments belonging to orders managed by Order & Delivery."""
+    statuses = set(VALID_SHIPMENT_TRANSITIONS)
+    stmt = (
+        select(Shipment)
+        .join(CommerceOrder, CommerceOrder.id == Shipment.order_id)
+        .options(
+            selectinload(Shipment.events).selectinload(ShipmentEvent.changed_by),
+            selectinload(Shipment.order).selectinload(CommerceOrder.items),
+            selectinload(Shipment.order).selectinload(CommerceOrder.user),
+        )
+        .where(CommerceOrder.status.not_in(("cancelled", "payment_failed", "pending_payment")))
+        .order_by(Shipment.created_at, Shipment.id)
+    )
+    if status:
+        if status not in statuses:
+            raise ValueError("Unsupported shipment status filter")
+        stmt = stmt.where(Shipment.status == status)
+    total_stmt = select(func.count(Shipment.id)).join(CommerceOrder, CommerceOrder.id == Shipment.order_id).where(
+        CommerceOrder.status.not_in(("cancelled", "payment_failed", "pending_payment"))
+    )
+    if status:
+        total_stmt = total_stmt.where(Shipment.status == status)
+    shipments = db.scalars(stmt.offset(offset).limit(limit)).all()
+    rows = []
+    for shipment in shipments:
+        order_data = _serialize_order_summary(shipment.order)
+        rows.append({
+            **_serialize_shipment(shipment),
+            "order_number": shipment.order.order_number,
+            "order_status": shipment.order.status,
+            "customer_name": order_data["customer_name"],
+            "delivery_address": shipment.order.delivery_address,
+            "items": order_data["items"],
+            "total_amount": order_data["total_amount"],
+            "currency": order_data["currency"],
+        })
+    return {"items": rows, "total": db.scalar(total_stmt) or 0, "limit": limit, "offset": offset}
 
 
 def list_admin_orders(
@@ -562,6 +674,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
             selectinload(CommerceOrder.payment_attempts),
             selectinload(CommerceOrder.shipment).selectinload(Shipment.events)
             .selectinload(ShipmentEvent.changed_by),
+            selectinload(CommerceOrder.events).selectinload(ShipmentEvent.changed_by),
         )
         .where(CommerceOrder.id == order_id)
     )
@@ -617,6 +730,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         events_out = [
             {
                 "id": ev.id,
+                "event_type": ev.event_type,
                 "previous_status": ev.previous_status,
                 "new_status": ev.new_status,
                 "note": ev.note,
@@ -669,6 +783,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
+        "next_status_options": _order_next_status_options(order),
         "payment_status": order.payment_status,
         "payment_method": order.payment_method,
         "checkout_mode": order.checkout_mode,
@@ -689,17 +804,33 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         "items": items_out,
         "payment_attempts": attempts_out,
         "shipment": shipment_out,
+        "order_events": [
+            {
+                "id": event.id,
+                "event_type": event.event_type,
+                "previous_status": event.previous_status,
+                "new_status": event.new_status,
+                "note": event.note,
+                "changed_by": event.changed_by.name if event.changed_by else None,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in order.events
+            if event.event_type == "order_status"
+        ],
         "return_requests": returns_out,
         "refunds": refunds_out,
     }
 
 
-def update_order_status(db: Session, order_id: int, new_status: str, changed_by: User) -> dict:
-    """
-    Validate and apply an admin order status transition.
-    - cancelled: releases reserved stock
-    - shipped: deducts inventory (reserved → reduce total_stock and reserved_stock)
-    """
+def update_order_status(
+    db: Session,
+    order_id: int,
+    new_status: str,
+    changed_by: User,
+    *,
+    note: str | None = None,
+) -> dict:
+    """Apply one order-processing transition and append its audit event."""
     order = db.scalar(
         select(CommerceOrder)
         .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.shipment))
@@ -715,38 +846,62 @@ def update_order_status(db: Session, order_id: int, new_status: str, changed_by:
             f"Cannot transition from '{order.status}' to '{new_status}'. "
             f"Allowed: {allowed or 'none (terminal state)'}"
         )
+    if new_status == "ready_to_ship" and order.shipment is not None and order.shipment.status not in {
+        "pending", "ready_for_dispatch",
+    }:
+        raise ValueError("Existing shipment has an unsupported legacy status and cannot be queued automatically.")
 
     now = _utcnow()
+    previous_status = order.status
 
     if new_status == "cancelled":
+        captured = order.payment_status in {"captured", "paid"} or any(
+            attempt.status == "captured" for attempt in order.payment_attempts
+        )
+        if captured:
+            raise ValueError("Captured online payments cannot be cancelled through order management.")
         _release_reserved_stock(db, order)
 
-    if new_status == "shipped":
-        _deduct_shipped_inventory(db, order)
-        # Ensure a shipment record exists
-        if not order.shipment:
-            shipment = Shipment(order_id=order.id, status="shipped", shipped_at=now)
-            db.add(shipment)
-        else:
-            if order.shipment.status not in ("shipped", "out_for_delivery", "delivered"):
-                old_ship_status = order.shipment.status
-                order.shipment.status = "shipped"
-                order.shipment.shipped_at = now
-                event = ShipmentEvent(
-                    shipment_id=order.shipment.id,
-                    previous_status=old_ship_status,
-                    new_status="shipped",
-                    changed_by_id=changed_by.id,
-                    note="Order status changed to shipped",
-                )
-                db.add(event)
-
-    if new_status == "delivered" and order.shipment:
-        order.shipment.status = "delivered"
-        order.shipment.delivered_at = now
-
     order.status = new_status
-    db.commit()
+    db.add(ShipmentEvent(
+        event_type="order_status",
+        order_id=order.id,
+        previous_status=previous_status,
+        new_status=new_status,
+        changed_by_id=changed_by.id,
+        note=note,
+    ))
+
+    if new_status == "ready_to_ship":
+        if order.shipment is None:
+            order.shipment = Shipment(order_id=order.id, status="ready_for_dispatch")
+            db.flush()
+            db.add(ShipmentEvent(
+                event_type="shipment_status",
+                shipment_id=order.shipment.id,
+                previous_status=None,
+                new_status="ready_for_dispatch",
+                changed_by_id=changed_by.id,
+                note="Shipment queued for dispatch",
+            ))
+        elif order.shipment.status == "pending":
+            order.shipment.status = "ready_for_dispatch"
+            db.add(ShipmentEvent(
+                event_type="shipment_status",
+                shipment_id=order.shipment.id,
+                previous_status="pending",
+                new_status="ready_for_dispatch",
+                changed_by_id=changed_by.id,
+                note="Legacy pending shipment queued for dispatch",
+            ))
+        elif order.shipment.status not in VALID_SHIPMENT_TRANSITIONS and order.shipment.status != "ready_for_dispatch":
+            raise ValueError("Existing shipment has an unsupported legacy status and cannot be queued automatically.")
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(order)
     return _serialize_order_summary(order)
 
@@ -774,7 +929,7 @@ def _release_reserved_stock(db: Session, order: CommerceOrder):
 
 
 def _deduct_shipped_inventory(db: Session, order: CommerceOrder):
-    """When shipped: reduce reserved_stock and total_stock (item leaves warehouse)."""
+    """At outbound dispatch, reduce reserved and on-hand stock exactly once."""
     if not order.items:
         return
     variant_ids = [item.variant_id for item in order.items]
@@ -787,11 +942,12 @@ def _deduct_shipped_inventory(db: Session, order: CommerceOrder):
     by_variant = {row.variant_id: row for row in rows}
     for item in order.items:
         inv = by_variant.get(item.variant_id)
-        if inv is None:
-            continue
-        deduct = min(item.quantity, inv.reserved_stock)
-        inv.reserved_stock -= deduct
-        inv.total_stock -= deduct
+        if inv is None or inv.reserved_stock < item.quantity or inv.total_stock < item.quantity:
+            raise ValueError("Reserved inventory is insufficient for outbound dispatch.")
+    for item in order.items:
+        inv = by_variant[item.variant_id]
+        inv.reserved_stock -= item.quantity
+        inv.total_stock -= item.quantity
         # available_stock is unchanged; invariant: available + reserved = total
         # new: available + (reserved - qty) = total - qty ✓
         inv.stock_status = "in_stock" if inv.available_stock > 0 else "out_of_stock"
@@ -805,6 +961,7 @@ def _serialize_shipment(shipment: Shipment) -> dict:
     events_out = [
         {
             "id": ev.id,
+            "event_type": ev.event_type,
             "previous_status": ev.previous_status,
             "new_status": ev.new_status,
             "note": ev.note,
@@ -817,6 +974,7 @@ def _serialize_shipment(shipment: Shipment) -> dict:
         "id": shipment.id,
         "order_id": shipment.order_id,
         "status": shipment.status,
+        "next_status_options": sorted(VALID_SHIPMENT_TRANSITIONS.get(shipment.status, set())),
         "carrier": shipment.carrier,
         "tracking_reference": shipment.tracking_reference,
         "tracking_url": shipment.tracking_url,
@@ -844,9 +1002,16 @@ def get_or_create_shipment(db: Session, order_id: int) -> Shipment:
         raise ValueError("Order not found")
     if order.shipment:
         return order.shipment
-    shipment = Shipment(order_id=order_id, status="pending")
+    shipment = Shipment(order_id=order_id, status="ready_for_dispatch")
     db.add(shipment)
     db.flush()
+    db.add(ShipmentEvent(
+        event_type="shipment_status",
+        shipment_id=shipment.id,
+        previous_status=None,
+        new_status="ready_for_dispatch",
+        note="Shipment queued for dispatch",
+    ))
     return shipment
 
 
@@ -860,9 +1025,10 @@ def update_shipment(
     tracking_url: str | None = None,
     estimated_delivery_date: datetime | None = None,
     notes: str | None = None,
+    audit_reason: str | None = None,
     changed_by: User,
 ) -> dict:
-    """Update shipment fields and record a ShipmentEvent on status change."""
+    """Apply one validated shipment transition and its coupled order/inventory writes."""
     order = db.scalar(
         select(CommerceOrder)
         .options(
@@ -878,14 +1044,39 @@ def update_shipment(
 
     shipment = order.shipment
     if shipment is None:
-        shipment = Shipment(order_id=order_id, status="pending")
-        db.add(shipment)
-        db.flush()
-        order.shipment = shipment
+        raise ValueError("Shipment not found")
 
     now = _utcnow()
+    if status is not None:
+        allowed = VALID_SHIPMENT_TRANSITIONS.get(shipment.status, set())
+        if status not in allowed:
+            raise ValueError(
+                f"Cannot transition shipment from '{shipment.status}' to '{status}'. "
+                f"Allowed: {sorted(allowed) or 'none (terminal or legacy state)'}"
+            )
+        if status == "delivered" and order.status not in {"ready_to_ship", "shipped", "out_for_delivery"}:
+            raise ValueError("Only an active fulfilment order can be completed by shipment delivery.")
+        if status == "out_for_delivery":
+            _deduct_shipped_inventory(db, order)
+        previous_status = shipment.status
+        shipment.status = status
+        if status == "out_for_delivery":
+            shipment.shipped_at = now
+        if status == "delivered":
+            shipment.delivered_at = now
+            order.status = "delivered"
 
-    # Apply non-status fields
+        event = ShipmentEvent(
+            event_type="shipment_status",
+            shipment_id=shipment.id,
+            previous_status=previous_status,
+            new_status=status,
+            changed_by_id=changed_by.id,
+            note=audit_reason or notes,
+        )
+        db.add(event)
+    if notes is not None:
+        shipment.notes = notes
     if carrier is not None:
         shipment.carrier = carrier
     if tracking_reference is not None:
@@ -894,37 +1085,12 @@ def update_shipment(
         shipment.tracking_url = tracking_url
     if estimated_delivery_date is not None:
         shipment.estimated_delivery_date = estimated_delivery_date
-    if notes is not None:
-        shipment.notes = notes
 
-    # Apply status change
-    if status is not None and status != shipment.status:
-        previous_status = shipment.status
-        shipment.status = status
-
-        # Inventory deduction on first transition to shipped
-        if status == "shipped" and previous_status not in ("shipped", "out_for_delivery", "delivered"):
-            _deduct_shipped_inventory(db, order)
-            shipment.shipped_at = now
-            # Sync order status if it's not yet shipped
-            if order.status == "packed":
-                order.status = "shipped"
-
-        if status == "delivered":
-            shipment.delivered_at = now
-            if order.status == "out_for_delivery":
-                order.status = "delivered"
-
-        event = ShipmentEvent(
-            shipment_id=shipment.id,
-            previous_status=previous_status,
-            new_status=status,
-            changed_by_id=changed_by.id,
-            note=notes,
-        )
-        db.add(event)
-
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     # Reload with events
     shipment = db.scalar(
         select(Shipment)
@@ -946,6 +1112,7 @@ def get_shipment_events(db: Session, order_id: int) -> list:
     return [
         {
             "id": ev.id,
+            "event_type": ev.event_type,
             "previous_status": ev.previous_status,
             "new_status": ev.new_status,
             "note": ev.note,

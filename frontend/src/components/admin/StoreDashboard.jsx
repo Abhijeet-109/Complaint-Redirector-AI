@@ -21,7 +21,12 @@ function StatusBadge({ status }) {
   const statusConfig = {
     pending: { bg: '#FEF3C7', color: '#B45309', label: 'Pending' },
     processing: { bg: '#CCFBF1', color: '#0F766E', label: 'Processing' },
+    accepted: { bg: '#E0F2FE', color: '#0369A1', label: 'Accepted' },
     packed: { bg: '#EDE9FE', color: '#6D28D9', label: 'Packed' },
+    ready_to_ship: { bg: '#EDE9FE', color: '#6D28D9', label: 'Ready to Ship' },
+    ready_for_dispatch: { bg: '#DBEAFE', color: '#1D4ED8', label: 'Ready for Dispatch' },
+    received: { bg: '#E0E7FF', color: '#4338CA', label: 'Received' },
+    scheduled: { bg: '#FEF3C7', color: '#B45309', label: 'Scheduled' },
     shipped: { bg: '#CFFAFE', color: '#0E7490', label: 'Shipped' },
     out_for_delivery: { bg: '#FFEDD5', color: '#C2410C', label: 'Out for Delivery' },
     delivered: { bg: '#DCFCE7', color: '#15803D', label: 'Delivered' },
@@ -566,9 +571,14 @@ export function StoreDashboard({ onNavigate }) {
 
             <div className="sd-fulfilment-list">
               {[
-                { key: 'pending', label: 'Pending', count: fc.pending || 0 },
+                { key: 'placed', label: 'Placed', count: fc.placed || 0 },
+                { key: 'accepted', label: 'Accepted', count: fc.accepted || 0 },
                 { key: 'processing', label: 'Processing', count: fc.processing || 0 },
                 { key: 'packed', label: 'Packed', count: fc.packed || 0 },
+                { key: 'ready_to_ship', label: 'Ready to Ship', count: fc.ready_to_ship || 0 },
+                { key: 'ready_for_dispatch', label: 'Ready for Dispatch', count: fc.ready_for_dispatch || 0 },
+                { key: 'received', label: 'Received', count: fc.received || 0 },
+                { key: 'scheduled', label: 'Scheduled', count: fc.scheduled || 0 },
                 { key: 'shipped', label: 'Shipped', count: fc.shipped || 0 },
                 { key: 'out_for_delivery', label: 'Out for Delivery', count: fc.out_for_delivery || 0 },
                 { key: 'delivered', label: 'Delivered', count: fc.delivered || 0 },
