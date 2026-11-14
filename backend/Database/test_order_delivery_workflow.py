@@ -54,6 +54,10 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
         )
         self.db.add(self.order)
         self.db.flush()
+        self.db.add(ShipmentEvent(
+            event_type="order_status", order_id=self.order.id, previous_status=None,
+            new_status="placed", changed_by_id=self.customer.id, note="Order placed",
+        ))
         self.db.add(CommerceOrderItem(
             order_id=self.order.id,
             variant_id=self.variant.id,
@@ -98,9 +102,10 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
 
         for status in ("received", "scheduled"):
             update_shipment(self.db, self.order.id, status=status, changed_by=self.handler)
-        update_shipment(self.db, self.order.id, status="out_for_delivery", changed_by=self.handler)
+        update_shipment(self.db, self.order.id, status="shipped", changed_by=self.handler)
         self.db.refresh(self.inventory)
         self.assertEqual((self.inventory.available_stock, self.inventory.reserved_stock, self.inventory.total_stock), (10, 0, 10))
+        update_shipment(self.db, self.order.id, status="out_for_delivery", changed_by=self.handler)
 
         with self.assertRaises(ValueError):
             update_shipment(self.db, self.order.id, status="out_for_delivery", changed_by=self.handler)
@@ -116,26 +121,41 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
         self.assertEqual(delivered["status"], "delivered")
         self.assertEqual(
             self.db.scalar(select(ShipmentEvent).where(ShipmentEvent.event_type == "order_status", ShipmentEvent.order_id == self.order.id).order_by(ShipmentEvent.id.desc())).new_status,
-            "ready_to_ship",
+            "delivered",
         )
         shipment_events = self.db.scalars(select(ShipmentEvent).where(ShipmentEvent.shipment_id == self.order.shipment.id)).all()
         self.assertEqual([event.new_status for event in shipment_events], [
-            "ready_for_dispatch", "received", "scheduled", "out_for_delivery", "delivered",
+            "ready_for_dispatch", "received", "scheduled", "shipped", "out_for_delivery", "delivered",
         ])
+        order_events = self.db.scalars(select(ShipmentEvent).where(
+            ShipmentEvent.event_type == "order_status", ShipmentEvent.order_id == self.order.id,
+        )).all()
+        self.assertEqual(order_events[-1].new_status, "delivered")
+        self.assertEqual(order_events[-1].changed_by_id, self.handler.id)
+        self.assertEqual(order_events[-1].created_at, self.order.shipment.events[-1].created_at)
+        shipment_event_count = len(shipment_events)
+        order_event_count = len(order_events)
+        with self.assertRaises(ValueError):
+            update_shipment(self.db, self.order.id, status="delivered", changed_by=self.handler)
+        self.db.rollback()
+        self.assertEqual(len(self.db.scalars(select(ShipmentEvent).where(ShipmentEvent.shipment_id == self.order.shipment.id)).all()), shipment_event_count)
+        self.assertEqual(len(self.db.scalars(select(ShipmentEvent).where(
+            ShipmentEvent.event_type == "order_status", ShipmentEvent.order_id == self.order.id,
+        )).all()), order_event_count)
 
         self.actor = self.customer
         customer_orders = self.client.get("/api/account/orders").json()
         customer_order = next(item for item in customer_orders if item["id"] == self.order.id)
-        self.assertEqual([event["event_type"] for event in customer_order["tracking_events"]], [
-            "order_status", "order_status", "order_status", "order_status",
-            "shipment_status", "shipment_status", "shipment_status", "shipment_status", "shipment_status",
+        self.assertEqual([event["stage"] for event in customer_order["tracking_milestones"]], [
+            "order_confirmed", "shipped", "out_for_delivery", "delivered",
         ])
+        self.assertEqual(len([event for event in customer_order["tracking_milestones"] if event.get("created_at")]), 4)
         self.assertEqual(customer_order["shipment"]["carrier"], None)
 
     def test_failed_delivery_transaction_keeps_order_and_shipment_unchanged(self):
         for status in ("accepted", "processing", "packed", "ready_to_ship"):
             update_order_status(self.db, self.order.id, status, changed_by=self.handler)
-        for status in ("received", "scheduled", "out_for_delivery"):
+        for status in ("received", "scheduled", "shipped", "out_for_delivery"):
             update_shipment(self.db, self.order.id, status=status, changed_by=self.handler)
 
         with patch.object(self.db, "commit", side_effect=RuntimeError("simulated transaction failure")):
@@ -146,14 +166,28 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
         self.assertEqual(self.order.status, "ready_to_ship")
         self.assertEqual(self.order.shipment.status, "out_for_delivery")
         self.assertIsNone(self.order.shipment.delivered_at)
+        order_events = self.db.scalars(select(ShipmentEvent).where(
+            ShipmentEvent.event_type == "order_status", ShipmentEvent.order_id == self.order.id,
+        )).all()
+        self.assertNotIn("delivered", [event.new_status for event in order_events])
 
     def test_dashboard_does_not_count_unmatched_shipment_as_delivered(self):
         self.order.status = "ready_to_ship"
         self.order.shipment = Shipment(order_id=self.order.id, status="delivered")
         self.db.commit()
-        counts = get_store_dashboard_kpis(self.db)["fulfilment_counts"]
+        counts = get_store_dashboard_kpis(self.db)["fulfilment_overview"]
+        self.assertEqual(set(counts), {"placed", "packed", "ready_to_ship", "out_for_delivery", "delivered"})
         self.assertEqual(counts["ready_to_ship"], 1)
         self.assertEqual(counts["delivered"], 0)
+
+    def test_dashboard_uses_shipment_for_out_for_delivery_without_double_counting(self):
+        self.order.status = "ready_to_ship"
+        self.order.shipment = Shipment(order_id=self.order.id, status="out_for_delivery")
+        self.db.commit()
+        counts = get_store_dashboard_kpis(self.db)["fulfilment_overview"]
+        self.assertEqual(counts["out_for_delivery"], 1)
+        self.assertEqual(counts["ready_to_ship"], 0)
+        self.assertEqual(sum(counts.values()), 1)
 
     def test_order_management_cannot_advance_shipment_statuses(self):
         for invalid_status in ("shipped", "out_for_delivery", "delivered"):
@@ -170,6 +204,8 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
         update_order_status(self.db, self.order.id, "ready_to_ship", changed_by=self.handler)
         with self.assertRaises(ValueError):
             update_shipment(self.db, self.order.id, status="scheduled", changed_by=self.handler)
+        with self.assertRaises(ValueError):
+            update_shipment(self.db, self.order.id, status="delivered", changed_by=self.handler)
         self.db.rollback()
         self.db.refresh(self.inventory)
         self.assertEqual((self.inventory.reserved_stock, self.inventory.total_stock), (2, 12))
@@ -201,22 +237,91 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
         self.assertEqual(profile.json()["department_id"], self.delivery_department.id)
         self.assertEqual(profile.json()["department_name"], "Order & Delivery")
 
-    def test_admin_status_override_requires_reason_and_records_it(self):
+    def test_admin_status_override_reason_is_optional_and_recorded_when_supplied(self):
         self.actor = self.admin
-        missing_reason = self.client.patch(
+        empty_reason = self.client.patch(
             f"/api/admin/commerce/orders/{self.order.id}/status",
-            json={"status": "accepted"},
+            json={"status": "accepted", "reason": "  "},
         )
-        self.assertEqual(missing_reason.status_code, 422)
+        self.assertEqual(empty_reason.status_code, 200)
+        empty_event = self.db.scalar(select(ShipmentEvent).where(
+            ShipmentEvent.event_type == "order_status", ShipmentEvent.order_id == self.order.id,
+        ).order_by(ShipmentEvent.id.desc()))
+        self.assertIsNone(empty_event.note)
         updated = self.client.patch(
             f"/api/admin/commerce/orders/{self.order.id}/status",
-            json={"status": "accepted", "reason": "Emergency order review"},
+            json={"status": "processing", "reason": "Emergency order review"},
         )
         self.assertEqual(updated.status_code, 200)
         event = self.db.scalar(select(ShipmentEvent).where(
             ShipmentEvent.event_type == "order_status", ShipmentEvent.order_id == self.order.id,
         ).order_by(ShipmentEvent.id.desc()))
         self.assertEqual(event.note, "Emergency order review")
+
+    def test_legacy_pending_and_shipped_shipments_remain_actionable_without_double_deduction(self):
+        self.order.status = "ready_to_ship"
+        self.order.shipment = Shipment(order_id=self.order.id, status="pending")
+        self.db.commit()
+        update_shipment(self.db, self.order.id, status="ready_for_dispatch", changed_by=self.handler)
+        self.assertEqual(self.order.shipment.status, "ready_for_dispatch")
+
+        self.order.status = "shipped"
+        self.order.shipment.status = "shipped"
+        self.inventory.total_stock = 10
+        self.inventory.reserved_stock = 0
+        self.inventory.available_stock = 10
+        self.db.commit()
+        update_shipment(self.db, self.order.id, status="out_for_delivery", changed_by=self.handler)
+        self.assertEqual(self.order.shipment.status, "out_for_delivery")
+        self.assertEqual(self.inventory.total_stock, 10)
+
+    def test_handler_can_save_shipment_metadata_and_status_only_preserves_it(self):
+        for status in ("accepted", "processing", "packed", "ready_to_ship"):
+            update_order_status(self.db, self.order.id, status, changed_by=self.handler)
+        response = self.client.patch(
+            f"/api/v1/departments/order-delivery/shipments/{self.order.id}/status",
+            json={
+                "carrier": "Example Carrier",
+                "tracking_reference": "AWB-123",
+                "tracking_url": "https://carrier.example/track/AWB-123",
+                "estimated_delivery_date": "2026-11-20T00:00:00Z",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["carrier"], "Example Carrier")
+        self.db.expire_all()
+        self.assertEqual(self.order.shipment.status, "ready_for_dispatch")
+        update_shipment(self.db, self.order.id, status="received", changed_by=self.handler)
+        update_shipment(self.db, self.order.id, status="scheduled", changed_by=self.handler)
+        self.assertEqual(self.order.shipment.carrier, "Example Carrier")
+        self.assertEqual(self.order.shipment.tracking_reference, "AWB-123")
+        self.assertEqual(self.order.shipment.tracking_url, "https://carrier.example/track/AWB-123")
+        self.assertIsNotNone(self.order.shipment.estimated_delivery_date)
+
+    def test_admin_shipment_reason_is_optional_and_invalid_transition_remains_rejected(self):
+        for status in ("accepted", "processing", "packed", "ready_to_ship"):
+            update_order_status(self.db, self.order.id, status, changed_by=self.handler)
+        self.actor = self.admin
+        no_reason = self.client.patch(
+            f"/api/admin/commerce/orders/{self.order.id}/shipment",
+            json={"status": "received", "reason": ""},
+        )
+        self.assertEqual(no_reason.status_code, 200, no_reason.text)
+        supplied_reason = self.client.patch(
+            f"/api/admin/commerce/orders/{self.order.id}/shipment",
+            json={"status": "scheduled", "reason": "Carrier scheduling correction"},
+        )
+        self.assertEqual(supplied_reason.status_code, 200, supplied_reason.text)
+        event = self.db.scalar(select(ShipmentEvent).where(
+            ShipmentEvent.event_type == "shipment_status",
+            ShipmentEvent.shipment_id == self.order.shipment.id,
+        ).order_by(ShipmentEvent.id.desc()))
+        self.assertEqual(event.note, "Carrier scheduling correction")
+        invalid = self.client.patch(
+            f"/api/admin/commerce/orders/{self.order.id}/shipment",
+            json={"status": "delivered"},
+        )
+        self.assertEqual(invalid.status_code, 409)
 
 
 if __name__ == "__main__":

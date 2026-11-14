@@ -259,6 +259,22 @@ def _order_payload(order, return_claims=None):
         order_events + shipment_events,
         key=lambda event: (event["created_at"] or "", event["id"]),
     )
+    customer_stages = {
+        ("order_status", "placed"): ("order_confirmed", "Order Confirmed"),
+        ("shipment_status", "shipped"): ("shipped", "Shipped"),
+        ("shipment_status", "out_for_delivery"): ("out_for_delivery", "Out for Delivery"),
+        ("shipment_status", "delivered"): ("delivered", "Delivered"),
+    }
+    milestones = {}
+    for event in result["tracking_events"]:
+        mapped = customer_stages.get((event["event_type"], event["new_status"]))
+        if mapped:
+            stage, label = mapped
+            milestones.setdefault(stage, {"stage": stage, "label": label, **event})
+    result["tracking_milestones"] = [
+        milestones.get(stage, {"stage": stage, "label": label, "created_at": None})
+        for stage, label in customer_stages.values()
+    ]
     claims_by_item = {}
     for claim in (return_claims or []):
         claims_by_item.setdefault(claim.order_item_id, []).append({

@@ -1688,6 +1688,22 @@
   display: none; /* Chrome, Safari, Opera */
 }
 
+/* Order details drawer keeps its own accessible scroll region. */
+.sd-order-drawer {
+  min-height: 0;
+}
+.sd-order-drawer-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sd-order-drawer-content::-webkit-scrollbar {
+  display: none;
+}
+
 /* Rows in Scroll Lists */
 .sd-order-row {
   display: flex;

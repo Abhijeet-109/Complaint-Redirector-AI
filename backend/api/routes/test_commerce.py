@@ -20,6 +20,7 @@ from backend.Database.models import (
     PaymentAttempt,
     Product,
     ProductVariant,
+    ShipmentOption,
     User,
 )
 from backend.Database.seed_commerce import seed_catalog
@@ -40,6 +41,9 @@ class CommerceApiTests(unittest.TestCase):
         self.session.add_all([self.user, self.other_user])
         self.session.flush()
         seed_catalog(self.session)
+        self.session.add(ShipmentOption(
+            pin_code="411001", area="Central Market", city="Pune", state="Maharashtra", is_active=True,
+        ))
         for product in self.session.scalars(select(Product)).all():
             product.payment_methods = ["cod", "upi", "netbanking"]
         self.session.commit()

@@ -105,32 +105,33 @@ const RETURN_REASON_OPTIONS = [
 ];
 
 function OrderLifecycleTimeline({ order }) {
-  const events = order.tracking_events || [];
-  if (events.length === 0) {
-    return <div className="fk-tracking-empty">No tracking events yet</div>;
-  }
+  const milestones = order.tracking_milestones || [];
 
   return (
     <div className="fk-delivery-timeline-block">
-      {events.map((event, index) => (
-        <div className="fk-timeline-step is-completed" key={`${event.event_type}-${event.id}`}>
+      {milestones.map((milestone, index) => (
+        <div className={`fk-timeline-step ${milestone.created_at ? 'is-completed' : 'is-pending'}`} key={milestone.stage}>
           <div className="fk-timeline-marker">
-            <span className="fk-marker-dot"><Check size={11} strokeWidth={3} /></span>
-            {index < events.length - 1 && <span className="fk-timeline-line is-completed" />}
+            <span className="fk-marker-dot">
+              {milestone.created_at ? <Check size={11} strokeWidth={3} /> : <span className="fk-hollow-dot" />}
+            </span>
+            {index < milestones.length - 1 && <span className={`fk-timeline-line ${milestone.created_at ? 'is-completed' : 'is-pending'}`} />}
           </div>
           <div className="fk-timeline-content">
-            <strong className="fk-timeline-label">
-              {event.event_type === 'shipment_status' ? 'Shipment: ' : 'Order: '}{humanize(event.new_status)}
-            </strong>
-            {event.note && <span className="fk-timeline-time">{event.note}</span>}
-            <span className="fk-timeline-time">
-              {event.created_at ? formatShortDateTime(event.created_at) : 'Timestamp unavailable'}
-            </span>
+            <strong className="fk-timeline-label">{milestone.label}</strong>
+            {milestone.created_at && <span className="fk-timeline-time">{formatShortDateTime(milestone.created_at)}</span>}
           </div>
         </div>
       ))}
     </div>
   );
+}
+
+function customerOrderTrackingStatus(order) {
+  const completed = (order.tracking_milestones || []).filter((item) => item.created_at);
+  if (completed.length) return completed[completed.length - 1].label;
+  if (['cancelled', 'payment_failed', 'pending_payment'].includes(order.status)) return humanize(order.status);
+  return 'Order Confirmed';
 }
 
 export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger }) {
@@ -508,7 +509,7 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                           <Check size={11} strokeWidth={3} />
                         </span>
                       )}
-                      <span>{humanize(order.status)}</span>
+                      <span>{customerOrderTrackingStatus(order)}</span>
                     </span>
                   </div>
 
@@ -1046,9 +1047,21 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                 <div>
                   <span className="fk-meta-label">Current Status</span>
                   <span className="fk-order-status-badge">
-                    {humanize(trackingModalOrder.shipment?.status || trackingModalOrder.status)}
+                    {customerOrderTrackingStatus(trackingModalOrder)}
                   </span>
                 </div>
+                {trackingModalOrder.shipment?.estimated_delivery_date && (
+                  <div>
+                    <span className="fk-meta-label">Estimated Delivery</span>
+                    <strong>{formatDateOnly(trackingModalOrder.shipment.estimated_delivery_date)}</strong>
+                  </div>
+                )}
+                {trackingModalOrder.shipment?.tracking_url && (
+                  <div>
+                    <span className="fk-meta-label">Carrier Tracking</span>
+                    <a href={trackingModalOrder.shipment.tracking_url} target="_blank" rel="noreferrer">Open tracking page</a>
+                  </div>
+                )}
               </div>
 
               {/* Delivery Address */}
@@ -1074,13 +1087,12 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
               {/* Events timeline */}
               <div className="fk-tracking-events-list">
                 <span className="fk-meta-label">Activity Updates</span>
-                {trackingModalOrder.tracking_events && trackingModalOrder.tracking_events.length > 0 ? (
-                  trackingModalOrder.tracking_events.map((ev, idx) => (
+                {trackingModalOrder.tracking_milestones?.some((item) => item.created_at) ? (
+                  trackingModalOrder.tracking_milestones.filter((item) => item.created_at).map((ev, idx) => (
                     <div key={ev.id || idx} className="fk-tracking-event-item">
                       <div className="fk-event-dot" />
                       <div className="fk-event-details">
-                        <strong>{ev.event_type === 'shipment_status' ? 'Shipment: ' : 'Order: '}{humanize(ev.new_status)}</strong>
-                        {ev.note && <p>{ev.note}</p>}
+                        <strong>{ev.label}</strong>
                         <span>{ev.created_at ? formatOrderDateTime(ev.created_at) : 'Timestamp unavailable'}</span>
                       </div>
                     </div>

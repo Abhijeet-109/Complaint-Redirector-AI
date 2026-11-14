@@ -113,6 +113,13 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
     }
   }, [focusedOrderId, orders, onClearFocusedOrder]);
 
+  useEffect(() => {
+    if (!selectedOrderId) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [selectedOrderId]);
+
   const showToast = (type, message) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 4000);
@@ -189,10 +196,10 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
   };
 
   const handleUpdateOrderStatus = async () => {
-    if (!targetStatus || !selectedOrder || orderOverrideReason.trim().length < 3) return;
+    if (!targetStatus || !selectedOrder) return;
     setUpdatingStatus(true);
     try {
-      await adminService.updateOrderStatus(selectedOrder.id, targetStatus, orderOverrideReason.trim());
+      await adminService.updateOrderStatus(selectedOrder.id, targetStatus, orderOverrideReason.trim() || null);
       showToast('success', `Order status updated to ${targetStatus}`);
       // Refresh detail and list
       const updated = await adminService.getAdminOrderDetail(selectedOrder.id);
@@ -208,7 +215,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
   };
 
   const handleUpdateShipment = async () => {
-    if (!selectedOrder || shipmentOverrideReason.trim().length < 3) return;
+    if (!selectedOrder) return;
     setUpdatingShipment(true);
     try {
       const payload = {
@@ -218,7 +225,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
         tracking_url: trackingUrl.trim() || null,
         estimated_delivery_date: estimatedDelivery ? new Date(estimatedDelivery).toISOString() : null,
         notes: shipmentNotes.trim() || null,
-        reason: shipmentOverrideReason.trim(),
+        reason: shipmentOverrideReason.trim() || null,
       };
       await adminService.updateShipment(selectedOrder.id, payload);
       showToast('success', 'Shipment tracking updated successfully');
@@ -461,10 +468,10 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
           background: 'rgba(18, 45, 41, 0.4)', backdropFilter: 'blur(4px)',
           zIndex: 100, display: 'flex', justifyContent: 'flex-end',
         }}>
-          <div style={{
+          <div className="sd-order-drawer" style={{
             width: '100%', maxWidth: 640, height: '100%', background: '#F5F0E8',
             boxShadow: '-4px 0 20px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column',
-            overflowY: 'auto',
+            overflow: 'hidden',
           }}>
             {/* Drawer Header */}
             <div style={{
@@ -481,6 +488,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
               </div>
               <button
                 onClick={() => { setSelectedOrderId(null); setSelectedOrder(null); }}
+                aria-label="Close order details"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#5C5A54' }}
               >
                 <X size={20} />
@@ -488,12 +496,12 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
             </div>
 
             {loadingDetail ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 10 }}>
+              <div className="sd-order-drawer-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
                 <div style={{ width: 24, height: 24, border: '2px solid #E5DFC8', borderTopColor: '#122D29', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                 <span>Loading order details...</span>
               </div>
             ) : selectedOrder ? (
-              <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="sd-order-drawer-content" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
                 {/* Status & Transitions Card */}
                 <div className="sd-card">
@@ -531,7 +539,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
                         <input
                           type="text"
                           aria-label="Admin override reason"
-                          placeholder="Required override reason"
+                          placeholder="Optional override reason"
                           value={orderOverrideReason}
                           onChange={e => setOrderOverrideReason(e.target.value)}
                           maxLength={500}
@@ -539,7 +547,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
                         />
                         <button
                           onClick={handleUpdateOrderStatus}
-                          disabled={!targetStatus || orderOverrideReason.trim().length < 3 || updatingStatus}
+                          disabled={!targetStatus || updatingStatus}
                           style={{
                             background: '#122D29', color: '#fff', border: 'none', borderRadius: 6,
                             padding: '0 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
@@ -684,7 +692,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
                   </div>
 
                   <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>Required Admin Override Reason</label>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>Admin Override Reason (optional)</label>
                     <input
                       type="text"
                       value={shipmentOverrideReason}
@@ -696,7 +704,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
 
                   <button
                     onClick={handleUpdateShipment}
-                    disabled={updatingShipment || shipmentOverrideReason.trim().length < 3 || !selectedOrder.shipment}
+                    disabled={updatingShipment || !selectedOrder.shipment}
                     style={{
                       background: '#4A6741', color: '#fff', border: 'none', borderRadius: 8,
                       padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',

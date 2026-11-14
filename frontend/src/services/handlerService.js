@@ -22,9 +22,9 @@ export const handlerService = {
     const qs = query.toString();
     return apiRequest(`/api/v1/departments/order-delivery/shipments${qs ? `?${qs}` : ''}`, { method: 'GET' });
   },
-  updateOrderDeliveryShipmentStatus(orderId, status, note) {
+  updateOrderDeliveryShipmentStatus(orderId, status, note, metadata = {}) {
     return apiRequest(`/api/v1/departments/order-delivery/shipments/${orderId}/status`, {
-      method: 'PATCH', body: JSON.stringify({ status, note: note || null }),
+      method: 'PATCH', body: JSON.stringify({ status: status || null, note: note || null, ...metadata }),
     });
   },
   getOrderDeliveryReturnHandoffs(params = {}) {

@@ -429,7 +429,7 @@ export function StoreDashboard({ onNavigate }) {
     </div>
   );
 
-  const fc = kpis?.fulfilment_counts || {};
+  const fc = kpis?.fulfilment_overview || {};
 
   return (
     <div className="sd-dashboard">
@@ -572,14 +572,8 @@ export function StoreDashboard({ onNavigate }) {
             <div className="sd-fulfilment-list">
               {[
                 { key: 'placed', label: 'Placed', count: fc.placed || 0 },
-                { key: 'accepted', label: 'Accepted', count: fc.accepted || 0 },
-                { key: 'processing', label: 'Processing', count: fc.processing || 0 },
                 { key: 'packed', label: 'Packed', count: fc.packed || 0 },
                 { key: 'ready_to_ship', label: 'Ready to Ship', count: fc.ready_to_ship || 0 },
-                { key: 'ready_for_dispatch', label: 'Ready for Dispatch', count: fc.ready_for_dispatch || 0 },
-                { key: 'received', label: 'Received', count: fc.received || 0 },
-                { key: 'scheduled', label: 'Scheduled', count: fc.scheduled || 0 },
-                { key: 'shipped', label: 'Shipped', count: fc.shipped || 0 },
                 { key: 'out_for_delivery', label: 'Out for Delivery', count: fc.out_for_delivery || 0 },
                 { key: 'delivered', label: 'Delivered', count: fc.delivered || 0 },
               ].map(item => (

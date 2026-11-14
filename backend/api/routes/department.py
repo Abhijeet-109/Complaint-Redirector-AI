@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func, and_
@@ -83,8 +84,29 @@ class OrderDeliveryStatusInput(BaseModel):
 
 class ShipmentStatusInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    status: str = Field(min_length=1, max_length=24)
+    status: str | None = Field(default=None, min_length=1, max_length=24)
     note: str | None = Field(default=None, max_length=500)
+    carrier: str | None = Field(default=None, max_length=120)
+    tracking_reference: str | None = Field(default=None, max_length=120)
+    tracking_url: str | None = Field(default=None, max_length=500)
+    estimated_delivery_date: datetime | None = None
+
+    @field_validator("tracking_url")
+    @classmethod
+    def tracking_url_must_be_http(cls, value):
+        if value is None:
+            return value
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Tracking URL must be an absolute HTTP or HTTPS URL.")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def reject_blank_status(cls, value):
+        if value == "":
+            raise ValueError("Status cannot be blank.")
+        return value
 
 
 class OrderDeliveryMilestoneInput(BaseModel):
@@ -851,7 +873,10 @@ def patch_order_delivery_shipment_status(
     _require_department_handler(db, actor, "Order & Delivery")
     try:
         return update_shipment(
-            db, order_id, status=payload.status, notes=payload.note, changed_by=actor,
+            db, order_id, status=payload.status, notes=payload.note,
+            carrier=payload.carrier, tracking_reference=payload.tracking_reference,
+            tracking_url=payload.tracking_url, estimated_delivery_date=payload.estimated_delivery_date,
+            changed_by=actor,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))

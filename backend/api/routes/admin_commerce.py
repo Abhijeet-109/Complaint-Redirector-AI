@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from backend.auth.dependencies import get_db, require_role
@@ -44,7 +44,12 @@ admin_access = require_role("admin", "super_admin")
 class OrderStatusUpdateInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     status: str = Field(..., description="Target order status")
-    reason: str = Field(..., min_length=3, max_length=500, description="Required admin override reason")
+    reason: str | None = Field(default=None, min_length=3, max_length=500, description="Optional admin override reason")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def blank_reason_is_absent(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
 
 
 class ShipmentUpdateInput(BaseModel):
@@ -55,7 +60,12 @@ class ShipmentUpdateInput(BaseModel):
     tracking_url: Optional[str] = Field(None, description="Public tracking URL")
     estimated_delivery_date: Optional[datetime] = Field(None, description="Estimated delivery timestamp")
     notes: Optional[str] = Field(None, description="Shipment notes")
-    reason: str = Field(..., min_length=3, max_length=500, description="Required admin override reason")
+    reason: str | None = Field(default=None, min_length=3, max_length=500, description="Optional admin override reason")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def blank_reason_is_absent(cls, value):
+        return value.strip() or None if isinstance(value, str) else value
 
 
 class ReturnStatusUpdateInput(BaseModel):
@@ -193,7 +203,7 @@ def patch_order_status(
     db: Session = Depends(get_db),
     actor: User = Depends(admin_access),
 ):
-    """Apply a privileged, reason-recorded order status override."""
+    """Apply a privileged order status change with an optional audit reason."""
     try:
         return update_order_status(db, order_id, payload.status, changed_by=actor, note=payload.reason)
     except ValueError as exc:
@@ -227,7 +237,7 @@ def patch_order_shipment(
     db: Session = Depends(get_db),
     actor: User = Depends(admin_access),
 ):
-    """Apply a privileged, reason-recorded shipment update with audit trail."""
+    """Apply a privileged shipment update with an optional audit reason."""
     try:
         return update_shipment(
             db,

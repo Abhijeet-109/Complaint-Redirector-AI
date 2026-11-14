@@ -8,17 +8,25 @@ const statusLabel = (value) => String(value || '').replace(/_/g, ' ').replace(/\
 export function HandlerOrderDeliveryView({ kind, orders = [], shipments = [], loading, error, onRefresh, onNavigate }) {
   const [targets, setTargets] = useState({});
   const [notes, setNotes] = useState({});
+  const [metadata, setMetadata] = useState({});
   const [saving, setSaving] = useState({});
   const [actionError, setActionError] = useState('');
 
   const submit = async (id, type) => {
     const status = targets[id];
-    if (!status || saving[id]) return;
+    const values = metadata[id] || {};
+    const shipmentMetadata = type === 'shipment' ? {
+      ...(values.carrier?.trim() ? { carrier: values.carrier.trim() } : {}),
+      ...(values.tracking_reference?.trim() ? { tracking_reference: values.tracking_reference.trim() } : {}),
+      ...(values.tracking_url?.trim() ? { tracking_url: values.tracking_url.trim() } : {}),
+      ...(values.estimated_delivery_date ? { estimated_delivery_date: new Date(values.estimated_delivery_date).toISOString() } : {}),
+    } : {};
+    if ((!status && Object.keys(shipmentMetadata).length === 0) || saving[id]) return;
     setSaving((prev) => ({ ...prev, [id]: true }));
     setActionError('');
     try {
       if (type === 'order') await handlerService.updateOrderDeliveryOrderStatus(id, status, notes[id]);
-      else await handlerService.updateOrderDeliveryShipmentStatus(id, status, notes[id]);
+      else await handlerService.updateOrderDeliveryShipmentStatus(id, status, notes[id], shipmentMetadata);
       setTargets((prev) => ({ ...prev, [id]: '' }));
       setNotes((prev) => ({ ...prev, [id]: '' }));
       await onRefresh();
@@ -66,6 +74,14 @@ export function HandlerOrderDeliveryView({ kind, orders = [], shipments = [], lo
           {rows.map((row) => {
             const id = isOrders ? row.id : row.order_id;
             const address = row.delivery_address || {};
+            const metadataValues = metadata[id] || {};
+            const metadataChanged = [
+              ['carrier', row.carrier || ''],
+              ['tracking_reference', row.tracking_reference || ''],
+              ['tracking_url', row.tracking_url || ''],
+              ['estimated_delivery_date', row.estimated_delivery_date ? row.estimated_delivery_date.slice(0, 10) : ''],
+            ].some(([field, original]) => Object.prototype.hasOwnProperty.call(metadataValues, field) &&
+              metadataValues[field] !== original && Boolean(String(metadataValues[field] || '').trim()));
             return (
               <article className="hd-card" key={`${kind}-${id}`} style={{ padding: 20 }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 14 }}>
@@ -78,6 +94,7 @@ export function HandlerOrderDeliveryView({ kind, orders = [], shipments = [], lo
                       <p style={{ margin: '6px 0' }}>Destination: {[address.locality, address.city, address.state, address.pin_code].filter(Boolean).join(', ') || 'Address unavailable'}</p>
                       <p style={{ margin: '6px 0' }}>Scheduled delivery: {dateLabel(row.estimated_delivery_date)}</p>
                       <p style={{ margin: '6px 0' }}>Carrier: {row.carrier || 'Not assigned'} · Tracking: {row.tracking_reference || 'Not available'}</p>
+                      {row.tracking_url && <a href={row.tracking_url} target="_blank" rel="noreferrer">Open carrier tracking</a>}
                     </>}
                     <p style={{ margin: '6px 0' }}>Placed: {dateLabel(row.placed_at || row.created_at)}</p>
                   </div>
@@ -90,8 +107,18 @@ export function HandlerOrderDeliveryView({ kind, orders = [], shipments = [], lo
                       </select>
                       <label style={{ display: 'block', marginBottom: 6 }} htmlFor={`${kind}-note-${id}`}>Operational note (optional)</label>
                       <textarea id={`${kind}-note-${id}`} value={notes[id] || ''} maxLength={500} onChange={(e) => setNotes((prev) => ({ ...prev, [id]: e.target.value }))} rows={2} style={{ width: '100%', padding: 9, marginBottom: 8 }} />
-                      <button type="button" disabled={!targets[id] || saving[id]} onClick={() => submit(id, isOrders ? 'order' : 'shipment')}>
-                        {saving[id] ? 'Saving…' : 'Update status'}
+                      {!isOrders && <>
+                        <label style={{ display: 'block', marginBottom: 6 }} htmlFor={`carrier-${id}`}>Carrier (optional)</label>
+                        <input id={`carrier-${id}`} value={metadata[id]?.carrier ?? row.carrier ?? ''} maxLength={120} onChange={(e) => setMetadata((prev) => ({ ...prev, [id]: { ...prev[id], carrier: e.target.value } }))} style={{ width: '100%', padding: 9, marginBottom: 8 }} />
+                        <label style={{ display: 'block', marginBottom: 6 }} htmlFor={`tracking-reference-${id}`}>Tracking reference (optional)</label>
+                        <input id={`tracking-reference-${id}`} value={metadata[id]?.tracking_reference ?? row.tracking_reference ?? ''} maxLength={120} onChange={(e) => setMetadata((prev) => ({ ...prev, [id]: { ...prev[id], tracking_reference: e.target.value } }))} style={{ width: '100%', padding: 9, marginBottom: 8 }} />
+                        <label style={{ display: 'block', marginBottom: 6 }} htmlFor={`tracking-url-${id}`}>Tracking URL (optional)</label>
+                        <input id={`tracking-url-${id}`} type="url" value={metadata[id]?.tracking_url ?? row.tracking_url ?? ''} maxLength={500} onChange={(e) => setMetadata((prev) => ({ ...prev, [id]: { ...prev[id], tracking_url: e.target.value } }))} style={{ width: '100%', padding: 9, marginBottom: 8 }} />
+                        <label style={{ display: 'block', marginBottom: 6 }} htmlFor={`delivery-date-${id}`}>Estimated delivery date (optional)</label>
+                        <input id={`delivery-date-${id}`} type="date" value={metadata[id]?.estimated_delivery_date ?? (row.estimated_delivery_date ? row.estimated_delivery_date.slice(0, 10) : '')} onChange={(e) => setMetadata((prev) => ({ ...prev, [id]: { ...prev[id], estimated_delivery_date: e.target.value } }))} style={{ width: '100%', padding: 9, marginBottom: 8 }} />
+                      </>}
+                      <button type="button" disabled={(!targets[id] && (isOrders || !metadataChanged)) || saving[id]} onClick={() => submit(id, isOrders ? 'order' : 'shipment')}>
+                        {saving[id] ? 'Saving…' : isOrders ? 'Update status' : 'Save shipment update'}
                       </button>
                     </> : <p>This record has no further supported transition.</p>}
                   </div>

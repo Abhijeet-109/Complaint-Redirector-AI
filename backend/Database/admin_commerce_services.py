@@ -60,9 +60,12 @@ VALID_ORDER_TRANSITIONS: dict[str, set[str]] = {
 }
 
 VALID_SHIPMENT_TRANSITIONS: dict[str, set[str]] = {
+    # Legacy rows stay actionable without inferring that dispatch has happened.
+    "pending": {"ready_for_dispatch"},
     "ready_for_dispatch": {"received"},
     "received": {"scheduled"},
-    "scheduled": {"out_for_delivery"},
+    "scheduled": {"shipped"},
+    "shipped": {"out_for_delivery"},
     "out_for_delivery": {"delivered"},
     "delivered": set(),
 }
@@ -173,6 +176,21 @@ def get_store_dashboard_kpis(db: Session) -> dict:
             # Legacy order rows are counted by their persisted historical stage.
             fc[ord_st] += 1
 
+    # Canonical five-stage dashboard: every row represents one order, with
+    # shipment-owned stages sourced only from Shipment.status.
+    fulfilment_overview = {key: 0 for key in (
+        "placed", "packed", "ready_to_ship", "out_for_delivery", "delivered",
+    )}
+    for row in active_orders:
+        ord_st = (row.status or "").lower()
+        shp_st = (row.shipment_status or "").lower()
+        if ord_st == "delivered" and shp_st == "delivered":
+            fulfilment_overview["delivered"] += 1
+        elif shp_st == "out_for_delivery":
+            fulfilment_overview["out_for_delivery"] += 1
+        elif ord_st in {"placed", "packed", "ready_to_ship"}:
+            fulfilment_overview[ord_st] += 1
+
     pending_fulfilment = sum(fc[key] for key in ("placed", "accepted", "processing", "packed", "ready_to_ship"))
 
     # Pending payment capture
@@ -219,6 +237,7 @@ def get_store_dashboard_kpis(db: Session) -> dict:
         "total_orders": total_orders,
         "orders_by_status": order_by_status,
         "fulfilment_counts": fc,
+        "fulfilment_overview": fulfilment_overview,
         "order_stage_counts": {key: fc[key] for key in ("placed", "accepted", "processing", "packed", "ready_to_ship")},
         "shipment_stage_counts": {key: fc[key] for key in ("ready_for_dispatch", "received", "scheduled", "out_for_delivery", "delivered")},
         "pending_fulfilment": pending_fulfilment,
@@ -1056,15 +1075,26 @@ def update_shipment(
             )
         if status == "delivered" and order.status not in {"ready_to_ship", "shipped", "out_for_delivery"}:
             raise ValueError("Only an active fulfilment order can be completed by shipment delivery.")
-        if status == "out_for_delivery":
+        if status == "shipped" and shipment.status != "shipped":
             _deduct_shipped_inventory(db, order)
         previous_status = shipment.status
         shipment.status = status
-        if status == "out_for_delivery":
+        if status == "shipped":
             shipment.shipped_at = now
         if status == "delivered":
             shipment.delivered_at = now
+            previous_order_status = order.status
             order.status = "delivered"
+            order.updated_at = now
+            db.add(ShipmentEvent(
+                event_type="order_status",
+                order_id=order.id,
+                previous_status=previous_order_status,
+                new_status="delivered",
+                changed_by_id=changed_by.id,
+                note=audit_reason or notes,
+                created_at=now,
+            ))
 
         event = ShipmentEvent(
             event_type="shipment_status",
@@ -1073,6 +1103,7 @@ def update_shipment(
             new_status=status,
             changed_by_id=changed_by.id,
             note=audit_reason or notes,
+            created_at=now,
         )
         db.add(event)
     if notes is not None:
