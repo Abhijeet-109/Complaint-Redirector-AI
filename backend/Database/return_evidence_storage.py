@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 import os
 from pathlib import Path
+import re
 from uuid import uuid4
 
 from PIL import Image, UnidentifiedImageError

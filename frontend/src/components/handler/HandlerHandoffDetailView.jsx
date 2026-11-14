@@ -57,6 +57,9 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
     }
     setUpdating(true);
     try {
+      if (isOrderDelivery) {
+        throw new Error('Order & Delivery handoffs must progress through validated operational milestones.');
+      }
       await handlerService.updateHandoffStatus(handoffId, newStatus, statusNote);
       setToastMessage({ type: 'success', text: `Handoff status transitioned to ${newStatus}.` });
       setStatusNote('');
@@ -220,6 +223,7 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
 
         {/* Right Column: Actions (Status Transition) */}
         <div className="hd-detail-right-col">
+          {!isOrderDelivery && (
           <div className="hd-card hd-actions-card">
             <h3 className="hd-detail-section-title">Transition Handoff Status</h3>
             <p className="hd-card-desc">
@@ -267,6 +271,7 @@ export function HandlerHandoffDetailView({ handoffId, onBack, onNavigate, onRefr
               </p>
             )}
           </div>
+          )}
 
           {isOrderDelivery && ['refund_pickup', 'replacement_fulfillment'].includes(handoff.handoff_type) && (
             <div className="hd-card hd-actions-card" style={{ marginTop: 16 }}>

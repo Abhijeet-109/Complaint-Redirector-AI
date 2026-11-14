@@ -24,6 +24,11 @@ export function HandlerStatusBadge({ status, label }) {
       dot: '#4F46E5',
       text: label || (norm.includes('process') ? 'In Process' : 'In Progress'),
     };
+  } else if (norm === 'approved') {
+    config = {
+      bg: '#D1FAE5', color: '#065F46', dot: '#059669',
+      text: label || 'Approved',
+    };
   } else if (norm === 'resolved' || norm === 'completed') {
     config = {
       bg: '#D1FAE5',

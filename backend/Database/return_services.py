@@ -437,6 +437,15 @@ def claim_details(session: Session, claim: ReturnRequest) -> dict:
         .where(ReturnHandoff.return_request_id == claim.id)
         .order_by(ReturnHandoff.created_at, ReturnHandoff.id)
     ).all()
+    department_ids = {
+        department_id
+        for row in handoffs
+        for department_id in (row.source_department_id, row.destination_department_id)
+    }
+    departments = {
+        row.id: row.name
+        for row in session.scalars(select(Department).where(Department.id.in_(department_ids))).all()
+    } if department_ids else {}
     stamp = lambda value: value.isoformat() if value else None
     return {
         "id": claim.id,
@@ -485,7 +494,9 @@ def claim_details(session: Session, claim: ReturnRequest) -> dict:
         "handoff_history": [{
             "id": row.id,
             "source_department_id": row.source_department_id,
+            "source_department": departments.get(row.source_department_id),
             "destination_department_id": row.destination_department_id,
+            "destination_department": departments.get(row.destination_department_id),
             "type": row.handoff_type,
             "status": row.status,
             "created_at": stamp(row.created_at),
