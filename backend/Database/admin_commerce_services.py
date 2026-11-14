@@ -761,6 +761,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         shipment_out = {
             "id": s.id,
             "status": s.status,
+            "next_status_options": sorted(VALID_SHIPMENT_TRANSITIONS.get(s.status, set())),
             "carrier": s.carrier,
             "tracking_reference": s.tracking_reference,
             "tracking_url": s.tracking_url,

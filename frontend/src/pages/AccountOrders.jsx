@@ -3,15 +3,9 @@ import {
   ChevronDown,
   ChevronUp,
   CheckCircle2,
-  FileText,
-  RotateCcw,
-  RefreshCw,
   Package,
   AlertCircle,
   X,
-  Upload,
-  Clock,
-  Truck,
   Check
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
@@ -95,15 +89,6 @@ const humanize = (value) =>
 
 const itemId = (item) => item?.id ?? item?.order_item_id;
 
-const RETURN_REASON_OPTIONS = [
-  { value: 'defective', label: 'Item is defective / not working properly' },
-  { value: 'damaged', label: 'Damaged during delivery / transit' },
-  { value: 'wrong_item', label: 'Wrong item or variant delivered' },
-  { value: 'missing_parts', label: 'Missing accessories or parts in package' },
-  { value: 'not_as_described', label: 'Quality not as expected / description mismatch' },
-  { value: 'changed_mind', label: 'Changed mind / No longer needed' },
-];
-
 function OrderLifecycleTimeline({ order }) {
   const milestones = order.tracking_milestones || [];
 
@@ -134,7 +119,7 @@ function customerOrderTrackingStatus(order) {
   return 'Order Confirmed';
 }
 
-export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger }) {
+export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger, onStartReturnIntake }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -144,14 +129,9 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
   const [expandedOrderId, setExpandedOrderId] = useState(null);
   const [activeItemByOrder, setActiveItemByOrder] = useState({});
 
-  // Eligibility & Return form states keyed by orderItemId
+  // Eligibility and active-claim state remain item-scoped.
   const [eligibilityState, setEligibilityState] = useState({});
-  const [formState, setFormState] = useState({});
   const [activeClaimState, setActiveClaimState] = useState({});
-  const [evidenceFiles, setEvidenceFiles] = useState({});
-  const [uploadingEvidence, setUploadingEvidence] = useState({});
-  const [uploadError, setUploadError] = useState({});
-  const [evidenceSuccess, setEvidenceSuccess] = useState({});
 
   // Tracking modal
   const [trackingModalOrder, setTrackingModalOrder] = useState(null);
@@ -218,26 +198,6 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
         [targetItemId]: { loading: false, data: result, error: '' },
       }));
 
-      // Initialize form fields for this item
-      const availableResolutions = result.available_resolutions || [];
-      const defaultResolution = availableResolutions.includes('refund')
-        ? 'refund'
-        : availableResolutions[0] || 'replacement';
-
-      const initialQty = Number(result.quantity_available || 1) > 0 ? 1 : 0;
-
-      setFormState((prev) => ({
-        ...prev,
-        [targetItemId]: {
-          resolution: defaultResolution,
-          quantity: initialQty,
-          reason: RETURN_REASON_OPTIONS[0].value,
-          description: '',
-          submitting: false,
-          error: '',
-        },
-      }));
-
       // Check if item has existing active claim
       if (result.active_claim) {
         setActiveClaimState((prev) => ({
@@ -286,96 +246,6 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
     setActiveItemByOrder((prev) => ({ ...prev, [orderId]: targetItemId }));
     if (!eligibilityState[targetItemId]) {
       checkEligibilityForItem(orderId, targetItemId);
-    }
-  };
-
-  // Handle return request submission
-  const handleSubmitReturn = async (e, order, currentItem) => {
-    e.preventDefault();
-    const currentItemId = itemId(currentItem);
-    const itemForm = formState[currentItemId] || {};
-    const itemEligibility = eligibilityState[currentItemId]?.data;
-
-    if (!itemEligibility?.eligible) return;
-
-    if (!itemForm.resolution) {
-      setFormState((prev) => ({
-        ...prev,
-        [currentItemId]: { ...itemForm, error: 'Please choose an available resolution (Return & Refund or Replace Item).' },
-      }));
-      return;
-    }
-
-    if (!itemForm.reason) {
-      setFormState((prev) => ({
-        ...prev,
-        [currentItemId]: { ...itemForm, error: 'Please select a reason for your return.' },
-      }));
-      return;
-    }
-
-    const qty = Number(itemForm.quantity);
-    if (!Number.isInteger(qty) || qty < 1 || qty > Number(itemEligibility.quantity_available || 1)) {
-      setFormState((prev) => ({
-        ...prev,
-        [currentItemId]: { ...itemForm, error: 'Please select a valid quantity.' },
-      }));
-      return;
-    }
-
-    setFormState((prev) => ({
-      ...prev,
-      [currentItemId]: { ...itemForm, submitting: true, error: '' },
-    }));
-
-    try {
-      const payload = {
-        order_id: order.id,
-        order_item_id: currentItemId,
-        quantity: qty,
-        resolution_type: itemForm.resolution,
-        reason_code: itemForm.reason,
-        description: itemForm.description?.trim() ? itemForm.description.trim().slice(0, 500) : undefined,
-      };
-
-      const result = await accountService.createReturnClaim(payload);
-      const createdClaim = result?.return_request;
-
-      setActiveClaimState((prev) => ({
-        ...prev,
-        [currentItemId]: createdClaim,
-      }));
-
-      // Refresh eligibility in background
-      checkEligibilityForItem(order.id, currentItemId);
-    } catch (cause) {
-      setFormState((prev) => ({
-        ...prev,
-        [currentItemId]: { ...itemForm, submitting: false, error: cause.message || 'Could not submit return request.' },
-      }));
-    }
-  };
-
-  // Handle evidence upload
-  const handleEvidenceUpload = async (claimId) => {
-    const files = evidenceFiles[claimId] || [];
-    if (!files.length || uploadingEvidence[claimId]) return;
-
-    setUploadingEvidence((prev) => ({ ...prev, [claimId]: true }));
-    setUploadError((prev) => ({ ...prev, [claimId]: '' }));
-
-    try {
-      await accountService.uploadReturnEvidence(claimId, files);
-      setEvidenceSuccess((prev) => ({ ...prev, [claimId]: true }));
-      setEvidenceFiles((prev) => ({ ...prev, [claimId]: [] }));
-      const refreshed = await accountService.returnClaim(claimId);
-      if (refreshed?.order_item_id) {
-        setActiveClaimState((prev) => ({ ...prev, [refreshed.order_item_id]: refreshed }));
-      }
-    } catch (cause) {
-      setUploadError((prev) => ({ ...prev, [claimId]: cause.message || 'Evidence upload failed.' }));
-    } finally {
-      setUploadingEvidence((prev) => ({ ...prev, [claimId]: false }));
     }
   };
 
@@ -429,30 +299,17 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
             const items = order.items || [];
             const activeItemId = activeItemByOrder[order.id] || itemId(items[0]);
             const currentItem = items.find((it) => itemId(it) === activeItemId) || items[0] || {};
-            const isDelivered = String(order.status || '').toLowerCase() === 'delivered';
+            const isDelivered = String(order.status || '').toLowerCase() === 'delivered'
+              && String(order.shipment?.status || '').toLowerCase() === 'delivered';
             const deliveredDateStr = order.delivered_at || order.shipment?.delivered_at || null;
 
-            // Item-level eligibility & form data
+            // Item-level eligibility and active-claim data.
             const currentItemId = itemId(currentItem);
             const currentEligibility = eligibilityState[currentItemId]?.data;
             const eligibilityLoading = eligibilityState[currentItemId]?.loading;
-            const itemForm = formState[currentItemId] || {
-              resolution: 'refund',
-              quantity: 1,
-              reason: RETURN_REASON_OPTIONS[0].value,
-              description: '',
-              submitting: false,
-              error: '',
-            };
             const currentClaim =
               activeClaimState[currentItemId] ||
               (currentItem.return_claims && currentItem.return_claims[0]);
-
-            // Detect pre-delivery state authoritatively via backend reason_code 'not_delivered' or undelivered order status
-            const isPreDeliveryState =
-              !currentClaim &&
-              (currentEligibility?.reason_code === 'not_delivered' ||
-                (!isDelivered && (eligibilityLoading || !currentEligibility)));
 
             // Days left calculation
             const returnDeadline = currentEligibility?.return_deadline;
@@ -562,9 +419,9 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                       </div>
                     )}
 
-                    {isPreDeliveryState ? (
+                    {(
                       <div className="fk-pre-delivery-layout">
-                        <div className="fk-pre-delivery-main-row">
+                        <div className={`fk-pre-delivery-main-row ${isDelivered ? 'is-delivered' : ''}`}>
                           <section className="fk-pre-delivery-product">
                             <div className="fk-product-image-box">
                               {currentItem.image ? (
@@ -577,14 +434,10 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                                 <Package size={52} className="fk-product-placeholder-icon" />
                               )}
                             </div>
-
                             <div className="fk-product-details-block">
-                              <h2 className="fk-product-name-heading">
-                                {currentItem.product_name}
-                              </h2>
+                              <h2 className="fk-product-name-heading">{currentItem.product_name}</h2>
                               <div className="fk-product-attributes-text">
-                                {currentItem.variant_name && <span>Color: {currentItem.variant_name}</span>}
-                                {currentItem.variant_name && <span> | </span>}
+                                {currentItem.variant_name && <span>Color: {currentItem.variant_name} | </span>}
                                 <span>Qty: {currentItem.quantity}</span>
                               </div>
                               <div className="fk-product-price-tag">
@@ -593,414 +446,116 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                             </div>
                           </section>
 
-                          <section className="fk-pre-delivery-timeline">
-                          <OrderLifecycleTimeline order={order} />
+                          <section className={`fk-pre-delivery-timeline ${isDelivered ? 'is-delivered' : ''}`}>
+                            <OrderLifecycleTimeline order={order} />
                           </section>
                         </div>
 
-                        <div className="fk-pre-delivery-notice" role="note">
-                          <AlertCircle size={20} className="fk-pre-delivery-notice-icon" />
-                          <div className="fk-pre-delivery-notice-content">
-                            <strong>
-                              Your post-delivery options will appear here.
-                            </strong>
-                            <p>
-                              Once your order is delivered, you can view the available options for this item.
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="fk-pre-delivery-actions">
-                          <button
-                            type="button"
-                            className="fk-timeline-updates-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setTrackingModalOrder(order);
-                            }}
-                          >
-                            See All Updates &gt;
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="fk-order-body-columns">
-                      {/* LEFT COLUMN: Product Overview & Delivery Progression */}
-                      <div className="fk-order-left-column">
-                        {/* Large Product Image Container */}
-                        <div className="fk-product-image-box">
-                          {currentItem.image ? (
-                            <img
-                              src={currentItem.image}
-                              alt={currentItem.product_name || 'Product'}
-                              className="fk-product-hero-img"
-                            />
-                          ) : (
-                            <Package size={52} className="fk-product-placeholder-icon" />
-                          )}
-                        </div>
-
-                        {/* Product Title, Attributes & Price */}
-                        <div className="fk-product-details-block">
-                          <h2 className="fk-product-name-heading">
-                            {currentItem.product_name}
-                          </h2>
-                          <div className="fk-product-attributes-text">
-                            {currentItem.variant_name && <span>Color: {currentItem.variant_name}</span>}
-                            {currentItem.variant_name && <span> | </span>}
-                            <span>Qty: {currentItem.quantity}</span>
-                          </div>
-                          <div className="fk-product-price-tag">
-                            {money(currentItem.line_total || currentItem.unit_price, order.currency)}
-                          </div>
-                        </div>
-
-                        {/* Delivery Progression Timeline */}
-                        <div>
-                          <OrderLifecycleTimeline order={order} />
-
-                          {/* See all updates link */}
-                          <button
-                            type="button"
-                            className="fk-timeline-updates-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setTrackingModalOrder(order);
-                            }}
-                          >
-                            See All Updates &gt;
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* RIGHT COLUMN: Return / Replacement Request */}
-                      <div className="fk-order-right-column">
-                        {/* Section Header */}
-                        <div className="fk-return-section-header">
-                          <FileText size={20} className="fk-header-doc-icon" />
-                          <div>
-                            <h2 className="fk-return-header-title">Return / Replacement Request</h2>
-                            <p className="fk-return-header-desc">
-                              Raise a return or replacement request for this item.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Eligibility Banner Loading */}
-                        {eligibilityLoading && (
-                          <div className="fk-eligibility-banner is-loading">
-                            <Clock size={18} className="fk-banner-icon spin" />
-                            <div>
-                              <strong>Checking Return / Replacement Eligibility</strong>
-                              <p>Checking return policies, delivery status, and window dates…</p>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Existing Claim Already Active or Submitted */}
-                        {currentClaim && (
-                          <div className="fk-claim-card-banner">
-                            <div className="fk-claim-banner-header">
-                              <CheckCircle2 size={20} className="fk-claim-icon" />
-                              <div>
-                                <strong className="fk-claim-title">
-                                  Return / Replacement Request Submitted
-                                </strong>
-                                <p className="fk-claim-subtext">
-                                  Claim ID: <strong>#{currentClaim.id}</strong> · Status:{' '}
-                                  <span className="fk-claim-badge">
-                                    {humanize(currentClaim.workflow_status || currentClaim.status)}
-                                  </span>
+                        {isDelivered && (
+                          <section className="fk-return-chat-panel fk-return-panel-full-width" role="region" aria-label="Return or replacement options">
+                                <h3>Return or replace this item</h3>
+                                <p className="fk-return-chat-description">
+                                  Need help with this purchase? You can request a return or replacement within the eligible period.
                                 </p>
-                              </div>
-                            </div>
 
-                            {/* Evidence Upload inside Claim Banner */}
-                            <div className="fk-evidence-upload-section">
-                              <label className="fk-evidence-label" htmlFor={`evidence-${currentClaim.id}`}>
-                                <Upload size={14} /> Upload supporting photos (up to 5 images)
-                              </label>
-                              <div className="fk-evidence-row">
-                                <input
-                                  id={`evidence-${currentClaim.id}`}
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  disabled={uploadingEvidence[currentClaim.id] || evidenceSuccess[currentClaim.id]}
-                                  onChange={(e) => {
-                                    setUploadError((prev) => ({ ...prev, [currentClaim.id]: '' }));
-                                    setEvidenceFiles((prev) => ({
-                                      ...prev,
-                                      [currentClaim.id]: Array.from(e.target.files || []).slice(0, 5),
-                                    }));
-                                  }}
-                                  className="fk-file-input"
-                                />
-                                <button
-                                  type="button"
-                                  className="fk-upload-submit-btn"
-                                  onClick={() => handleEvidenceUpload(currentClaim.id)}
-                                  disabled={
-                                    uploadingEvidence[currentClaim.id] ||
-                                    evidenceSuccess[currentClaim.id] ||
-                                    !(evidenceFiles[currentClaim.id] || []).length
-                                  }
-                                >
-                                  {uploadingEvidence[currentClaim.id]
-                                    ? 'Uploading…'
-                                    : evidenceSuccess[currentClaim.id]
-                                    ? 'Uploaded Successfully'
-                                    : 'Upload'}
-                                </button>
-                              </div>
-
-                              {uploadError[currentClaim.id] && (
-                                <p className="fk-form-error-inline">{uploadError[currentClaim.id]}</p>
-                              )}
-                              {evidenceSuccess[currentClaim.id] && (
-                                <p className="fk-form-success-inline">Evidence images attached to claim.</p>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Eligible Banner (when eligible & no pending claim) */}
-                        {!eligibilityLoading && !currentClaim && currentEligibility?.eligible && (
-                          <div className="fk-eligibility-banner is-eligible">
-                            <CheckCircle2 size={20} className="fk-banner-icon" />
-                            <div>
-                              <strong className="fk-banner-title">
-                                Eligible for Return / Replacement
-                              </strong>
-                              <p className="fk-banner-desc">
-                                You can return or replace this item.
-                                {returnDeadline && (
-                                  <span>
-                                    {' '}Return window closes on {formatDateOnly(returnDeadline)}
-                                    {daysLeft !== null && ` (${daysLeft} days left)`}.
-                                  </span>
+                                {eligibilityLoading && (
+                                  <p className="fk-return-chat-state" role="status">Checking return eligibility...</p>
                                 )}
-                              </p>
-                            </div>
+                                {eligibilityState[currentItemId]?.error && (
+                                  <p className="fk-return-chat-state" role="alert">{eligibilityState[currentItemId].error}</p>
+                                )}
+                                {!eligibilityLoading && currentClaim && (
+                                  <div className="fk-return-chat-ineligible">
+                                    <strong>Request already submitted</strong>
+                                    <p>Request #{currentClaim.id} &middot; {humanize(currentClaim.workflow_status || currentClaim.status)}</p>
+                                  </div>
+                                )}
+                                {!eligibilityLoading && !currentClaim && currentEligibility?.eligible && (
+                                  <>
+                                    <div className="fk-return-chat-eligible">
+                                      <CheckCircle2 size={16} />
+                                      <strong>Eligible for Return / Replacement</strong>
+                                    </div>
+                                    {returnDeadline && (
+                                      <p className="fk-return-chat-window">
+                                        {daysLeft} {daysLeft === 1 ? 'day' : 'days'} remaining &middot; Return window closes {formatDateOnly(returnDeadline)}
+                                      </p>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="fk-return-chat-button"
+                                      disabled={!onStartReturnIntake}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        onStartReturnIntake?.({
+                                          orderId: order.id,
+                                          orderNumber: order.order_number,
+                                          orderItemId: currentItemId,
+                                          productName: currentItem.product_name,
+                                          variantName: currentItem.variant_name,
+                                          quantity: currentItem.quantity,
+                                        });
+                                      }}
+                                    >
+                                      Return or Replace
+                                    </button>
+                                    <small>Our support assistant will guide you through the process.</small>
+                                  </>
+                                )}
+                                {!eligibilityLoading && !currentClaim && currentEligibility && !currentEligibility.eligible && (
+                                  <div className="fk-return-chat-ineligible">
+                                    <strong>{currentEligibility.reason_code === 'return_window_expired' ? 'Return window closed' : 'Not eligible for Return / Replacement'}</strong>
+                                    <p>{currentEligibility.reason_code === 'return_window_expired'
+                                      ? 'The eligible return period for this item has ended.'
+                                      : currentEligibility.message || 'This item is not eligible for a return or replacement.'}</p>
+                                  </div>
+                                )}
+                                {!eligibilityLoading && !currentEligibility && !eligibilityState[currentItemId]?.error && (
+                                  <p className="fk-return-chat-state" role="status">Checking return eligibility...</p>
+                                )}
+                          </section>
+                        )}
+
+                        {isDelivered && (
+                          <div className="fk-pre-delivery-actions">
+                            <button
+                                type="button"
+                                className="fk-timeline-updates-btn"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setTrackingModalOrder(order);
+                                }}
+                              >
+                                See All Updates &gt;
+                            </button>
                           </div>
                         )}
 
-                        {/* Ineligible Banner */}
-                        {!eligibilityLoading && !currentClaim && currentEligibility && !currentEligibility.eligible && (
-                          <div className="fk-eligibility-banner is-ineligible">
-                            <AlertCircle size={20} className="fk-banner-icon" />
-                            <div>
-                              <strong className="fk-banner-title">
-                                Not Eligible for Return / Replacement
-                              </strong>
-                              <p className="fk-banner-desc">
-                                {currentEligibility.message || 'This item cannot be returned or replaced.'}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Interactive Return Form (shown only if eligible and no claim submitted) */}
-                        {!currentClaim && currentEligibility?.eligible && (
-                          <form
-                            className="fk-return-form-container"
-                            onSubmit={(e) => handleSubmitReturn(e, order, currentItem)}
-                          >
-                            {/* Available Resolutions */}
-                            <div className="fk-form-section-resolutions">
-                              <label className="fk-section-subheading">Available Resolutions</label>
-                              <div className="fk-resolutions-grid">
-                                {/* Option 1: Return & Refund */}
-                                <div
-                                  className={`fk-resolution-card ${
-                                    itemForm.resolution === 'refund' ? 'is-selected' : ''
-                                  } ${
-                                    !(currentEligibility.available_resolutions || []).includes('refund')
-                                      ? 'is-disabled'
-                                      : ''
-                                  }`}
-                                  onClick={() => {
-                                    if ((currentEligibility.available_resolutions || []).includes('refund')) {
-                                      setFormState((prev) => ({
-                                        ...prev,
-                                        [currentItemId]: { ...itemForm, resolution: 'refund' },
-                                      }));
-                                    }
-                                  }}
-                                  role="radio"
-                                  aria-checked={itemForm.resolution === 'refund'}
-                                  tabIndex={0}
-                                >
-                                  <div className="fk-radio-outer-circle">
-                                    {itemForm.resolution === 'refund' && (
-                                      <div className="fk-radio-inner-dot" />
-                                    )}
-                                  </div>
-                                  <RotateCcw size={17} className="fk-resolution-icon" />
-                                  <div className="fk-resolution-text-box">
-                                    <strong className="fk-resolution-title">Return & Refund</strong>
-                                    <span className="fk-resolution-desc">
-                                      Return the item and get a refund
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Option 2: Replace Item */}
-                                <div
-                                  className={`fk-resolution-card ${
-                                    itemForm.resolution === 'replacement' ? 'is-selected' : ''
-                                  } ${
-                                    !(currentEligibility.available_resolutions || []).includes('replacement')
-                                      ? 'is-disabled'
-                                      : ''
-                                  }`}
-                                  onClick={() => {
-                                    if ((currentEligibility.available_resolutions || []).includes('replacement')) {
-                                      setFormState((prev) => ({
-                                        ...prev,
-                                        [currentItemId]: { ...itemForm, resolution: 'replacement' },
-                                      }));
-                                    }
-                                  }}
-                                  role="radio"
-                                  aria-checked={itemForm.resolution === 'replacement'}
-                                  tabIndex={0}
-                                >
-                                  <div className="fk-radio-outer-circle">
-                                    {itemForm.resolution === 'replacement' && (
-                                      <div className="fk-radio-inner-dot" />
-                                    )}
-                                  </div>
-                                  <RefreshCw size={17} className="fk-resolution-icon" />
-                                  <div className="fk-resolution-text-box">
-                                    <strong className="fk-resolution-title">Replace Item</strong>
-                                    <span className="fk-resolution-desc">
-                                      Get a replacement of the same item
-                                    </span>
-                                  </div>
-                                </div>
+                        {!isDelivered && (
+                          <>
+                            <div className="fk-pre-delivery-notice" role="note">
+                              <AlertCircle size={20} className="fk-pre-delivery-notice-icon" />
+                              <div className="fk-pre-delivery-notice-content">
+                                <strong>Your post-delivery options will appear here.</strong>
+                                <p>Once your order is delivered, you can view the available options for this item.</p>
                               </div>
                             </div>
-
-                            {/* Row 1: Quantity */}
-                            <div className="fk-form-field-row">
-                              <label className="fk-form-row-label" htmlFor={`qty-${currentItemId}`}>
-                                Quantity
-                              </label>
-                              <div className="fk-form-row-input-group">
-                                <select
-                                  id={`qty-${currentItemId}`}
-                                  className="fk-form-select fk-qty-select"
-                                  value={itemForm.quantity}
-                                  onChange={(e) =>
-                                    setFormState((prev) => ({
-                                      ...prev,
-                                      [currentItemId]: { ...itemForm, quantity: Number(e.target.value) },
-                                    }))
-                                  }
-                                  disabled={itemForm.submitting}
-                                >
-                                  {Array.from(
-                                    { length: currentEligibility.quantity_available || 1 },
-                                    (_, i) => i + 1
-                                  ).map((q) => (
-                                    <option key={q} value={q}>
-                                      {q}
-                                    </option>
-                                  ))}
-                                </select>
-                                <span className="fk-field-helper-text">
-                                  (Available: {itemForm.quantity} of {currentEligibility.quantity_available || 1})
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Row 2: Reason for Return */}
-                            <div className="fk-form-field-row">
-                              <label className="fk-form-row-label" htmlFor={`reason-${currentItemId}`}>
-                                Reason for Return *
-                              </label>
-                              <div className="fk-form-row-input-group">
-                                <select
-                                  id={`reason-${currentItemId}`}
-                                  className="fk-form-select fk-reason-select"
-                                  value={itemForm.reason}
-                                  onChange={(e) =>
-                                    setFormState((prev) => ({
-                                      ...prev,
-                                      [currentItemId]: { ...itemForm, reason: e.target.value },
-                                    }))
-                                  }
-                                  disabled={itemForm.submitting}
-                                  required
-                                >
-                                  {RETURN_REASON_OPTIONS.map((opt) => (
-                                    <option key={opt.value} value={opt.value}>
-                                      {opt.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* Row 3: Tell us more */}
-                            <div className="fk-form-field-row align-top">
-                              <label className="fk-form-row-label" htmlFor={`desc-${currentItemId}`}>
-                                Tell us more (Optional)
-                              </label>
-                              <div className="fk-form-row-input-group flex-col">
-                                <textarea
-                                  id={`desc-${currentItemId}`}
-                                  className="fk-form-textarea"
-                                  rows={3}
-                                  maxLength={500}
-                                  value={itemForm.description}
-                                  onChange={(e) =>
-                                    setFormState((prev) => ({
-                                      ...prev,
-                                      [currentItemId]: { ...itemForm, description: e.target.value },
-                                    }))
-                                  }
-                                  placeholder="Describe the issue in detail to help us process your request faster..."
-                                  disabled={itemForm.submitting}
-                                />
-                                <div className="fk-textarea-char-count">
-                                  {itemForm.description?.length || 0} / 500
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Inline Form Error */}
-                            {itemForm.error && (
-                              <div className="fk-form-error-inline" role="alert">
-                                <AlertCircle size={15} />
-                                <span>{itemForm.error}</span>
-                              </div>
-                            )}
-
-                            {/* Action Buttons */}
-                            <div className="fk-form-actions-row">
+                            <div className="fk-pre-delivery-actions">
                               <button
                                 type="button"
-                                className="fk-action-btn-cancel"
-                                onClick={() => setExpandedOrderId(null)}
-                                disabled={itemForm.submitting}
+                                className="fk-timeline-updates-btn"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setTrackingModalOrder(order);
+                                }}
                               >
-                                Cancel
-                              </button>
-                              <button
-                                type="submit"
-                                className="fk-action-btn-submit"
-                                disabled={itemForm.submitting || !currentEligibility.eligible}
-                              >
-                                {itemForm.submitting ? 'Submitting…' : 'Submit Request'}
+                                See All Updates &gt;
                               </button>
                             </div>
-                          </form>
+                          </>
                         )}
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
               )}
               </article>

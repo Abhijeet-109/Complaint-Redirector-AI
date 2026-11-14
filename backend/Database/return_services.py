@@ -85,7 +85,7 @@ def evaluate_return_eligibility(
         "_order_item": None,
     }
 
-    if shipment is None or shipment.status != "delivered":
+    if order.status != "delivered" or shipment is None or shipment.status != "delivered":
         result.update(
             reason_code="not_delivered",
             message="A return can only be requested after confirmed delivery.",

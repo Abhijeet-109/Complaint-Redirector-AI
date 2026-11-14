@@ -98,6 +98,8 @@ export function MyConversations({ onNavigate }) {
   const [isSending, setIsSending] = useState(false);
   const [lastFailedRequest, setLastFailedRequest] = useState(null);
   const [isListening, setIsListening] = useState(false);
+  const [returnIntakeContext, setReturnIntakeContext] = useState(null);
+  const [evidenceUploadState, setEvidenceUploadState] = useState({ busy: false, message: '', error: false });
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -123,6 +125,8 @@ export function MyConversations({ onNavigate }) {
   const inputRef = useRef(null);
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
+  const handledReturnHandoffRef = useRef(false);
+  const skipMessageLoadRef = useRef(null);
 
   // Ref tracking current activeThreadId to prevent race conditions during switching
   const activeThreadIdRef = useRef(activeThreadId);
@@ -191,10 +195,58 @@ export function MyConversations({ onNavigate }) {
     }
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    if (!isAuthenticated || isLoadingConversations || handledReturnHandoffRef.current) return;
+    const storageKey = 'flatkart_return_intake_handoff';
+    const rawHandoff = sessionStorage.getItem(storageKey);
+    if (!rawHandoff) return;
+    // Consume before any async work so React re-renders cannot create duplicate threads/messages.
+    sessionStorage.removeItem(storageKey);
+    handledReturnHandoffRef.current = true;
+    let handoff;
+    try {
+      handoff = JSON.parse(rawHandoff);
+    } catch {
+      return;
+    }
+    if (handoff?.intent !== 'return_replacement'
+      || !handoff.orderId || !handoff.orderItemId
+      || Date.now() - Number(handoff.createdAt || 0) > 5 * 60 * 1000) return;
+
+    const startReturnConversation = async () => {
+      setIsCreating(true);
+      try {
+        const conversation = await chatbotService.createConversation('Return or Replace');
+        setConversations((previous) => [conversation, ...previous.filter((item) => item.thread_id !== conversation.thread_id)]);
+        skipMessageLoadRef.current = conversation.thread_id;
+        setActiveThreadId(conversation.thread_id);
+        setMessages([]);
+        const itemName = [handoff.productName, handoff.variantName].filter(Boolean).join(' - ');
+        const quantity = handoff.quantity ? `, quantity ${handoff.quantity}` : '';
+        const question = `I want to return or replace ${itemName || 'an item'} from order #${handoff.orderNumber || handoff.orderId}${quantity}.`;
+        await handleSendMessage(question, null, {
+          threadId: conversation.thread_id,
+          orderId: handoff.orderId,
+          orderItemId: handoff.orderItemId,
+          newReturnIntake: true,
+        });
+      } catch (err) {
+        setMessageError(err.message || 'Could not start the return or replacement conversation.');
+      } finally {
+        setIsCreating(false);
+      }
+    };
+    void startReturnConversation();
+  }, [isAuthenticated, isLoadingConversations]);
+
   // 2. Load messages when activeThreadId changes
   useEffect(() => {
     if (!activeThreadId) {
       setMessages([]);
+      return;
+    }
+    if (skipMessageLoadRef.current === activeThreadId) {
+      skipMessageLoadRef.current = null;
       return;
     }
 
@@ -272,11 +324,11 @@ export function MyConversations({ onNavigate }) {
   // Explicitly binds to activeThreadId, generates unique request_id,
   // displays user turn immediately, updates conversation title & timestamp dynamically,
   // and prevents delayed responses from cross-polluting other threads.
-  const handleSendMessage = async (textToSend = null, retryPayload = null) => {
+  const handleSendMessage = async (textToSend = null, retryPayload = null, requestContext = {}) => {
     const question = (textToSend !== null ? textToSend : inputText).trim();
     if (!question || isSending) return;
 
-    let targetThreadId = retryPayload?.threadId || activeThreadId;
+    let targetThreadId = retryPayload?.threadId || requestContext.threadId || activeThreadId;
 
     // If no active thread exists yet, create one on the fly
     if (!targetThreadId) {
@@ -325,7 +377,20 @@ export function MyConversations({ onNavigate }) {
       const response = await chatbotService.askQuestion(question, {
         threadId: targetThreadId,
         requestId,
+        orderId: requestContext.orderId,
+        orderItemId: requestContext.orderItemId,
+        newReturnIntake: requestContext.newReturnIntake,
       });
+
+      if (requestContext.newReturnIntake && response?.return_submission_key) {
+        setReturnIntakeContext({
+          threadId: targetThreadId,
+          orderId: requestContext.orderId,
+          orderItemId: requestContext.orderItemId,
+          returnSubmissionKey: response.return_submission_key,
+        });
+        setEvidenceUploadState({ busy: false, message: '', error: false });
+      }
 
       const returnedThreadId = response?.thread_id || targetThreadId;
       const returnedTitle = response?.title;
@@ -376,6 +441,29 @@ export function MyConversations({ onNavigate }) {
   const handleRetry = () => {
     if (lastFailedRequest) {
       handleSendMessage(lastFailedRequest.question, lastFailedRequest);
+    }
+  };
+
+  const handleEvidenceSelection = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    if (!returnIntakeContext?.returnSubmissionKey || returnIntakeContext.threadId !== activeThreadId) {
+      setEvidenceUploadState({ busy: false, message: 'Start a return or replacement request before attaching evidence.', error: true });
+      return;
+    }
+    setEvidenceUploadState({ busy: true, message: 'Uploading evidence…', error: false });
+    try {
+      const result = await chatbotService.uploadReturnEvidence({ ...returnIntakeContext, files });
+      const successfulFiles = (result?.files || []).filter((file) => file.status === 'pending_submission');
+      const failedFiles = (result?.files || []).filter((file) => file.status !== 'pending_submission');
+      if (!successfulFiles.length) {
+        throw new Error(failedFiles[0]?.message || 'Evidence upload failed. Please retry.');
+      }
+      const summary = `${successfulFiles.length} evidence ${successfulFiles.length === 1 ? 'image' : 'images'} uploaded${failedFiles.length ? `; ${failedFiles.length} failed` : ''}.`;
+      setEvidenceUploadState({ busy: false, message: summary, error: failedFiles.length > 0 });
+    } catch (err) {
+      setEvidenceUploadState({ busy: false, message: err.message || 'Evidence upload failed. Please retry.', error: true });
     }
   };
 
@@ -813,15 +901,9 @@ export function MyConversations({ onNavigate }) {
                     type="file"
                     ref={fileInputRef}
                     style={{ display: 'none' }}
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        setInputText((prev) =>
-                          prev
-                            ? `${prev} [Attachment: ${e.target.files[0].name}]`
-                            : `[Attachment: ${e.target.files[0].name}]`
-                        );
-                      }
-                    }}
+                    accept="image/*"
+                    multiple
+                    onChange={handleEvidenceSelection}
                   />
 
                   {/* Attachment Icon */}
@@ -843,7 +925,7 @@ export function MyConversations({ onNavigate }) {
                     placeholder="Ask something..."
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    disabled={isSending}
+                    disabled={isSending || evidenceUploadState.busy}
                     aria-label="Ask Flatkart Assistant"
                   />
 
@@ -869,6 +951,11 @@ export function MyConversations({ onNavigate }) {
                     <Send size={15} strokeWidth={2.4} />
                   </button>
                 </form>
+                {evidenceUploadState.message && (
+                  <p className={`fk-chat-evidence-status ${evidenceUploadState.error ? 'is-error' : ''}`} role={evidenceUploadState.error ? 'alert' : 'status'}>
+                    {evidenceUploadState.message}
+                  </p>
+                )}
               </div>
             </section>
           </div>

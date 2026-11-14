@@ -48,6 +48,8 @@ export function HandlerDashboard({ onNavigate, routePath }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [overviewStats, setOverviewStats] = useState(null);
+  const [activityPeriod, setActivityPeriod] = useState('month');
+  const activityRequestRef = React.useRef(0);
   const [complaints, setComplaints] = useState([]);
   const [reviewQueueClaims, setReviewQueueClaims] = useState([]);
   const [reviewTabCounts, setReviewTabCounts] = useState(null);
@@ -65,7 +67,6 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     setError(null);
     try {
       const [
-        statsRes,
         complaintsRes,
         queueRes,
         allReqRes,
@@ -75,7 +76,6 @@ export function HandlerDashboard({ onNavigate, routePath }) {
         deliveryOrdersRes,
         deliveryShipmentsRes,
       ] = await Promise.allSettled([
-        isOrderDelivery ? Promise.resolve(null) : handlerService.getOverviewStats(),
         isOrderDelivery ? Promise.resolve(null) : handlerService.getAssignedComplaints(),
         isOrderDelivery ? Promise.resolve(null) : handlerService.getReturns({ include_all: false, limit: 50 }),
         isOrderDelivery ? Promise.resolve(null) : handlerService.getReturns({ include_all: true, limit: 50 }),
@@ -86,9 +86,6 @@ export function HandlerDashboard({ onNavigate, routePath }) {
         isOrderDelivery ? handlerService.getOrderDeliveryShipments({ limit: 100 }) : Promise.resolve(null),
       ]);
 
-      if (statsRes.status === 'fulfilled' && statsRes.value) {
-        setOverviewStats(statsRes.value);
-      }
       if (complaintsRes.status === 'fulfilled' && Array.isArray(complaintsRes.value)) {
         setComplaints(complaintsRes.value);
       }
@@ -132,6 +129,26 @@ export function HandlerDashboard({ onNavigate, routePath }) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (isOrderDelivery) return undefined;
+    const requestId = ++activityRequestRef.current;
+    handlerService.getOverviewStats(activityPeriod).then((stats) => {
+      if (requestId === activityRequestRef.current) setOverviewStats(stats);
+    }).catch((err) => {
+      if (requestId === activityRequestRef.current) {
+        console.error('Failed to load handler activity stats:', err);
+        setError(err.message || 'Error loading handler activity data.');
+      }
+    });
+    return () => {
+      activityRequestRef.current += 1;
+    };
+  }, [activityPeriod, isOrderDelivery]);
+
+  const handlePeriodChange = useCallback((period) => {
+    setActivityPeriod(period);
+  }, []);
 
   // Format complaints for overview
   const recentComplaints = useMemo(() => {
@@ -274,6 +291,8 @@ export function HandlerDashboard({ onNavigate, routePath }) {
             recentRequests={recentRequests}
             recentComplaints={recentComplaints}
             onNavigate={onNavigate}
+            activityPeriod={activityPeriod}
+            onPeriodChange={handlePeriodChange}
           />
         );
     }

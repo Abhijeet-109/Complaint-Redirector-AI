@@ -92,10 +92,34 @@ export const chatbotService = {
     if (options.requestId) {
       payload.request_id = options.requestId;
     }
+    if (options.orderId !== undefined && options.orderId !== null) {
+      payload.order_id = options.orderId;
+    }
+    if (options.orderItemId !== undefined && options.orderItemId !== null) {
+      payload.order_item_id = options.orderItemId;
+    }
+    if (options.newReturnIntake) {
+      payload.new_return_intake = true;
+    }
 
     return await apiRequest('/chatbot/ask', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async uploadReturnEvidence({ threadId, orderId, orderItemId, returnSubmissionKey, files }) {
+    const query = new URLSearchParams({
+      thread_id: String(threadId),
+      order_id: String(orderId),
+      order_item_id: String(orderItemId),
+      return_submission_key: String(returnSubmissionKey),
+    });
+    const body = new FormData();
+    Array.from(files || []).forEach((file) => body.append('files', file));
+    return apiRequest(`/chatbot/returns/evidence?${query.toString()}`, {
+      method: 'POST',
+      body,
     });
   },
 

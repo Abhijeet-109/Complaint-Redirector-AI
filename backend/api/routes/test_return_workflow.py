@@ -289,6 +289,22 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertFalse(data["eligible"])
         self.assertEqual(data["reason_code"], "delivery_timestamp_missing")
 
+    def test_return_eligibility_requires_synchronized_delivered_order_and_shipment(self):
+        self.close_seed_claim()
+        self.order.status = "ready_to_ship"
+        self.shipment.status = "delivered"
+        self.shipment.delivered_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+        self.db.commit()
+        data = self.preview().json()
+        self.assertFalse(data["eligible"])
+        self.assertEqual(data["reason_code"], "not_delivered")
+
+        self.order.status = "delivered"
+        self.db.commit()
+        data = self.preview().json()
+        self.assertTrue(data["eligible"])
+        self.assertEqual(data["reason_code"], "eligible")
+
     def test_return_eligibility_preview_reports_active_claim_safely(self):
         data = self.preview().json()
         self.assertFalse(data["eligible"])

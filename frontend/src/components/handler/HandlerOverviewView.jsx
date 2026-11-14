@@ -216,11 +216,13 @@ export function HandlerOverviewView({
                     {activityData.map((m) => (
                       <div key={m.label} className="hd-activity-bar-col">
                         <div className="hd-activity-bar-track">
-                          <div
-                            className={`hd-activity-bar-fill ${m.is_current ? 'current' : ''}`}
-                            style={{ height: `${m.height_pct ?? 0}%` }}
-                            title={`${m.label}: ${m.value} requests`}
-                          />
+                          {Number(m.value) > 0 && (
+                            <div
+                              className={`hd-activity-bar-fill ${m.is_current ? 'current' : ''}`}
+                              style={{ height: `${m.height_pct ?? 0}%` }}
+                              title={`${m.label}: ${m.value} requests`}
+                            />
+                          )}
                         </div>
                         <span className="hd-activity-bar-label">{m.label}</span>
                       </div>
@@ -319,7 +321,15 @@ export function HandlerOverviewView({
                 No recent requests found in your department.
               </div>
             ) : (
-              <table className="hd-table">
+              <table className="hd-table hd-recent-requests-table">
+                <colgroup>
+                  <col className="hd-col-request-id" />
+                  <col className="hd-col-order-id" />
+                  <col className="hd-col-customer" />
+                  <col className="hd-col-type" />
+                  <col className="hd-col-status" />
+                  <col className="hd-col-requested" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>REQUEST ID</th>
@@ -327,7 +337,7 @@ export function HandlerOverviewView({
                     <th>CUSTOMER</th>
                     <th>TYPE</th>
                     <th>STATUS</th>
-                    <th>UPDATED</th>
+                    <th>REQUESTED</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -338,7 +348,7 @@ export function HandlerOverviewView({
                       onClick={() => onNavigate && onNavigate('handler-dashboard', `/handler/requests/${r.claimId || r.id}`)}
                     >
                       <td className="hd-cell-id">{r.id}</td>
-                      <td className="hd-cell-subtle">{r.orderId}</td>
+                      <td className="hd-cell-subtle hd-order-id-cell" title={r.orderId}>{r.orderId}</td>
                       <td className="hd-cell-bold">{r.customer}</td>
                       <td className="hd-cell-subtle">{r.type}</td>
                       <td><HandlerStatusBadge status={r.status} /></td>

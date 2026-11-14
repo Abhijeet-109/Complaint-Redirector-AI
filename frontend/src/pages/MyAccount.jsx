@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Check, Eye, EyeOff, Pencil, Trash2, ChevronDown, ArrowLeft } from 'lucide-react';
 import { AccountLayout } from '../components/account/AccountLayout';
 import { WishlistDrawer } from '../components/common/WishlistDrawer';
-import { CartDrawer } from '../components/common/CartDrawer';
 import { ChatbotWidget } from '../components/chatbot/ChatbotWidget';
+import { CartDrawer } from '../components/common/CartDrawer';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useAddressBook } from '../context/AddressContext';
@@ -161,6 +161,17 @@ export function MyAccount({ section = 'profile', onNavigate }) {
     setResetOrderTrigger((prev) => prev + 1);
   };
 
+  const handleStartReturnIntake = (context) => {
+    const handoff = {
+      ...context,
+      intent: 'return_replacement',
+      requestKey: crypto.randomUUID(),
+      createdAt: Date.now(),
+    };
+    sessionStorage.setItem('flatkart_return_intake_handoff', JSON.stringify(handoff));
+    onNavigate?.('my-conversations');
+  };
+
   const navOrderActions = validSection === 'orders' ? (
     <div className="fk-nav-order-actions">
       <button
@@ -201,7 +212,7 @@ export function MyAccount({ section = 'profile', onNavigate }) {
     >
       {['profile', 'address', 'payments'].includes(validSection)
         ? <AccountSection key={validSection} section={validSection} onProfileSaved={(value) => { setUser({ ...user, ...value }); localStorage.setItem('flatkart_user', JSON.stringify({ ...user, ...value })); }} />
-        : validSection === 'orders' ? <AccountOrders filter={orderFilter} onFilterChange={setOrderFilter} resetTrigger={resetOrderTrigger} />
+        : validSection === 'orders' ? <AccountOrders filter={orderFilter} onFilterChange={setOrderFilter} resetTrigger={resetOrderTrigger} onStartReturnIntake={handleStartReturnIntake} />
           : validSection === 'support-tickets' ? <AccountSupportTickets />
             : <section style={{ padding: 28 }}><h1>Wishlist</h1><p>Your saved products are available in the wishlist panel.</p></section>}
     </AccountLayout>

@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from backend.Database.admin_commerce_services import update_order_status, update_shipment
+from backend.Database.admin_commerce_services import get_admin_order_detail, update_order_status, update_shipment
 from backend.Database.admin_commerce_services import get_store_dashboard_kpis
 from backend.Database.connection import Base
 from backend.Database.models import (
@@ -151,6 +151,84 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
         ])
         self.assertEqual(len([event for event in customer_order["tracking_milestones"] if event.get("created_at")]), 4)
         self.assertEqual(customer_order["shipment"]["carrier"], None)
+
+    def test_admin_order_detail_serializes_next_shipment_transition_for_every_state(self):
+        self.order.status = "ready_to_ship"
+        self.order.shipment = Shipment(order_id=self.order.id, status="pending")
+        self.db.commit()
+        expected = {
+            "pending": ["ready_for_dispatch"],
+            "ready_for_dispatch": ["received"],
+            "received": ["scheduled"],
+            "scheduled": ["shipped"],
+            "shipped": ["out_for_delivery"],
+            "out_for_delivery": ["delivered"],
+            "delivered": [],
+        }
+        for status, options in expected.items():
+            with self.subTest(status=status):
+                self.order.shipment.status = status
+                self.db.commit()
+                detail = get_admin_order_detail(self.db, self.order.id)
+                self.assertEqual(detail["shipment"]["next_status_options"], options)
+
+    def test_order_delivery_handler_shipment_queue_returns_next_transition(self):
+        for status in ("accepted", "processing", "packed", "ready_to_ship"):
+            update_order_status(self.db, self.order.id, status, changed_by=self.handler)
+        self.actor = self.handler
+        response = self.client.get("/api/v1/departments/order-delivery/shipments")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["items"][0]["next_status_options"], ["received"])
+
+    def test_admin_shipment_api_full_sequence_and_order_delivery_sync(self):
+        for status in ("accepted", "processing", "packed", "ready_to_ship"):
+            update_order_status(self.db, self.order.id, status, changed_by=self.handler)
+        self.actor = self.admin
+
+        detail = self.client.get(f"/api/admin/commerce/orders/{self.order.id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["shipment"]["next_status_options"], ["received"])
+
+        for status, expected_next in (
+            ("received", ["scheduled"]),
+            ("scheduled", ["shipped"]),
+            ("shipped", ["out_for_delivery"]),
+            ("out_for_delivery", ["delivered"]),
+            ("delivered", []),
+        ):
+            response = self.client.patch(
+                f"/api/admin/commerce/orders/{self.order.id}/shipment",
+                json={"status": status},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            refreshed = self.client.get(f"/api/admin/commerce/orders/{self.order.id}")
+            self.assertEqual(refreshed.json()["shipment"]["next_status_options"], expected_next)
+            if status == "out_for_delivery":
+                self.assertEqual(expected_next, ["delivered"])
+
+        self.db.refresh(self.order)
+        self.db.refresh(self.order.shipment)
+        self.assertEqual(self.order.status, "delivered")
+        self.assertEqual(self.order.shipment.status, "delivered")
+        self.assertIsNotNone(self.order.shipment.delivered_at)
+        order_delivery_event = self.db.scalar(select(ShipmentEvent).where(
+            ShipmentEvent.event_type == "order_status",
+            ShipmentEvent.order_id == self.order.id,
+            ShipmentEvent.new_status == "delivered",
+        ))
+        shipment_delivery_event = self.db.scalar(select(ShipmentEvent).where(
+            ShipmentEvent.event_type == "shipment_status",
+            ShipmentEvent.shipment_id == self.order.shipment.id,
+            ShipmentEvent.new_status == "delivered",
+        ))
+        self.assertIsNotNone(order_delivery_event)
+        self.assertIsNotNone(shipment_delivery_event)
+        self.assertEqual(order_delivery_event.created_at, shipment_delivery_event.created_at)
+        duplicate = self.client.patch(
+            f"/api/admin/commerce/orders/{self.order.id}/shipment",
+            json={"status": "delivered"},
+        )
+        self.assertEqual(duplicate.status_code, 409)
 
     def test_failed_delivery_transaction_keeps_order_and_shipment_unchanged(self):
         for status in ("accepted", "processing", "packed", "ready_to_ship"):

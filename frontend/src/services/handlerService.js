@@ -219,8 +219,9 @@ export const handlerService = {
    * Get overview KPI stats.
    * GET /api/v1/departments/overview-stats
    */
-  async getOverviewStats() {
-    return await apiRequest('/api/v1/departments/overview-stats', { method: 'GET' });
+  async getOverviewStats(period = 'month') {
+    const query = new URLSearchParams({ period });
+    return await apiRequest(`/api/v1/departments/overview-stats?${query.toString()}`, { method: 'GET' });
   },
 
   /**
