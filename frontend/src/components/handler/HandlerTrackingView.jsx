@@ -12,12 +12,14 @@ import {
 import { HandlerKPICard } from './HandlerKPICard';
 import { HandlerStatusBadge } from './HandlerStatusBadge';
 import { HandlerPagination } from './HandlerPagination';
+import { handlerService } from '../../services/handlerService';
 
 export function HandlerTrackingView({
   handoffs = [],
   kpiCounts,
   loading = false,
   onNavigate,
+  onRefresh,
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDept, setSelectedDept] = useState('all');
@@ -26,13 +28,17 @@ export function HandlerTrackingView({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
   const [activeMenuId, setActiveMenuId] = useState(null);
+  const [resolveTarget, setResolveTarget] = useState(null);
+  const [resolveNote, setResolveNote] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   // Real KPI calculations from genuine data
   const totalTracked = kpiCounts?.total_tracked ?? handoffs.length;
-  const withOtherDepts = kpiCounts?.with_other_depts ?? handoffs.filter(
+  const withOtherDepts = kpiCounts?.with_other ?? handoffs.filter(
     (h) => (h.current_owner || '').toLowerCase() !== 'returns & replacement' && (h.current_owner || '').toLowerCase() !== 'returns'
   ).length;
-  const awaitingHandoff = kpiCounts?.awaiting_handoff ?? handoffs.filter(
+  const awaitingHandoff = kpiCounts?.awaiting ?? handoffs.filter(
     (h) => ['pending', 'awaiting'].includes((h.status || '').toLowerCase())
   ).length;
   const completedCount = kpiCounts?.completed ?? handoffs.filter(
@@ -47,19 +53,35 @@ export function HandlerTrackingView({
     setCurrentPage(1);
   };
 
-  const handleRowClick = (handoffId) => {
+  const handleRowClick = (requestId) => {
     if (onNavigate) {
-      onNavigate('handler-dashboard', `/handler/tracking/${handoffId}`);
+      onNavigate('handler-dashboard', `/handler/requests/${requestId}`);
+    }
+  };
+
+  const confirmResolve = async () => {
+    if (!resolveTarget || resolving) return;
+    setResolving(true);
+    setActionError('');
+    try {
+      await handlerService.resolveReturnClaim(resolveTarget, resolveNote);
+      setResolveTarget(null);
+      setResolveNote('');
+      if (onRefresh) await onRefresh();
+    } catch (error) {
+      setActionError(error.message || 'Request could not be resolved.');
+    } finally {
+      setResolving(false);
     }
   };
 
   const filtered = useMemo(() => {
     return handoffs.filter((item) => {
-      const ownerStr = (item.current_owner || '').toLowerCase();
       const statusStr = (item.status || '').toLowerCase();
 
       if (selectedDept !== 'all') {
-        if (!ownerStr.includes(selectedDept.toLowerCase())) return false;
+        const value = selectedDept === 'order' ? item.order_department_status : item.payment_department_status;
+        if (!value || ['not_required', 'not_initiated'].includes(value)) return false;
       }
 
       if (selectedStatus !== 'all') {
@@ -143,7 +165,6 @@ export function HandlerTrackingView({
             <option value="all">All Departments</option>
             <option value="order">Order & Delivery</option>
             <option value="payment">Payments</option>
-            <option value="returns">Returns & Replacement</option>
           </select>
 
           <select
@@ -186,10 +207,10 @@ export function HandlerTrackingView({
               <tr>
                 <th style={{ width: '120px' }}>REQUEST ID</th>
                 <th style={{ width: '150px' }}>ORDER ID</th>
-                <th style={{ width: '130px' }}>CUSTOMER</th>
-                <th>CURRENT OWNER</th>
-                <th>HANDOFF FROM</th>
-                <th style={{ width: '130px' }}>STATUS</th>
+                <th style={{ width: '110px' }}>CUSTOMER ID</th>
+                <th>ORDER DEPT STATUS</th>
+                <th>PAYMENT DEPT STATUS</th>
+                <th style={{ width: '130px' }}>OVERALL STATUS</th>
                 <th style={{ width: '170px' }}>LAST UPDATED</th>
                 <th style={{ width: '80px', textAlign: 'right' }}>ACTIONS</th>
               </tr>
@@ -209,14 +230,12 @@ export function HandlerTrackingView({
                 </tr>
               ) : (
                 displayed.map((h) => {
-                  const rawId = h.id || h.handoff_id;
+                  const rawId = h.id || h.request_id;
                   const reqId = h.request_id
                     ? (String(h.request_id).startsWith('TRN-') ? h.request_id : `TRN-${h.request_id}`)
                     : `TRN-${rawId}`;
                   const orderId = h.order_number || '—';
                   const customer = h.customer_name || '—';
-                  const currentOwner = h.current_owner || 'Order & Delivery';
-                  const handoffFrom = h.handoff_from || 'Returns & Replacement';
                   const lastUpdated = h.last_updated
                     ? new Date(h.last_updated).toLocaleString('en-US', {
                         month: 'short',
@@ -235,9 +254,9 @@ export function HandlerTrackingView({
                     >
                       <td className="hd-cell-id">{reqId}</td>
                       <td className="hd-cell-subtle">{orderId}</td>
-                      <td className="hd-cell-bold">{customer}</td>
-                      <td className="hd-cell-bold">{currentOwner}</td>
-                      <td className="hd-cell-subtle">{handoffFrom}</td>
+                      <td className="hd-cell-bold" title={customer}>{h.customer_id != null ? `#${h.customer_id}` : '—'}</td>
+                      <td><HandlerStatusBadge status={String(h.order_department_status || 'not_initiated').replace(/_/g, ' ')} /></td>
+                      <td><HandlerStatusBadge status={String(h.payment_department_status || 'not_initiated').replace(/_/g, ' ')} label={h.payment_department_status === 'not_required' ? 'Not Required' : h.payment_department_status === 'not_initiated' ? 'Not Initiated' : undefined} /></td>
                       <td>
                         <HandlerStatusBadge status={h.status || 'Pending'} />
                       </td>
@@ -265,8 +284,14 @@ export function HandlerTrackingView({
                               }}
                             >
                               <ExternalLink size={14} />
-                              View & Manage
+                              View Record Log
                             </button>
+                            {h.status === 'approved' && (
+                              <button type="button" className="hd-action-dropdown-item"
+                                onClick={() => { setActiveMenuId(null); setResolveTarget(h.request_id); }}>
+                                <CheckCircle2 size={14} /> Mark as Resolved
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>
@@ -290,6 +315,20 @@ export function HandlerTrackingView({
           }}
         />
       </div>
+      {resolveTarget && (
+        <div className="hd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !resolving) setResolveTarget(null); }}>
+          <section className="hd-modal" role="dialog" aria-modal="true" aria-labelledby="resolve-request-title">
+            <h3 id="resolve-request-title">Mark request as resolved?</h3>
+            <label className="hd-form-label" htmlFor="resolve-note">Resolution Note (Optional)</label>
+            <textarea id="resolve-note" className="hd-textarea" value={resolveNote} onChange={(event) => setResolveNote(event.target.value)} maxLength={2000} />
+            {actionError && <p role="alert" className="hd-error-text">{actionError}</p>}
+            <div className="hd-modal-actions">
+              <button type="button" className="hd-btn-secondary" disabled={resolving} onClick={() => setResolveTarget(null)}>Cancel</button>
+              <button type="button" className="hd-btn-approve" disabled={resolving} onClick={confirmResolve}>{resolving ? 'Saving…' : 'Mark as Resolved'}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

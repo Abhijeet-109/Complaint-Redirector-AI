@@ -10,6 +10,7 @@ import {
   Clock,
   ShieldAlert,
   ArrowLeftRight,
+  X,
 } from 'lucide-react';
 import { handlerService } from '../../services/handlerService';
 import { HandlerStatusBadge } from './HandlerStatusBadge';
@@ -25,6 +26,7 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
   const [toastMessage, setToastMessage] = useState(null);
   const [evidencePreviews, setEvidencePreviews] = useState({});
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [selectedEvidence, setSelectedEvidence] = useState(null);
   const evidenceIds = (claim?.evidence || []).map((item) => item.id).join(',');
 
   useEffect(() => {
@@ -56,6 +58,20 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [resolvedId, evidenceIds]);
+
+  useEffect(() => {
+    if (!selectedEvidence) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setSelectedEvidence(null);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [selectedEvidence]);
 
   const handleBack = () => {
     if (onBack) onBack();
@@ -257,9 +273,11 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
                 {claim.evidence.map((ev) => (
                   <div key={ev.id} className="hd-evidence-item">
                     {evidencePreviews[ev.id] ? (
-                      <a className="hd-evidence-preview-link" href={evidencePreviews[ev.id]} target="_blank" rel="noreferrer" aria-label={`Open ${ev.filename}`}>
+                      <button type="button" className="hd-evidence-preview-button"
+                        onClick={() => setSelectedEvidence({ ...ev, url: evidencePreviews[ev.id] })}
+                        aria-label={`View evidence image: ${ev.filename}`}>
                         <img className="hd-evidence-preview" src={evidencePreviews[ev.id]} alt={`Evidence: ${ev.filename}`} />
-                      </a>
+                      </button>
                     ) : (
                       <div className="hd-evidence-preview hd-evidence-unavailable" role="status">
                         {evidenceLoading ? 'Loading image…' : 'Image unavailable'}
@@ -328,18 +346,25 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
             </div>
           </div>
 
-          {/* Department Handoff History */}
+          {/* Approval & Department Routing */}
           <div className="hd-card hd-detail-section-card">
             <h3 className="hd-detail-section-title">
-              <ArrowLeftRight size={17} /> Inter-Department Handoffs
+              <ArrowLeftRight size={17} /> Approval &amp; Department Routing
             </h3>
+            {claim.workflow_status === 'approved' && (
+              <div className="hd-info-fields-grid hd-routing-approval-summary">
+                <div className="hd-info-field"><span className="hd-info-label">Decision</span><HandlerStatusBadge status="approved" /></div>
+                <div className="hd-info-field"><span className="hd-info-label">Approved At</span><span className="hd-info-value">{claim.decided_at ? new Date(claim.decided_at).toLocaleString() : 'Timestamp unavailable'}</span></div>
+                <div className="hd-info-field"><span className="hd-info-label">Decision Note</span><span className="hd-info-value">{claim.decision_note || 'No decision note recorded.'}</span></div>
+              </div>
+            )}
             {claim.handoff_history && claim.handoff_history.length > 0 ? (
               <div className="hd-timeline">
                 {claim.handoff_history.map((h) => (
                   <div key={h.id} className="hd-timeline-item">
                     <div className="hd-timeline-marker" />
                     <div className="hd-timeline-content">
-                      <span className="hd-timeline-type hd-capitalize">{h.type?.replace('_', ' ')}</span>
+                      <span className="hd-timeline-type hd-capitalize">{h.source_department || 'Department'} → {h.destination_department || 'Department'} · {h.type?.replace(/_/g, ' ')}</span>
                       <HandlerStatusBadge status={h.status} />
                       <span className="hd-timeline-time">
                         {h.created_at ? new Date(h.created_at).toLocaleString() : ''}
@@ -390,7 +415,11 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
                     <div className="hd-timeline-marker" />
                     <div className="hd-timeline-content">
                       <span className="hd-timeline-type">{ev.type?.replace(/_/g, ' ').toUpperCase()}</span>
+                      {(ev.previous_status || ev.new_status) && (
+                        <p className="hd-timeline-notes">{ev.previous_status ? `${ev.previous_status} → ` : ''}{ev.new_status || ''}</p>
+                      )}
                       {ev.note && <p className="hd-timeline-notes">{ev.note}</p>}
+                      <span className="hd-timeline-time">{ev.actor_name || (ev.actor_user_id ? `User ${ev.actor_user_id}` : 'System')}</span>
                       <span className="hd-timeline-time">
                         {ev.created_at ? new Date(ev.created_at).toLocaleString() : ''}
                       </span>
@@ -404,6 +433,23 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
           </div>
         </div>
       </div>
+      {selectedEvidence && (
+        <div className="hd-evidence-lightbox" role="presentation"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedEvidence(null); }}>
+          <section className="hd-evidence-lightbox-panel" role="dialog" aria-modal="true"
+            aria-label={`Evidence image: ${selectedEvidence.filename}`}>
+            <button type="button" className="hd-evidence-lightbox-close" aria-label="Close image preview"
+              onClick={() => setSelectedEvidence(null)}>
+              <X size={22} />
+            </button>
+            <h3 className="hd-evidence-lightbox-title">{selectedEvidence.filename}</h3>
+            <div className="hd-evidence-lightbox-image-wrap">
+              <img className="hd-evidence-lightbox-image" src={selectedEvidence.url}
+                alt={`Evidence: ${selectedEvidence.filename}`} />
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

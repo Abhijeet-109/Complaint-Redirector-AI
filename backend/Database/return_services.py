@@ -17,6 +17,7 @@ from backend.Database.models import (
     ReturnRequestEvent,
     Refund,
     Shipment,
+    User,
 )
 from backend.Database.return_reason_codes import normalize_return_reason_code
 
@@ -446,6 +447,11 @@ def claim_details(session: Session, claim: ReturnRequest) -> dict:
         row.id: row.name
         for row in session.scalars(select(Department).where(Department.id.in_(department_ids))).all()
     } if department_ids else {}
+    actor_ids = {row.actor_user_id for row in events if row.actor_user_id is not None}
+    actors = {
+        row.id: row.name
+        for row in session.scalars(select(User).where(User.id.in_(actor_ids))).all()
+    } if actor_ids else {}
     stamp = lambda value: value.isoformat() if value else None
     return {
         "id": claim.id,
@@ -509,6 +515,7 @@ def claim_details(session: Session, claim: ReturnRequest) -> dict:
             "previous_status": row.previous_status,
             "new_status": row.new_status,
             "actor_user_id": row.actor_user_id,
+            "actor_name": actors.get(row.actor_user_id),
             "note": row.note,
             "event_data": row.event_data,
             "created_at": stamp(row.created_at),
@@ -847,8 +854,6 @@ def resolve_return_claim(session: Session, claim_id: int, *, actor_id: int, note
         raise LookupError("Return claim not found.")
     if claim.workflow_status != "approved":
         raise ValueError("Only an approved return request can be resolved.")
-    if not note.strip():
-        raise ValueError("A resolution note is required.")
 
     handoffs = session.scalars(
         select(ReturnHandoff).where(ReturnHandoff.return_request_id == claim.id).with_for_update()
@@ -880,5 +885,5 @@ def resolve_return_claim(session: Session, claim_id: int, *, actor_id: int, note
     claim.status = "completed"
     claim.updated_at = _utcnow_naive()
     _event(session, claim, "request_manually_resolved", actor_id, previous=previous,
-           new="resolved", note=note.strip())
+           new="resolved", note=(note or "").strip())
     return claim

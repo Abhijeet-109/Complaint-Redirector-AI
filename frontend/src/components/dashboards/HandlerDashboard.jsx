@@ -223,7 +223,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
         case '/handler/shipments':
           return <HandlerOrderDeliveryView kind="shipments" shipments={deliveryShipments} loading={loading} error={error} onRefresh={loadData} />;
         case '/handler/tracking':
-          return <HandlerTrackingView handoffs={trackingHandoffs} kpiCounts={trackingKpi} loading={loading} onNavigate={onNavigate} />;
+          return <HandlerTrackingView handoffs={trackingHandoffs} kpiCounts={trackingKpi} loading={loading} onNavigate={onNavigate} onRefresh={loadData} />;
         case '/handler/dashboard':
         default:
           return <HandlerOrderDeliveryView kind="dashboard" orders={deliveryOrders} shipments={deliveryShipments} loading={loading} onNavigate={onNavigate} />;
@@ -249,6 +249,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
             stats={overviewStats}
             loading={loading}
             onNavigate={onNavigate}
+            onRefresh={loadData}
           />
         );
       case '/handler/complaints':

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, cast, String
 
 from backend.Database.models import (
     Department,
@@ -74,7 +74,7 @@ class ReturnRefundExecutionInput(BaseModel):
 
 class ReturnResolutionInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-    note: str = Field(min_length=3, max_length=2000)
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class OrderDeliveryStatusInput(BaseModel):
@@ -291,50 +291,47 @@ def list_tracking_handoffs_for_handler(
 ):
     _require_returns_handler(db, current_user)
 
-    query = db.query(ReturnHandoff).options(
-        selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
-        selectinload(ReturnHandoff.source_department),
-        selectinload(ReturnHandoff.destination_department),
+    query = db.query(ReturnRequest).options(
+        selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
     )
-
     if status and status != "all":
-        query = query.filter(ReturnHandoff.status == status)
-
-    if department_name and department_name != "all":
-        query = query.join(ReturnHandoff.destination_department).filter(Department.name.ilike(f"%{department_name}%"))
-
+        query = query.filter(ReturnRequest.workflow_status == status)
     if search and search.strip():
-        search_term = f"%{search.strip()}%"
-        query = query.join(ReturnHandoff.return_request).join(ReturnRequest.order).join(CommerceOrder.user).filter(
-            (CommerceOrder.order_number.ilike(search_term)) |
-            (User.name.ilike(search_term))
+        term = f"%{search.strip()}%"
+        query = query.join(ReturnRequest.order).join(CommerceOrder.user).filter(
+            CommerceOrder.order_number.ilike(term) | User.name.ilike(term) |
+            cast(ReturnRequest.id, String).ilike(term)
         )
-
     total = query.count()
-    handoffs = query.order_by(ReturnHandoff.updated_at.desc()).offset(offset).limit(limit).all()
-
+    requests = query.order_by(ReturnRequest.updated_at.desc(), ReturnRequest.id.desc()).offset(offset).limit(limit).all()
     items = []
-    for h in handoffs:
-        req = h.return_request
-        order = req.order if req else None
-        customer = order.user if order else None
+    for req in requests:
+        order = req.order
+        tracking = get_return_refund_tracking(db, req.id)
+        order_state = tracking["order_delivery"]["status"] if tracking.get("order_delivery") else "not_initiated"
+        payments = tracking.get("payments")
+        payment_state = "not_required" if req.resolution_type == "replacement" else (
+            payments["handoff_status"] if isinstance(payments, dict) and payments.get("handoff_status") else "not_initiated"
+        )
+        if department_name and department_name != "all":
+            if department_name == "order" and order_state == "not_initiated": continue
+            if department_name == "payment" and payment_state in {"not_initiated", "not_required"}: continue
         items.append({
-            "id": h.id,
-            "request_id": req.id if req else None,
-            "claim_id": req.id if req else None,
+            "id": req.id, "request_id": req.id, "claim_id": req.id,
             "order_number": order.order_number if order else None,
-            "customer_name": customer.name if customer else None,
-            "current_owner": h.destination_department.name if h.destination_department else "Pending",
-            "handoff_from": h.source_department.name if h.source_department else "Returns & Replacement",
-            "status": h.status,
-            "handoff_type": h.handoff_type,
-            "last_updated": (h.updated_at or h.created_at).isoformat() if (h.updated_at or h.created_at) else None,
+            "customer_name": order.user.name if order and order.user else None,
+            "customer_id": order.user_id if order else None,
+            "order_department_status": order_state,
+            "payment_department_status": payment_state,
+            "status": req.workflow_status or req.status,
+            "overall_status": req.workflow_status or req.status,
+            "resolution_type": req.resolution_type,
+            "last_updated": req.updated_at.isoformat() if req.updated_at else None,
         })
-
-    total_tracked = db.query(ReturnHandoff).count()
-    with_other = db.query(ReturnHandoff).filter(ReturnHandoff.status.in_(["accepted", "in_progress"])).count()
-    awaiting = db.query(ReturnHandoff).filter(ReturnHandoff.status == "pending").count()
-    completed = db.query(ReturnHandoff).filter(ReturnHandoff.status == "completed").count()
+    total_tracked = db.query(func.count(ReturnRequest.id)).scalar() or 0
+    with_other = db.query(func.count(ReturnRequest.id)).filter(ReturnRequest.workflow_status.in_(["approved", "in_process", "under_inspection"])).scalar() or 0
+    awaiting = db.query(func.count(ReturnRequest.id)).filter(ReturnRequest.workflow_status.in_(["submitted", "pending_review"])).scalar() or 0
+    completed = db.query(func.count(ReturnRequest.id)).filter(ReturnRequest.workflow_status == "completed").scalar() or 0
 
     return {
         "items": items,
@@ -951,7 +948,7 @@ def resolve_return_claim_handler(
 ):
     _require_claim_access(db, claim_id, actor)
     claim = _commit_claim_operation(db, lambda: resolve_return_claim(
-        db, claim_id, actor_id=actor.id, note=payload.note,
+        db, claim_id, actor_id=actor.id, note=payload.note or "",
     ))
     return {"id": claim.id, "workflow_status": claim.workflow_status, "status": claim.status}
 

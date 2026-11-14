@@ -20,6 +20,7 @@ from backend.Database.return_evidence_storage import (
     evidence_root,
     list_staged_evidence,
     stage_evidence,
+    signed_evidence_url,
 )
 from unittest.mock import patch
 
@@ -164,6 +165,21 @@ class ReturnEvidenceCleanupTests(unittest.TestCase):
 
             clear_staged_evidence(staged)
             self.assertEqual(fake_files.deleted, ["imagekit-evidence-123"])
+
+    def test_signed_imagekit_evidence_url_uses_private_path_and_short_expiry(self):
+        captured = {}
+        client = type("FakeImageKit", (), {"helper": type("Helper", (), {
+            "build_url": staticmethod(lambda **kwargs: captured.update(kwargs) or "https://ik.imagekit.io/test/signed")
+        })()})()
+        with patch.dict(os.environ, {
+            "IMAGEKIT_PRIVATE_KEY": "test-private-key",
+            "IMAGEKIT_URL_ENDPOINT": "https://ik.imagekit.io/test",
+        }), patch("imagekitio.ImageKit", return_value=client):
+            url = signed_evidence_url("/Flatkart/return-evidence/return_abc123.png", expires_in=60)
+        self.assertEqual(url, "https://ik.imagekit.io/test/signed")
+        self.assertTrue(captured["signed"])
+        self.assertEqual(captured["expires_in"], 60)
+        self.assertEqual(captured["src"], "/Flatkart/return-evidence/return_abc123.png")
 
 
 if __name__ == "__main__":

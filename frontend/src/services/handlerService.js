@@ -155,6 +155,11 @@ export const handlerService = {
       body: JSON.stringify({ note }),
     });
   },
+  resolveReturnClaim(claimId, note = '') {
+    return apiRequest(`/api/v1/departments/returns/${claimId}/resolve`, {
+      method: 'POST', body: JSON.stringify({ note: note.trim() || null }),
+    });
+  },
 
   /**
    * Record inspection for a return claim.

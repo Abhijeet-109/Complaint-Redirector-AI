@@ -15,6 +15,7 @@ export const accountService = {
   }),
   orders: () => apiRequest('/api/account/orders'),
   order: (id) => apiRequest(`/api/account/orders/${id}`),
+  cancelOrder: (id) => apiRequest(`/api/account/orders/${id}/cancel`, { method: 'POST' }),
   returnEligibility: (orderId, orderItemId) => apiRequest(`/api/account/orders/${orderId}/items/${orderItemId}/return-eligibility`),
   createReturnClaim: (data) => apiRequest('/api/account/returns', { method: 'POST', body: JSON.stringify(data) }),
   uploadReturnEvidence: (claimId, files) => {

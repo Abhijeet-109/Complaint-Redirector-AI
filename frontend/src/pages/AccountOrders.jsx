@@ -113,6 +113,7 @@ function OrderLifecycleTimeline({ order }) {
 }
 
 function customerOrderTrackingStatus(order) {
+  if (order.status === 'cancelled') return order.cancellation_label || 'Cancelled';
   const completed = (order.tracking_milestones || []).filter((item) => item.created_at);
   if (completed.length) return completed[completed.length - 1].label;
   if (['cancelled', 'payment_failed', 'pending_payment'].includes(order.status)) return humanize(order.status);
@@ -135,6 +136,24 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
 
   // Tracking modal
   const [trackingModalOrder, setTrackingModalOrder] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+
+  const confirmCancellation = async () => {
+    if (!cancelTarget || cancelling) return;
+    setCancelling(true);
+    setCancelError('');
+    try {
+      await accountService.cancelOrder(cancelTarget.id);
+      await loadOrders();
+      setCancelTarget(null);
+    } catch (cause) {
+      setCancelError(cause.message || 'The order could not be cancelled.');
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   // Collapse expanded order and scroll to top when Back to orders is triggered
   useEffect(() => {
@@ -177,7 +196,7 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
       if (filter === 'all') return true;
       if (filter === 'active') return !['delivered', 'cancelled', 'refunded'].includes(status);
       if (filter === 'delivered') return status === 'delivered';
-      if (filter === 'cancelled') return ['cancelled', 'payment_failed', 'refunded'].includes(status);
+      if (filter === 'cancelled') return ['cancelled', 'payment_failed'].includes(status);
       return true;
     });
   }, [orders, filter]);
@@ -368,6 +387,9 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                       )}
                       <span>{customerOrderTrackingStatus(order)}</span>
                     </span>
+                    {order.status === 'cancelled' && order.cancellation_refund_status && (
+                      <small className="fk-delivery-date-text">Payment refund: {humanize(order.cancellation_refund_status)}</small>
+                    )}
                   </div>
 
                   {/* Zone 3 (Right): Supporting info & Chevron */}
@@ -533,6 +555,12 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
 
                         {!isDelivered && (
                           <>
+                            {order.can_customer_cancel && (
+                              <button type="button" className="fk-timeline-updates-btn"
+                                onClick={(event) => { event.stopPropagation(); setCancelTarget(order); setCancelError(''); }}>
+                                Cancel Order
+                              </button>
+                            )}
                             <div className="fk-pre-delivery-notice" role="note">
                               <AlertCircle size={20} className="fk-pre-delivery-notice-icon" />
                               <div className="fk-pre-delivery-notice-content">
@@ -561,6 +589,27 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
               </article>
             );
           })}
+        </div>
+      )}
+
+      {cancelTarget && (
+        <div className="fk-tracking-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelling) setCancelTarget(null); }}>
+          <section className="fk-tracking-modal-content" role="dialog" aria-modal="true" aria-labelledby="cancel-order-heading">
+            <div className="fk-tracking-modal-header">
+              <div>
+                <h3 id="cancel-order-heading">Cancel this order?</h3>
+                <p>Are you sure you want to cancel this order?</p>
+              </div>
+              <button type="button" className="fk-modal-close-btn" disabled={cancelling} onClick={() => setCancelTarget(null)} aria-label="Close"><X size={18} /></button>
+            </div>
+            <p>Order: {cancelTarget.order_number}</p>
+            <p>Total: {money(cancelTarget.total_amount, cancelTarget.currency)}</p>
+            {cancelError && <div className="fk-orders-error-banner" role="alert">{cancelError}</div>}
+            <div className="fk-pre-delivery-actions">
+              <button type="button" className="fk-timeline-updates-btn" disabled={cancelling} onClick={() => setCancelTarget(null)}>Keep Order</button>
+              <button type="button" className="fk-timeline-updates-btn" disabled={cancelling} onClick={confirmCancellation}>{cancelling ? 'Cancelling…' : 'Confirm Cancellation'}</button>
+            </div>
+          </section>
         </div>
       )}
 

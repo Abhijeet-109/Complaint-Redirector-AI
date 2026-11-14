@@ -1,6 +1,7 @@
 """Authenticated customer profile, address, wishlist, order and preference APIs."""
 
 import re
+import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -10,10 +11,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.Database.checkout_services import serialize_order
 from backend.Database.models import (
-    CommerceOrder, CommerceOrderItem, Product, User, UserAddress, WishlistItem,
+    CommerceOrder, CommerceOrderItem, PaymentAttempt, Product, Refund, User, UserAddress, WishlistItem,
     ReturnRequest,
 )
 from backend.Database.services import get_order, list_orders
+from backend.Database.admin_commerce_services import update_order_status
+from backend.Database.admin_commerce_services import process_razorpay_refund
 from backend.Database.return_services import (
     claim_details, create_return_claim, evaluate_return_eligibility,
     get_return_claim, record_customer_response,
@@ -211,8 +214,15 @@ def set_payment_preference(payload: PaymentPreference, db: Session = Depends(get
     return {"preferred_payment_method": user.preferred_payment_method}
 
 
-def _order_payload(order, return_claims=None):
+def _order_payload(order, return_claims=None, cancellation_refund=None):
     result = serialize_order(order)
+    result["payment_status"] = order.payment_status
+    shipment_status = (order.shipment.status or "").lower() if order.shipment else ""
+    order_status = (order.status or "").lower()
+    result["can_customer_cancel"] = (
+        order_status in {"placed", "accepted", "processing", "packed"}
+        and shipment_status not in {"picked_up", "in_transit", "out_for_delivery", "delivered"}
+    )
     result["created_at"] = order.created_at.isoformat() if order.created_at else None
     result["delivered_at"] = order.shipment.delivered_at.isoformat() if order.shipment and order.shipment.delivered_at else None
     order_events = [
@@ -223,6 +233,7 @@ def _order_payload(order, return_claims=None):
             "new_status": event.new_status,
             "note": event.note,
             "changed_by": event.changed_by.name if event.changed_by else None,
+            "changed_by_id": event.changed_by_id,
             "created_at": event.created_at.isoformat() if event.created_at else None,
         }
         for event in (order.events or [])
@@ -255,6 +266,12 @@ def _order_payload(order, return_claims=None):
     else:
         result["shipment"] = None
     result["order_events"] = order_events
+    if order.status == "cancelled":
+        cancellation = next((event for event in reversed(order_events) if event["new_status"] == "cancelled"), None)
+        result["cancellation_label"] = (
+            "Cancelled by you" if cancellation and cancellation["changed_by_id"] == order.user_id else "Cancelled"
+        )
+        result["cancellation_refund_status"] = cancellation_refund.status if cancellation_refund else None
     result["tracking_events"] = sorted(
         order_events + shipment_events,
         key=lambda event: (event["created_at"] or "", event["id"]),
@@ -298,7 +315,13 @@ def _order_payload(order, return_claims=None):
 
 @router.get("/orders")
 def customer_orders(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return [_order_payload(order) for order in list_orders(db, user.id)]
+    orders = list_orders(db, user.id)
+    order_ids = [order.id for order in orders if order.status == "cancelled"]
+    refunds = db.scalars(select(Refund).where(
+        Refund.order_id.in_(order_ids), Refund.idempotency_key.in_([f"order-cancel:{order_id}" for order_id in order_ids]),
+    ).order_by(Refund.created_at.desc(), Refund.id.desc())).all() if order_ids else []
+    refunds_by_order = {refund.order_id: refund for refund in refunds}
+    return [_order_payload(order, cancellation_refund=refunds_by_order.get(order.id)) for order in orders]
 
 
 @router.get("/orders/{order_id}")
@@ -309,7 +332,43 @@ def customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(ge
     claims = db.scalars(
         select(ReturnRequest).where(ReturnRequest.order_id == order.id).order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc())
     ).all()
-    return _order_payload(order, claims)
+    cancellation_refund = db.scalar(select(Refund).where(
+        Refund.order_id == order.id, Refund.idempotency_key == f"order-cancel:{order.id}",
+    ).order_by(Refund.id.desc()).limit(1))
+    return _order_payload(order, claims, cancellation_refund)
+
+
+@router.post("/orders/{order_id}/cancel")
+def cancel_customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    order = db.scalar(select(CommerceOrder).where(
+        CommerceOrder.id == order_id, CommerceOrder.user_id == user.id,
+    ).with_for_update())
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    try:
+        attempts = db.scalars(select(PaymentAttempt).where(
+            PaymentAttempt.order_id == order.id, PaymentAttempt.status == "captured",
+        ).with_for_update()).all()
+        refund_result = None
+        if attempts or order.payment_status in {"captured", "paid"}:
+            if len(attempts) != 1:
+                raise ValueError("A captured order with multiple payment attempts requires Payments review.")
+            if not os.getenv("RAZORPAY_KEY_ID", "").strip() or not os.getenv("RAZORPAY_KEY_SECRET", "").strip():
+                raise ValueError("Razorpay is not configured; the captured order was not cancelled.")
+            attempt = attempts[0]
+            refund_result = process_razorpay_refund(
+                db, order_id=order.id, payment_attempt_id=attempt.id, amount=attempt.amount,
+                reason="Customer order cancellation", processed_by=user,
+                idempotency_key=f"order-cancel:{order.id}",
+            )
+        updated = update_order_status(db, order_id, new_status="cancelled", changed_by=user,
+                                      note="Cancelled by customer." if not refund_result else
+                                      f"Cancelled by customer; refund {refund_result['status']}.")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.refresh(order)
+    return {"order": updated, "cancellation_status": "cancelled", "payment_status": order.payment_status,
+            "refund": refund_result}
 
 
 @router.get("/orders/{order_id}/items/{order_item_id}/return-eligibility")

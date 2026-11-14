@@ -1117,6 +1117,18 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(row["order_delivery_status"], "pending")
         self.assertEqual(row["payments_handoff_status"], "pending")
         self.assertEqual(row["financial_refund_status"], [])
+        request_records = self.client.get("/api/v1/departments/tracking-handoffs")
+        self.assertEqual(request_records.status_code, 200, request_records.text)
+        self.assertEqual(request_records.json()["total"], 1)
+        consolidated = request_records.json()["items"][0]
+        self.assertEqual(consolidated["request_id"], self.claim.id)
+        self.assertEqual(consolidated["order_department_status"], "pending")
+        self.assertEqual(consolidated["payment_department_status"], "pending")
+        detail = self.client.get(f"/api/v1/departments/returns/{self.claim.id}")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(detail.json()["handoff_history"][0]["source_department"], "Returns & Replacement")
+        self.assertIn(detail.json()["handoff_history"][0]["destination_department"],
+                      {"Order & Delivery", "Payments & Refunds"})
         self.actor = self.payments_handler
         payments = self.client.get("/api/v1/departments/payments/refund-handoffs")
         self.assertEqual(payments.status_code, 200, payments.text)

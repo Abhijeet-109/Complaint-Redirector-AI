@@ -407,6 +407,11 @@
   -ms-overflow-style: none;
 }
 
+.hd-content:has(.hd-detail-page) {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .hd-content::-webkit-scrollbar {
   display: none;
 }
@@ -1124,12 +1129,12 @@
   table-layout: fixed;
 }
 
-.hd-recent-requests-table .hd-col-request-id { width: 13%; }
-.hd-recent-requests-table .hd-col-order-id { width: 19%; }
-.hd-recent-requests-table .hd-col-customer { width: 15%; }
-.hd-recent-requests-table .hd-col-type { width: 12%; }
-.hd-recent-requests-table .hd-col-status { width: 21%; }
-.hd-recent-requests-table .hd-col-requested { width: 20%; }
+.hd-recent-requests-table .hd-col-request-id { width: 12%; }
+.hd-recent-requests-table .hd-col-order-id { width: 16%; }
+.hd-recent-requests-table .hd-col-customer { width: 13%; }
+.hd-recent-requests-table .hd-col-type { width: 13%; }
+.hd-recent-requests-table .hd-col-status { width: 18%; }
+.hd-recent-requests-table .hd-col-requested { width: 28%; }
 
 .hd-recent-requests-table th,
 .hd-recent-requests-table td {
@@ -1145,8 +1150,15 @@
 }
 
 .hd-recent-requests-table td:nth-child(6) {
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  font-size: 12px;
+  text-align: right !important;
+  padding-right: 10px !important;
+}
+
+.hd-recent-requests-table th:nth-child(6) {
+  text-align: right;
+  padding-right: 10px;
 }
 
 .hd-order-id-cell {
@@ -1704,10 +1716,31 @@
 }
 
 .hd-trend-chart-container {
+  position: relative;
   width: 100%;
   height: 150px;
   margin-top: 10px;
 }
+
+.hd-trend-tooltip {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  gap: 3px;
+  min-width: 150px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 8px;
+  background: #0F3024;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.35;
+  box-shadow: 0 6px 18px rgba(15,48,36,.2);
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 9px));
+}
+
+.hd-trend-tooltip strong { font-size: 11px; margin-bottom: 2px; }
 
 .hd-chart-axis-text {
   font-size: 10px;
@@ -2468,6 +2501,86 @@
   background: #f4f1e9;
 }
 
+.hd-evidence-preview-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--hd-radius-md);
+  background: transparent;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.hd-evidence-preview-button:focus-visible,
+.hd-evidence-lightbox-close:focus-visible {
+  outline: 3px solid #13513C;
+  outline-offset: 3px;
+}
+
+.hd-evidence-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 20, 16, .82);
+}
+
+.hd-evidence-lightbox-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 94vw);
+  max-height: 88vh;
+  padding: 20px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 20px 70px rgba(0,0,0,.35);
+}
+
+.hd-evidence-lightbox-close {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #dedbd3;
+  border-radius: 50%;
+  background: white;
+  color: #122d29;
+  cursor: pointer;
+}
+
+.hd-evidence-lightbox-title {
+  margin: 0 52px 14px 0;
+  overflow-wrap: anywhere;
+  color: #122d29;
+  font-size: 15px;
+}
+
+.hd-evidence-lightbox-image-wrap {
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+  border-radius: 8px;
+  background: #f4f1e9;
+}
+
+.hd-evidence-lightbox-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(88vh - 100px);
+  object-fit: contain;
+}
+
 .hd-evidence-preview {
   object-fit: contain;
   border: 1px solid var(--hd-border);
@@ -2617,7 +2730,7 @@
 .hd-tracking-page .hd-table-card,
 .hd-history-page .hd-table-card {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
 }
@@ -2627,9 +2740,9 @@
 .hd-complaints-page .hd-table-wrapper,
 .hd-tracking-page .hd-table-wrapper,
 .hd-history-page .hd-table-wrapper {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
-  max-height: none;
+  max-height: 390px;
 }
 
 @media (max-width: 1200px), (max-height: 760px) {
@@ -2649,5 +2762,5 @@
   .hd-requests-page .hd-table-wrapper,
   .hd-complaints-page .hd-table-wrapper,
   .hd-tracking-page .hd-table-wrapper,
-  .hd-history-page .hd-table-wrapper { max-height: 55vh; }
+  .hd-history-page .hd-table-wrapper { max-height: min(55vh, 390px); }
 }

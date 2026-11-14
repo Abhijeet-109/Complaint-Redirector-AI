@@ -875,10 +875,19 @@ def update_order_status(
     previous_status = order.status
 
     if new_status == "cancelled":
+        if order.shipment is not None and order.shipment.status in {
+            "picked_up", "in_transit", "out_for_delivery", "delivered",
+        }:
+            raise ValueError("Orders cannot be cancelled after outbound dispatch.")
         captured = order.payment_status in {"captured", "paid"} or any(
             attempt.status == "captured" for attempt in order.payment_attempts
         )
-        if captured:
+        has_cancellation_refund = db.scalar(select(Refund.id).where(
+            Refund.order_id == order.id,
+            Refund.idempotency_key == f"order-cancel:{order.id}",
+            Refund.status.in_(("pending", "processing", "processed", "failed")),
+        )) is not None
+        if captured and not has_cancellation_refund:
             raise ValueError("Captured online payments cannot be cancelled through order management.")
         _release_reserved_stock(db, order)
 
@@ -1775,6 +1784,19 @@ def process_razorpay_refund(
     elif not order_id:
         raise ValueError("Either order_number or order_id must be provided")
 
+    cancellation_key = idempotency_key if idempotency_key and idempotency_key.startswith("order-cancel:") else None
+    if cancellation_key:
+        existing_cancellation_refund = db.scalar(
+            select(Refund).where(Refund.idempotency_key == cancellation_key).with_for_update()
+        )
+        if existing_cancellation_refund is not None:
+            return {
+                "id": existing_cancellation_refund.id, "status": existing_cancellation_refund.status,
+                "amount": str(_money(existing_cancellation_refund.amount)),
+                "provider_refund_id": existing_cancellation_refund.provider_refund_id,
+                "failure_reason": existing_cancellation_refund.failure_reason, "duplicate": True,
+            }
+
     return_request = None
     if return_request_id is not None:
         return_request = db.scalar(
@@ -1834,7 +1856,7 @@ def process_razorpay_refund(
         currency="INR",
         reason=reason,
         refund_method="razorpay",
-        status="processing" if return_request_id is not None else "pending",
+        status="processing" if return_request_id is not None or cancellation_key else "pending",
         idempotency_key=idempotency_key or f"refund:{payment_attempt_id}:{uuid4().hex}",
         processed_by_id=processed_by.id,
     )
@@ -1843,7 +1865,7 @@ def process_razorpay_refund(
 
     # Return workflow refunds reserve a durable request-level record before
     # calling the provider. A timeout can therefore never cause a fresh refund.
-    if return_request_id is not None:
+    if return_request_id is not None or cancellation_key:
         db.commit()
         db.refresh(refund_record)
 
@@ -1863,7 +1885,7 @@ def process_razorpay_refund(
             )
             refund_record.provider_refund_id = rzp_response.get("id")
             provider_status = str(rzp_response.get("status") or "").lower()
-            if return_request_id is not None:
+            if return_request_id is not None or cancellation_key:
                 if provider_status == "processed" and refund_record.provider_refund_id:
                     refund_record.status = "processed"
                 elif provider_status == "failed":
@@ -1881,16 +1903,16 @@ def process_razorpay_refund(
                         "failure_reason": refund_record.failure_reason,
                     }
         else:
-            if return_request_id is not None:
+            if return_request_id is not None or cancellation_key:
                 raise ValueError("Razorpay refund processing is not configured")
             # Fallback for development/test environment without live Razorpay credentials
             refund_record.provider_refund_id = f"rfnd_sim_{uuid4().hex[:14]}"
 
-        if return_request_id is None:
+        if return_request_id is None and cancellation_key is None:
             refund_record.status = "processed"
             refund_record.updated_at = _utcnow()
     except Exception as exc:
-        if return_request_id is not None:
+        if return_request_id is not None or cancellation_key:
             # A provider exception may mean the request succeeded remotely.
             # Keep the durable record non-successful and block automatic retry.
             refund_record.status = "processing"
@@ -1909,7 +1931,7 @@ def process_razorpay_refund(
         raise ValueError(f"Razorpay refund failed: {exc}") from exc
 
     # Update order payment_status only when the actual refund succeeded.
-    if return_request_id is not None and refund_record.status != "processed":
+    if (return_request_id is not None or cancellation_key) and refund_record.status != "processed":
         return {
             "id": refund_record.id, "status": refund_record.status,
             "amount": str(amount), "provider_refund_id": refund_record.provider_refund_id,

@@ -29,6 +29,11 @@ export function HandlerStatusBadge({ status, label }) {
       bg: '#D1FAE5', color: '#065F46', dot: '#059669',
       text: label || 'Approved',
     };
+  } else if (norm === 'not_required' || norm === 'not_initiated') {
+    config = {
+      bg: '#F3F4F6', color: '#4B5563', dot: '#9CA3AF',
+      text: label || (norm === 'not_required' ? 'Not Required' : 'Not Initiated'),
+    };
   } else if (norm === 'resolved' || norm === 'completed') {
     config = {
       bg: '#D1FAE5',

@@ -1,4 +1,6 @@
 import unittest
+import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -12,7 +14,7 @@ from backend.Database.admin_commerce_services import get_store_dashboard_kpis
 from backend.Database.connection import Base
 from backend.Database.models import (
     CommerceOrder, CommerceOrderItem, Department, Inventory, ProductVariant,
-    Shipment, ShipmentEvent, User,
+    Shipment, ShipmentEvent, User, PaymentAttempt,
 )
 from backend.Database.seed_commerce import seed_catalog
 from backend.api.routes.admin_commerce import router as admin_commerce_router
@@ -400,6 +402,81 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
             json={"status": "delivered"},
         )
         self.assertEqual(invalid.status_code, 409)
+
+    def test_customer_cancellation_checks_owner_releases_reservation_once_and_audits(self):
+        self.actor = self.customer
+        response = self.client.post(f"/api/account/orders/{self.order.id}/cancel")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["cancellation_status"], "cancelled")
+        self.db.refresh(self.inventory)
+        self.assertEqual((self.inventory.available_stock, self.inventory.reserved_stock), (12, 0))
+        event = self.db.scalar(select(ShipmentEvent).where(
+            ShipmentEvent.order_id == self.order.id, ShipmentEvent.event_type == "order_status",
+            ShipmentEvent.new_status == "cancelled",
+        ))
+        self.assertIsNotNone(event)
+        self.assertEqual(event.changed_by_id, self.customer.id)
+        self.assertEqual(self.client.post(f"/api/account/orders/{self.order.id}/cancel").status_code, 409)
+        self.db.refresh(self.inventory)
+        self.assertEqual((self.inventory.available_stock, self.inventory.reserved_stock), (12, 0))
+        stranger = User(name="Stranger", email="stranger@workflow.test", password="hash", role="user")
+        self.db.add(stranger)
+        self.db.commit()
+        self.actor = stranger
+        self.assertEqual(self.client.post(f"/api/account/orders/{self.order.id}/cancel").status_code, 404)
+
+    def test_customer_cancellation_rejects_captured_or_dispatched_order(self):
+        self.order.payment_status = "captured"
+        self.db.add(PaymentAttempt(
+            order_id=self.order.id, status="captured", amount=100, idempotency_key="captured-test",
+            provider_payment_id="pay_captured_test", expires_at=__import__("datetime").datetime(2027, 1, 1),
+        ))
+        self.db.commit()
+        self.actor = self.customer
+        with patch.dict("os.environ", {"RAZORPAY_KEY_ID": "", "RAZORPAY_KEY_SECRET": ""}):
+            captured = self.client.post(f"/api/account/orders/{self.order.id}/cancel")
+        self.assertEqual(captured.status_code, 409)
+        self.assertNotEqual(self.order.status, "cancelled")
+        self.db.delete(self.order.payment_attempts[0])
+        self.order.payment_status = "pending"
+        self.order.status = "ready_to_ship"
+        self.order.shipment = Shipment(order_id=self.order.id, status="in_transit")
+        self.db.commit()
+        dispatched = self.client.post(f"/api/account/orders/{self.order.id}/cancel")
+        self.assertEqual(dispatched.status_code, 409)
+
+    def test_captured_customer_cancellation_persists_provider_pending_without_false_refund_success(self):
+        self.order.payment_status = "captured"
+        attempt = PaymentAttempt(
+            order_id=self.order.id, status="captured", amount=100, idempotency_key="captured-cancel-test",
+            provider_payment_id="pay_captured_cancel", expires_at=__import__("datetime").datetime(2027, 1, 1),
+        )
+        self.db.add(attempt)
+        self.db.commit()
+        calls = []
+
+        class FakePayment:
+            def refund(self, payment_id, payload):
+                calls.append((payment_id, payload))
+                return {"id": "rf_pending_1", "status": "pending"}
+
+        fake_razorpay = SimpleNamespace(Client=lambda **kwargs: SimpleNamespace(payment=FakePayment()))
+        self.actor = self.customer
+        with patch.dict(sys.modules, {"razorpay": fake_razorpay}), patch.dict("os.environ", {
+            "RAZORPAY_KEY_ID": "test-key", "RAZORPAY_KEY_SECRET": "test-secret",
+        }):
+            response = self.client.post(f"/api/account/orders/{self.order.id}/cancel")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["refund"]["status"], "processing")
+            self.assertEqual(response.json()["payment_status"], "captured")
+            retry = self.client.post(f"/api/account/orders/{self.order.id}/cancel")
+        self.assertEqual(retry.status_code, 409)
+        self.assertEqual(len(calls), 1)
+        self.db.refresh(self.order)
+        self.db.refresh(self.inventory)
+        self.assertEqual(self.order.status, "cancelled")
+        self.assertEqual(self.order.payment_status, "captured")
+        self.assertEqual((self.inventory.available_stock, self.inventory.reserved_stock), (12, 0))
 
 
 if __name__ == "__main__":

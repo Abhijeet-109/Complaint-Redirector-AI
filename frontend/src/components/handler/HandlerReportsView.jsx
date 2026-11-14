@@ -18,6 +18,7 @@ export function HandlerReportsView({
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [reportsData, setReportsData] = useState(initialData || null);
   const [loading, setLoading] = useState(initialLoading);
+  const [hoveredPoint, setHoveredPoint] = useState(null);
 
   const requestSequence = useRef(0);
 
@@ -224,6 +225,14 @@ export function HandlerReportsView({
             </div>
           </div>
           <div className="hd-trend-chart-container">
+            {hoveredPoint && (
+              <div className="hd-trend-tooltip" role="tooltip" style={{ left: `${Math.min(82, Math.max(18, (hoveredPoint.x / svgWidth) * 100))}%`, top: `${Math.max(28, (hoveredPoint.y / svgHeight) * 100)}%` }}>
+                <strong>{hoveredPoint.start && hoveredPoint.end && hoveredPoint.start !== hoveredPoint.end ? `${hoveredPoint.start} – ${hoveredPoint.end}` : hoveredPoint.start || hoveredPoint.label}</strong>
+                <span>Total Requests: {hoveredPoint.val}</span>
+                <span>Returns: {hoveredPoint.returns || 0}</span>
+                <span>Replacements: {hoveredPoint.replacements || 0}</span>
+              </div>
+            )}
             {loading ? (
               <div className="hd-chart-empty-state" role="status">Loading report data…</div>
             ) : trendPoints.length === 0 ? (
@@ -276,6 +285,10 @@ export function HandlerReportsView({
                     stroke="#FFFFFF"
                     strokeWidth="1.5"
                     tabIndex="0"
+                    onMouseEnter={() => setHoveredPoint(pt)}
+                    onMouseLeave={() => setHoveredPoint(null)}
+                    onFocus={() => setHoveredPoint(pt)}
+                    onBlur={() => setHoveredPoint(null)}
                     role="img"
                     aria-label={`${pt.label}: ${pt.val} requests, ${pt.returns || 0} returns, ${pt.replacements || 0} replacements`}
                   >
