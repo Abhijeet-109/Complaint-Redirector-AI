@@ -171,7 +171,12 @@ class ReturnsToolsTests(unittest.TestCase):
 
         key = str(uuid.uuid4())
         root = os.path.join(os.getcwd(), "backend", "private_return_evidence")
-        with patch.dict(os.environ, {"RETURN_EVIDENCE_DIR": root}):
+        with patch.dict(os.environ, {
+            "RETURN_EVIDENCE_DIR": root,
+            "APP_ENV": "test",
+            "RETURN_EVIDENCE_STORAGE_PROVIDER": "local_private",
+            "IMAGEKIT_PRIVATE_KEY": "",
+        }):
             stage_evidence(self._png(), "proof.png", "image/png", self.customer.id,
                            self.thread_id, self.order.id, self.item.id, key)
             self.request.status = "rejected"

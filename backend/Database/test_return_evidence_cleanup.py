@@ -31,6 +31,8 @@ class ReturnEvidenceCleanupTests(unittest.TestCase):
         self.storage_patch = patch.dict(os.environ, {
             "RETURN_EVIDENCE_DIR": str(self.temp),
             "RETURN_EVIDENCE_RETENTION_HOURS": "24",
+            "APP_ENV": "test",
+            "RETURN_EVIDENCE_STORAGE_PROVIDER": "local_private",
         })
         self.storage_patch.start()
         self.engine = create_engine("sqlite://")
@@ -123,6 +125,45 @@ class ReturnEvidenceCleanupTests(unittest.TestCase):
         self.assertFalse(manifest.exists())
         self.assertFalse(orphan.exists())
         self.assertEqual(cleanup_stale_evidence(self.db, now=self.now)["errors"], 0)
+
+    def test_imagekit_staging_uses_private_flatkart_folder_and_persists_provider_reference(self):
+        class FakeFiles:
+            def __init__(self):
+                self.upload_args = None
+                self.deleted = []
+
+            def upload(self, **kwargs):
+                self.upload_args = kwargs
+                from types import SimpleNamespace
+                return SimpleNamespace(file_id="imagekit-evidence-123")
+
+            def delete(self, file_id):
+                self.deleted.append(file_id)
+
+        from types import SimpleNamespace
+        from backend.Database.return_evidence_storage import clear_staged_evidence
+
+        fake_files = FakeFiles()
+        fake_client = SimpleNamespace(files=fake_files)
+        with patch.dict(os.environ, {
+            "RETURN_EVIDENCE_STORAGE_PROVIDER": "imagekit",
+            "IMAGEKIT_PRIVATE_KEY": "test-private-key",
+            "IMAGEKIT_URL_ENDPOINT": "https://ik.imagekit.io/test",
+        }), patch("imagekitio.ImageKit", return_value=fake_client):
+            stage = stage_evidence(self._png(), "damage.png", "image/png", self.user_id,
+                                    self.thread_id, 10, 11, str(uuid.uuid4()))
+            staged = list_staged_evidence(self.user_id, self.thread_id)
+
+            self.assertEqual(fake_files.upload_args["folder"], "/Flatkart/return-evidence")
+            self.assertTrue(fake_files.upload_args["is_private_file"])
+            self.assertTrue(fake_files.upload_args["file_name"].startswith("return_"))
+            self.assertEqual(staged[0]["storage_provider"], "imagekit")
+            self.assertEqual(staged[0]["provider_file_id"], "imagekit-evidence-123")
+            self.assertTrue(staged[0]["storage_key"].startswith("/Flatkart/return-evidence/"))
+            self.assertEqual(stage["id"], staged[0]["id"])
+
+            clear_staged_evidence(staged)
+            self.assertEqual(fake_files.deleted, ["imagekit-evidence-123"])
 
 
 if __name__ == "__main__":

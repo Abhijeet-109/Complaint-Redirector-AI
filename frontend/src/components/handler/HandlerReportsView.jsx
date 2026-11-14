@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Layers,
   Package,
@@ -13,36 +13,33 @@ export function HandlerReportsView({
   reportsData: initialData,
   loading: initialLoading = false,
 }) {
-  const [selectedTimeframe, setSelectedTimeframe] = useState('30days');
+  const [selectedTimeframe, setSelectedTimeframe] = useState('day');
   const [selectedType, setSelectedType] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [reportsData, setReportsData] = useState(initialData || null);
   const [loading, setLoading] = useState(initialLoading);
 
-  const daysMap = {
-    '7days': 7,
-    '30days': 30,
-    '90days': 90,
-  };
+  const requestSequence = useRef(0);
 
   useEffect(() => {
+    const requestId = ++requestSequence.current;
     let isMounted = true;
     const fetchFilteredStats = async () => {
       setLoading(true);
+      setReportsData(null);
       try {
-        const days = daysMap[selectedTimeframe] || 30;
         const res = await handlerService.getReportsStats({
-          days,
+          period: selectedTimeframe,
           request_type: selectedType,
           status: selectedStatus,
         });
-        if (isMounted && res) {
+        if (isMounted && requestSequence.current === requestId && res) {
           setReportsData(res);
         }
       } catch (err) {
-        console.error('Failed to fetch reports stats:', err);
+        if (isMounted && requestSequence.current === requestId) console.error('Failed to fetch reports stats:', err);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted && requestSequence.current === requestId) setLoading(false);
       }
     };
 
@@ -79,7 +76,7 @@ export function HandlerReportsView({
   const coords = trendPoints.map((pt, i) => {
     const x = 35 + (i / Math.max(1, trendPoints.length - 1)) * (svgWidth - 65);
     const y = svgHeight - 30 - (pt.val / maxVal) * (svgHeight - 55);
-    return { x, y, label: pt.label, val: pt.val };
+    return { ...pt, x, y };
   });
 
   const pathD = coords.reduce((acc, curr, i, arr) => {
@@ -105,7 +102,6 @@ export function HandlerReportsView({
   const inProgressDash = (inProgressPct / 100) * donutCircumference;
 
   const handleExport = () => {
-    const days = daysMap[selectedTimeframe] || 30;
     const rows = [
       ['Metric', 'Value'],
       ['Total Requests', totalRequests],
@@ -115,15 +111,15 @@ export function HandlerReportsView({
       ['Resolved', resolvedCount],
       ['Pending', pendingCount],
       ['In Progress', inProgressCount],
-      ['Timeframe Days', days],
+      ['Timeframe', selectedTimeframe],
       ['Selected Type', selectedType],
       ['Selected Status', selectedStatus],
     ];
 
     if (rawTrend.length > 0) {
       rows.push([]);
-      rows.push(['Date Interval', 'Requests']);
-      rawTrend.forEach((t) => rows.push([t.label, t.val]));
+      rows.push(['Bucket', 'Start', 'End', 'Requests', 'Returns', 'Replacements']);
+      rawTrend.forEach((t) => rows.push([t.label, t.start, t.end, t.val, t.returns, t.replacements]));
     }
 
     const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
@@ -173,15 +169,16 @@ export function HandlerReportsView({
       {/* Filters and Export Button Bar */}
       <div className="hd-reports-filter-bar">
         <div className="hd-reports-selects">
-          <select
-            className="hd-select"
-            value={selectedTimeframe}
-            onChange={(e) => setSelectedTimeframe(e.target.value)}
-          >
-            <option value="30days">Last 30 Days</option>
-            <option value="7days">Last 7 Days</option>
-            <option value="90days">Last 90 Days</option>
-          </select>
+          <div className="hd-reports-timeframe" role="group" aria-label="Trend timeframe">
+            {['day', 'week', 'month'].map((period) => (
+              <button key={period} type="button"
+                className={`hd-reports-timeframe-btn ${selectedTimeframe === period ? 'active' : ''}`}
+                aria-pressed={selectedTimeframe === period}
+                onClick={() => setSelectedTimeframe(period)}>
+                {period[0].toUpperCase() + period.slice(1)}
+              </button>
+            ))}
+          </div>
 
           <select
             className="hd-select"
@@ -227,7 +224,9 @@ export function HandlerReportsView({
             </div>
           </div>
           <div className="hd-trend-chart-container">
-            {trendPoints.length === 0 ? (
+            {loading ? (
+              <div className="hd-chart-empty-state" role="status">Loading report data…</div>
+            ) : trendPoints.length === 0 ? (
               <div className="hd-chart-empty-state">No trend data available for the selected period.</div>
             ) : (
               <svg
@@ -276,7 +275,12 @@ export function HandlerReportsView({
                     fill="#0F3024"
                     stroke="#FFFFFF"
                     strokeWidth="1.5"
-                  />
+                    tabIndex="0"
+                    role="img"
+                    aria-label={`${pt.label}: ${pt.val} requests, ${pt.returns || 0} returns, ${pt.replacements || 0} replacements`}
+                  >
+                    <title>{`${pt.start && pt.end && pt.start !== pt.end ? `${pt.start} – ${pt.end}` : pt.start || pt.label}\nTotal Requests: ${pt.val}\nReturns: ${pt.returns || 0}\nReplacements: ${pt.replacements || 0}`}</title>
+                  </circle>
                 ))}
 
                 {/* X Axis Labels */}
@@ -301,7 +305,7 @@ export function HandlerReportsView({
           <div className="hd-card-header">
             <div>
               <h3 className="hd-card-title">Requests by Status</h3>
-              <p className="hd-card-desc">Current distribution of all requests.</p>
+              <p className="hd-card-desc">Current distribution of matching requests.</p>
             </div>
           </div>
           <div className="hd-status-donut-container">
@@ -423,15 +427,15 @@ export function HandlerReportsView({
           <div className="hd-card-header">
             <div>
               <h3 className="hd-card-title">Recent Reports</h3>
-              <p className="hd-card-desc">Recently generated and downloaded reports.</p>
+              <p className="hd-card-desc">Download the current filtered request summary.</p>
             </div>
           </div>
           <table className="hd-table hd-reports-table">
             <thead>
               <tr>
-                <th>REPORT NAME</th>
-                <th>TYPE</th>
-                <th>GENERATED ON</th>
+                <th>SUMMARY</th>
+                <th>DATA</th>
+                <th>PERIOD</th>
                 <th>ACTIONS</th>
               </tr>
             </thead>
@@ -440,12 +444,10 @@ export function HandlerReportsView({
                 <>
                   <tr>
                     <td className="hd-report-name-cell">
-                      <span className="hd-report-name">Requests Summary (Last 30 Days)</span>
+                      <span className="hd-report-name">Current request summary</span>
                     </td>
-                    <td><span className="hd-report-type-badge">Summary</span></td>
-                    <td className="hd-cell-timestamp">
-                      {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </td>
+                    <td><span className="hd-report-type-badge">Live</span></td>
+                    <td className="hd-cell-timestamp">{selectedTimeframe[0].toUpperCase() + selectedTimeframe.slice(1)}</td>
                     <td>
                       <button type="button" className="hd-table-action-btn" title="Download" onClick={handleExport}>
                         <Download size={15} />
@@ -455,7 +457,7 @@ export function HandlerReportsView({
                 </>
               ) : (
                 <tr>
-                  <td colSpan={4} className="hd-table-empty">No reports generated yet.</td>
+                  <td colSpan={4} className="hd-table-empty">No matching requests for this filter.</td>
                 </tr>
               )}
             </tbody>

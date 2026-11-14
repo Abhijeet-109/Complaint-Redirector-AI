@@ -23,6 +23,39 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
   const [actionNote, setActionNote] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
+  const [evidencePreviews, setEvidencePreviews] = useState({});
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const evidenceIds = (claim?.evidence || []).map((item) => item.id).join(',');
+
+  useEffect(() => {
+    let active = true;
+    const objectUrls = [];
+    const evidence = claim?.evidence || [];
+    if (!evidence.length) {
+      setEvidencePreviews({});
+      return () => {};
+    }
+    setEvidenceLoading(true);
+    setEvidencePreviews({});
+    Promise.all(evidence.map(async (item) => {
+      try {
+        const blob = await handlerService.getReturnEvidenceBlob(resolvedId, item.id);
+        const url = URL.createObjectURL(blob);
+        objectUrls.push(url);
+        return [item.id, url];
+      } catch {
+        return [item.id, null];
+      }
+    })).then((entries) => {
+      if (active) setEvidencePreviews(Object.fromEntries(entries));
+    }).finally(() => {
+      if (active) setEvidenceLoading(false);
+    });
+    return () => {
+      active = false;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [resolvedId, evidenceIds]);
 
   const handleBack = () => {
     if (onBack) onBack();
@@ -223,7 +256,15 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
               <div className="hd-evidence-grid">
                 {claim.evidence.map((ev) => (
                   <div key={ev.id} className="hd-evidence-item">
-                    <FileText size={18} />
+                    {evidencePreviews[ev.id] ? (
+                      <a className="hd-evidence-preview-link" href={evidencePreviews[ev.id]} target="_blank" rel="noreferrer" aria-label={`Open ${ev.filename}`}>
+                        <img className="hd-evidence-preview" src={evidencePreviews[ev.id]} alt={`Evidence: ${ev.filename}`} />
+                      </a>
+                    ) : (
+                      <div className="hd-evidence-preview hd-evidence-unavailable" role="status">
+                        {evidenceLoading ? 'Loading image…' : 'Image unavailable'}
+                      </div>
+                    )}
                     <div className="hd-evidence-info">
                       <span className="hd-evidence-filename">{ev.filename}</span>
                       <span className="hd-evidence-size">

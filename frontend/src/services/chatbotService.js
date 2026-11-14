@@ -123,6 +123,20 @@ export const chatbotService = {
     });
   },
 
+  async submitReturnIntakeAction(threadId, action, value) {
+    return apiRequest('/chatbot/returns/intake-action', {
+      method: 'POST',
+      body: JSON.stringify({ thread_id: threadId, action, value }),
+    });
+  },
+
+  async getStagedEvidenceBlob(previewUrl) {
+    const token = localStorage.getItem('flatkart_token');
+    const response = await fetch(previewUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!response.ok) throw new Error('Evidence preview is unavailable.');
+    return response.blob();
+  },
+
   /**
    * Health check for chatbot service.
    * Endpoint: GET /chatbot/health

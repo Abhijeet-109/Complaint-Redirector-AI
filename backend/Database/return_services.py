@@ -470,6 +470,7 @@ def claim_details(session: Session, claim: ReturnRequest) -> dict:
             "uploaded_by_id": row.uploaded_by_id,
             "uploaded_at": stamp(row.uploaded_at),
             "active": row.is_active,
+            "view_url": f"/api/v1/departments/returns/{claim.id}/evidence/{row.id}",
         } for row in evidence],
         "inspection_history": [{
             "id": row.id,

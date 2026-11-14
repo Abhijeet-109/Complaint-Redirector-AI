@@ -1,6 +1,14 @@
 import { apiRequest } from './api';
 
 export const handlerService = {
+  async getReturnEvidenceBlob(claimId, evidenceId) {
+    const token = localStorage.getItem('flatkart_token');
+    const response = await fetch(`/api/v1/departments/returns/${claimId}/evidence/${evidenceId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error('Evidence image is unavailable.');
+    return response.blob();
+  },
   getOrderDeliveryOrders(params = {}) {
     const query = new URLSearchParams();
     if (params.status) query.append('status', params.status);
@@ -231,6 +239,9 @@ export const handlerService = {
   async getReportsStats(params = {}) {
     const query = new URLSearchParams();
     if (params.days !== undefined) query.append('days', String(params.days));
+    if (params.period !== undefined) query.append('period', String(params.period));
+    if (params.request_type !== undefined) query.append('request_type', String(params.request_type));
+    if (params.status !== undefined) query.append('status', String(params.status));
     const qs = query.toString();
     return await apiRequest(`/api/v1/departments/reports-stats${qs ? `?${qs}` : ''}`, { method: 'GET' });
   },

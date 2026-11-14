@@ -20,7 +20,7 @@ from backend.Database.return_services import (
 )
 from backend.Database.models import ReturnEvidence, ReturnRequestEvent
 from backend.Database.return_evidence_storage import (
-    MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES, delete_evidence, save_evidence,
+    MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES, delete_provider_evidence, save_evidence,
 )
 from backend.auth.dependencies import get_current_user, get_db
 from backend.auth.security import hash_password, verify_password
@@ -442,11 +442,14 @@ def _save_claim_evidence(db: Session, claim_id: int, actor_id: int, files: list[
     try:
         for upload in files:
             data = upload.file.read(MAX_EVIDENCE_BYTES + 1)
-            key, mime_type, digest = save_evidence(data, upload.filename or "", upload.content_type or "")
+            key, mime_type, digest, provider, provider_file_id = save_evidence(
+                data, upload.filename or "", upload.content_type or ""
+            )
             row = ReturnEvidence(
                 return_request_id=claim_id,
-                storage_provider="local_private",
+                storage_provider=provider,
                 storage_key=key,
+                provider_file_id=provider_file_id,
                 original_filename=(upload.filename or "evidence")[:255],
                 mime_type=mime_type,
                 size_bytes=len(data),
@@ -455,7 +458,7 @@ def _save_claim_evidence(db: Session, claim_id: int, actor_id: int, files: list[
                 is_active=True,
             )
             db.add(row)
-            created.append((row, key))
+            created.append((row, key, provider, provider_file_id))
             db.flush()
             db.add(ReturnRequestEvent(
                 return_request_id=claim_id,
@@ -463,10 +466,10 @@ def _save_claim_evidence(db: Session, claim_id: int, actor_id: int, files: list[
                 actor_user_id=actor_id,
                 event_data={"evidence_id": row.id, "content_type": mime_type, "size_bytes": len(data), "sha256": digest},
             ))
-        return [row for row, _key in created]
+        return [row for row, _key, _provider, _file_id in created]
     except Exception:
-        for _row, key in created:
-            delete_evidence(key)
+        for _row, key, provider, file_id in created:
+            delete_provider_evidence(provider, key, file_id)
         raise
 
 
@@ -493,7 +496,7 @@ def upload_return_evidence(
     except Exception as exc:
         db.rollback()
         for row in locals().get("rows", []):
-            delete_evidence(row.storage_key)
+            delete_provider_evidence(row.storage_provider, row.storage_key, row.provider_file_id)
         raise HTTPException(status_code=500, detail="Evidence could not be saved.") from exc
 
 
@@ -507,14 +510,31 @@ def get_return_evidence(claim_id: int, evidence_id: int, db: Session = Depends(g
     ))
     if evidence is None:
         raise HTTPException(status_code=404, detail="Evidence not found.")
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if evidence.storage_provider == "imagekit":
+        try:
+            import httpx
+            from urllib.parse import urlsplit
+            from fastapi.responses import Response
+            from backend.Database.return_evidence_storage import signed_evidence_url
+            signed_url = signed_evidence_url(evidence.storage_key, expires_in=60)
+            if urlsplit(signed_url).hostname != urlsplit(__import__("os").getenv("IMAGEKIT_URL_ENDPOINT", "")).hostname:
+                raise RuntimeError("ImageKit delivery endpoint is invalid.")
+            upstream = httpx.get(signed_url, timeout=15.0, follow_redirects=False)
+            if upstream.status_code != 200:
+                raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
+            return Response(upstream.content, media_type=evidence.mime_type, headers=headers)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Evidence image delivery is unavailable.") from exc
     from backend.Database.return_evidence_storage import read_evidence
     from fastapi.responses import FileResponse
     path = read_evidence(evidence.storage_key)
     if path is None:
         raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
     return FileResponse(path, media_type=evidence.mime_type,
-                        filename=evidence.original_filename,
-                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+                        filename=evidence.original_filename, headers=headers)
 
 
 @router.post("/returns/{claim_id}/respond")
@@ -540,12 +560,12 @@ def respond_to_return_information(
     except ValueError as exc:
         db.rollback()
         for row in locals().get("saved", []):
-            delete_evidence(row.storage_key)
+            delete_provider_evidence(row.storage_provider, row.storage_key, row.provider_file_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         db.rollback()
         for row in locals().get("saved", []):
-            delete_evidence(row.storage_key)
+            delete_provider_evidence(row.storage_provider, row.storage_key, row.provider_file_id)
         raise HTTPException(status_code=500, detail="Customer response could not be saved.") from exc
 
 @router.get("/wishlist")

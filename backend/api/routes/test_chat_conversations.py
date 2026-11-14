@@ -59,6 +59,14 @@ class _FakeGraph:
         state["return_submission_key"] = input_state.get("return_submission_key")
         return {"answer": answer}
 
+    def update_state(self, config, values):
+        state = self.threads.setdefault(config["configurable"]["thread_id"], {"messages": []})
+        for key, value in values.items():
+            if key == "messages":
+                state.setdefault("messages", []).extend(value)
+            else:
+                state[key] = value
+
 
 class _FakeCheckpointer:
     def __init__(self, graph):
@@ -151,16 +159,28 @@ class ChatConversationApiTests(unittest.TestCase):
 
         ask = self.client.post("/chatbot/ask", json={
             "thread_id": thread_id, "question": "I want to return this item",
-            "order_id": order_id, "order_item_id": order_item_id,
+            "order_id": order_id, "order_item_id": order_item_id, "new_return_intake": True,
         })
         self.assertEqual(ask.status_code, 200, ask.text)
+        for action, value in (("select_resolution", "refund"), ("select_reason", "damaged"),
+                              ("select_refund_timing", "immediate"), ("skip_description", None)):
+            changed = self.client.post("/chatbot/returns/intake-action", json={
+                "thread_id": thread_id, "action": action, "value": value,
+            })
+            self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()["return_intake"]["step"], "evidence")
         params = {"thread_id": thread_id, "order_id": order_id, "order_item_id": order_item_id,
                   "return_submission_key": ask.json()["return_submission_key"]}
         image_data = io.BytesIO()
         Image.new("RGB", (2, 2), "red").save(image_data, format="PNG")
         png = image_data.getvalue()
         storage = os.path.join(os.getcwd(), "backend", "private_return_evidence")
-        with patch.dict(os.environ, {"RETURN_EVIDENCE_DIR": storage}):
+        with patch.dict(os.environ, {
+            "RETURN_EVIDENCE_DIR": storage,
+            "APP_ENV": "test",
+            "RETURN_EVIDENCE_STORAGE_PROVIDER": "local_private",
+            "IMAGEKIT_PRIVATE_KEY": "",
+        }):
             failed = self.client.post("/chatbot/returns/evidence", params=params,
                                       files=[("files", ("bad.png", b"not image", "image/png"))])
             self.assertEqual(failed.status_code, 202, failed.text)
@@ -172,6 +192,34 @@ class ChatConversationApiTests(unittest.TestCase):
             sixth = self.client.post("/chatbot/returns/evidence", params=params,
                                      files=[("files", ("sixth.png", png, "image/png"))])
             self.assertEqual(sixth.status_code, 400)
+            self.assertEqual(self.graph.get_state({"configurable": {"thread_id": thread_id}}).values["return_intake"]["step"], "review")
+
+            class SubmitTool:
+                name = "submit_my_return_request"
+
+                def __init__(self):
+                    self.calls = []
+
+                def invoke(self, payload):
+                    self.calls.append(payload)
+                    return {"success": True, "return_request_id": 123}
+
+            submit_tool = SubmitTool()
+            with patch("backend.agents.returns.tools.build_returns_tools", return_value=[submit_tool]):
+                submitted = self.client.post("/chatbot/returns/intake-action", json={
+                    "thread_id": thread_id, "action": "confirm",
+                })
+                self.assertEqual(submitted.status_code, 200, submitted.text)
+                self.assertIn("TRN-123", submitted.json()["answer"])
+                retried = self.client.post("/chatbot/returns/intake-action", json={
+                    "thread_id": thread_id, "action": "confirm",
+                })
+                self.assertEqual(retried.status_code, 200, retried.text)
+                self.assertEqual(submit_tool.calls, [{
+                    "order_id": order_id, "order_item_id": order_item_id, "quantity": 1,
+                    "resolution_type": "refund", "refund_timing": "immediate",
+                    "reason_code": "damaged", "description": None,
+                }])
             with patch.object(chatbot_module, "clear_staged_evidence", side_effect=OSError("temporary storage failure")):
                 failed_delete = self.client.delete(f"/chatbot/conversations/{thread_id}")
             self.assertEqual(failed_delete.status_code, 503)

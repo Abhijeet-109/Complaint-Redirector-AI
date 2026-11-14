@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import os
 from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -27,7 +28,7 @@ from backend.Database.admin_commerce_services import (
     execute_return_refund, get_return_refund_tracking, list_return_refund_handoffs,
     list_order_delivery_orders, list_order_delivery_shipments, update_order_status, update_shipment,
 )
-from backend.Database.return_evidence_storage import read_evidence
+from backend.Database.return_evidence_storage import read_evidence, signed_evidence_url
 from backend.Database.schemas import (
     DepartmentCreate,
     DepartmentUpdate,
@@ -567,7 +568,8 @@ def get_handler_overview_stats(
 
 @handler_router.get("/reports-stats")
 def get_handler_reports_stats(
-    days: int = Query(default=30, ge=1, le=365),
+    period: str = Query(default="day", pattern="^(day|week|month)$"),
+    days: int | None = Query(default=None, ge=1, le=365),
     request_type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     db: Session = Depends(get_db),
@@ -576,26 +578,59 @@ def get_handler_reports_stats(
     _require_returns_handler(db, current_user)
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    start_time = now - timedelta(days=days)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if days is not None:
+        period = "day"
+        bucket_count = min(days, 30)
+        first_bucket = today - timedelta(days=bucket_count - 1)
+    elif period == "week":
+        bucket_count = 8
+        first_bucket = today - timedelta(days=today.weekday() + 7 * (bucket_count - 1))
+    elif period == "month":
+        bucket_count = 6
+        first_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        for _ in range(bucket_count - 2):
+            first_month = (first_month - timedelta(days=1)).replace(day=1)
+        first_bucket = first_month
+    else:
+        bucket_count = 7
+        first_bucket = today - timedelta(days=bucket_count - 1)
+    start_time = first_bucket
 
-    query = db.query(ReturnRequest).filter(ReturnRequest.requested_at >= start_time)
+    query = db.query(ReturnRequest).filter(
+        ReturnRequest.requested_at >= start_time,
+        ReturnRequest.requested_at <= now,
+    )
 
     if request_type and request_type != "all":
-        query = query.filter(ReturnRequest.resolution_type == request_type)
+        if request_type not in {"refund", "replacement"}:
+            raise HTTPException(status_code=422, detail="Unsupported report request type filter.")
+        if request_type == "refund":
+            query = query.filter((ReturnRequest.resolution_type == "refund")
+                                 | ReturnRequest.resolution_type.is_(None))
+        else:
+            query = query.filter(ReturnRequest.resolution_type == request_type)
 
+    pending_statuses = {"pending_review", "requested", "under_review", "submitted"}
+    progress_statuses = {"in_process", "approved", "under_inspection", "information_requested"}
+    resolved_statuses = {"resolved", "completed"}
     if status and status != "all":
-        query = query.filter(ReturnRequest.workflow_status == status)
+        status_groups = {"pending": pending_statuses, "in_progress": progress_statuses,
+                         "resolved": resolved_statuses}
+        if status not in status_groups:
+            raise HTTPException(status_code=422, detail="Unsupported report status filter.")
+        query = query.filter(ReturnRequest.workflow_status.in_(status_groups[status]))
 
-    total_requests = query.count()
-
-    resolved_count = query.filter(ReturnRequest.workflow_status.in_(["resolved", "completed"])).count()
-    pending_count = query.filter(ReturnRequest.workflow_status.in_(["pending_review", "requested", "under_review"])).count()
-    in_progress_count = query.filter(ReturnRequest.workflow_status.in_(["in_process", "approved", "under_inspection", "information_requested"])).count()
-
-    returns_count = query.filter(
-        (ReturnRequest.resolution_type == "refund") | (ReturnRequest.resolution_type.is_(None))
-    ).count()
-    replacements_count = query.filter(ReturnRequest.resolution_type == "replacement").count()
+    grouped = query.with_entities(ReturnRequest.resolution_type, ReturnRequest.workflow_status,
+                                  func.count(ReturnRequest.id)).group_by(
+        ReturnRequest.resolution_type, ReturnRequest.workflow_status
+    ).all()
+    total_requests = sum(count for _resolution, _workflow, count in grouped)
+    resolved_count = sum(count for _resolution, workflow, count in grouped if (workflow or "submitted") in resolved_statuses)
+    pending_count = sum(count for _resolution, workflow, count in grouped if (workflow or "submitted") in pending_statuses)
+    in_progress_count = sum(count for _resolution, workflow, count in grouped if (workflow or "submitted") in progress_statuses)
+    returns_count = sum(count for resolution, _workflow, count in grouped if resolution != "replacement")
+    replacements_count = sum(count for resolution, _workflow, count in grouped if resolution == "replacement")
 
     returns_dept = _returns_department(db)
     complaints_count = db.query(Complaint).filter(
@@ -603,27 +638,51 @@ def get_handler_reports_stats(
         Complaint.create_at >= start_time
     ).count()
 
-    # Time series trend data (11 points across the days window)
-    num_points = 11
-    interval = max(1, days // (num_points - 1))
-    trend_data = []
+    trend_buckets = []
+    bucket_totals = {}
+    bucket_type_totals = {}
+    if db.get_bind().dialect.name == "postgresql":
+        bucket_expr = func.date_trunc(period, ReturnRequest.requested_at)
+        series = query.with_entities(bucket_expr, ReturnRequest.resolution_type,
+                                     func.count(ReturnRequest.id)).group_by(
+            bucket_expr, ReturnRequest.resolution_type
+        ).all()
+        for bucket_date, resolution, count in series:
+            key = bucket_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            bucket_totals[key] = bucket_totals.get(key, 0) + count
+            type_counts = bucket_type_totals.setdefault(key, {"returns": 0, "replacements": 0})
+            type_counts["replacements" if resolution == "replacement" else "returns"] += count
+    else:
+        rows = query.with_entities(ReturnRequest.requested_at, ReturnRequest.resolution_type).all()
+        for row in rows:
+            key = row.requested_at.replace(hour=0, minute=0, second=0, microsecond=0)
+            if period == "week":
+                key -= timedelta(days=key.weekday())
+            elif period == "month":
+                key = key.replace(day=1)
+            bucket_totals[key] = bucket_totals.get(key, 0) + 1
+            type_counts = bucket_type_totals.setdefault(key, {"returns": 0, "replacements": 0})
+            type_counts["replacements" if row.resolution_type == "replacement" else "returns"] += 1
 
-    for i in range(num_points):
-        pt_date = start_time + timedelta(days=i * interval)
-        if pt_date > now:
-            pt_date = now
-        pt_start = pt_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        pt_end = pt_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-        pt_cnt = query.filter(
-            ReturnRequest.requested_at >= pt_start,
-            ReturnRequest.requested_at <= pt_end
-        ).count()
-
-        trend_data.append({
-            "label": pt_date.strftime("%b %d"),
-            "val": pt_cnt
-        })
+    for index in range(bucket_count):
+        if period == "week":
+            bucket_start = first_bucket + timedelta(weeks=index)
+            bucket_end = bucket_start + timedelta(days=6)
+            label = f"Week {index + 1}"
+        elif period == "month":
+            bucket_start = first_bucket
+            for _ in range(index):
+                bucket_start = (bucket_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+            bucket_end = (bucket_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            label = bucket_start.strftime("%b")
+        else:
+            bucket_start = first_bucket + timedelta(days=index)
+            bucket_end = bucket_start
+            label = bucket_start.strftime("%a") if days is None else bucket_start.strftime("%b %d")
+        trend_buckets.append({"label": label, "val": bucket_totals.get(bucket_start, 0),
+                              "returns": bucket_type_totals.get(bucket_start, {}).get("returns", 0),
+                              "replacements": bucket_type_totals.get(bucket_start, {}).get("replacements", 0),
+                              "start": bucket_start.date().isoformat(), "end": min(bucket_end, now).date().isoformat()})
 
     return {
         "total_requests": total_requests,
@@ -633,7 +692,8 @@ def get_handler_reports_stats(
         "in_progress": in_progress_count,
         "returns_count": returns_count,
         "replacements_count": replacements_count,
-        "trend": trend_data,
+        "period": period,
+        "trend": trend_buckets,
     }
 
 
@@ -1025,12 +1085,33 @@ def handler_get_return_evidence(claim_id: int, evidence_id: int,
     ))
     if evidence is None:
         raise HTTPException(status_code=404, detail="Evidence not found.")
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if evidence.mime_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=415, detail="Evidence image type is unsupported.")
+    if evidence.storage_provider == "imagekit":
+        if not evidence.provider_file_id:
+            raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
+        try:
+            import httpx
+            from urllib.parse import urlsplit
+            from fastapi.responses import Response
+            signed_url = signed_evidence_url(evidence.storage_key, expires_in=60)
+            expected_host = urlsplit(os.getenv("IMAGEKIT_URL_ENDPOINT", "")).hostname
+            if not expected_host or urlsplit(signed_url).hostname != expected_host:
+                raise RuntimeError("ImageKit delivery endpoint is invalid.")
+            upstream = httpx.get(signed_url, timeout=15.0, follow_redirects=False)
+            if upstream.status_code != 200:
+                raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
+            return Response(upstream.content, media_type=evidence.mime_type, headers=headers)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Evidence image delivery is unavailable.") from exc
     path = read_evidence(evidence.storage_key)
     if path is None:
         raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
     from fastapi.responses import FileResponse
-    return FileResponse(path, media_type=evidence.mime_type, filename=evidence.original_filename,
-                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+    return FileResponse(path, media_type=evidence.mime_type, filename=evidence.original_filename, headers=headers)
 
 
 @handler_router.patch("/return-handoffs/{handoff_id}/status")

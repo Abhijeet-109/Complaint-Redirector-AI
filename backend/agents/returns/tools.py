@@ -544,8 +544,8 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
                 )
                 for item in matching:
                     evidence = ReturnEvidence(
-                        return_request_id=claim.id, storage_provider="local_private",
-                        storage_key=item["storage_key"], provider_file_id=None,
+                        return_request_id=claim.id, storage_provider=item.get("storage_provider", "local_private"),
+                        storage_key=item["storage_key"], provider_file_id=item.get("provider_file_id"),
                         original_filename=item["filename"], mime_type=item["mime_type"],
                         size_bytes=item["size_bytes"], sha256=item["sha256"],
                         uploaded_by_id=user_id, is_active=True,

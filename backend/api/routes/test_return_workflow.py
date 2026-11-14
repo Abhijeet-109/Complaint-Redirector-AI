@@ -31,7 +31,12 @@ from backend.auth.dependencies import get_current_user, get_db
 class ReturnWorkflowApiTests(unittest.TestCase):
     def setUp(self):
         self.storage_root = os.path.join(os.getcwd(), "backend", "private_return_evidence")
-        self.storage_patch = patch.dict(os.environ, {"RETURN_EVIDENCE_DIR": self.storage_root})
+        self.storage_patch = patch.dict(os.environ, {
+            "RETURN_EVIDENCE_DIR": self.storage_root,
+            "APP_ENV": "test",
+            "RETURN_EVIDENCE_STORAGE_PROVIDER": "local_private",
+            "IMAGEKIT_PRIVATE_KEY": "",
+        })
         self.storage_patch.start()
         self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         Base.metadata.create_all(self.engine, tables=[t for t in Base.metadata.sorted_tables if t.name != "knowledge_chunks"])
@@ -109,6 +114,46 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         stream = io.BytesIO()
         Image.new("RGB", (2, 2), "red").save(stream, format="PNG")
         return stream.getvalue()
+
+    def test_reports_stats_bucket_calendar_periods_and_apply_filters(self):
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        self.claim.requested_at = now
+        self.claim.workflow_status = "submitted"
+        replacement = ReturnRequest(
+            order_id=self.order.id, order_item_id=self.item.id, quantity=1,
+            reason="Damaged", status="requested", resolution_type="replacement",
+            reason_code="damaged", workflow_status="approved", requested_at=now - timedelta(days=1),
+        )
+        older = ReturnRequest(
+            order_id=self.order.id, order_item_id=self.item.id, quantity=1,
+            reason="Damaged", status="requested", resolution_type="refund",
+            reason_code="damaged", workflow_status="resolved", requested_at=now - timedelta(days=190),
+        )
+        self.db.add_all([replacement, older])
+        self.db.commit()
+        self.actor = self.handler
+
+        day = self.client.get("/api/v1/departments/reports-stats", params={"period": "day"})
+        self.assertEqual(day.status_code, 200, day.text)
+        self.assertEqual(len(day.json()["trend"]), 7)
+        self.assertEqual(sum(point["val"] for point in day.json()["trend"]), 2)
+        self.assertEqual(day.json()["pending"], 1)
+        self.assertEqual(day.json()["in_progress"], 1)
+        self.assertEqual(sum(point["replacements"] for point in day.json()["trend"]), 1)
+
+        week = self.client.get("/api/v1/departments/reports-stats", params={"period": "week"})
+        self.assertEqual(len(week.json()["trend"]), 8)
+        self.assertEqual(sum(point["val"] for point in week.json()["trend"]), 2)
+        month = self.client.get("/api/v1/departments/reports-stats", params={"period": "month"})
+        self.assertEqual(len(month.json()["trend"]), 6)
+        self.assertEqual(sum(point["val"] for point in month.json()["trend"]), 2)
+
+        filtered = self.client.get("/api/v1/departments/reports-stats", params={
+            "period": "day", "request_type": "replacement", "status": "in_progress",
+        })
+        self.assertEqual(filtered.status_code, 200, filtered.text)
+        self.assertEqual(filtered.json()["total_requests"], 1)
+        self.assertEqual(sum(point["val"] for point in filtered.json()["trend"]), 1)
 
     def progress_delivery_handoff(self, handoff, milestones):
         self.actor = self.delivery_handler

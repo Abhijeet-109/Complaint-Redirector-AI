@@ -1145,6 +1145,82 @@
   color: #a33b32;
 }
 
+.fk-return-intake-panel {
+  align-self: center;
+  width: min(100%, 720px);
+  margin: 12px 0 20px;
+  padding: 18px 20px;
+  color: #15352a;
+  background: #f8f8f5;
+  border: 1px solid #e3e8df;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(15, 48, 36, 0.05);
+}
+
+.fk-return-intake-panel > strong,
+.fk-return-intake-panel label > strong {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+
+.fk-return-intake-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.fk-return-intake-options button,
+.fk-return-intake-back,
+.fk-return-intake-cancel {
+  min-height: 38px;
+  padding: 8px 12px;
+  color: #15352a;
+  background: #fff;
+  border: 1px solid #d8ded6;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fk-return-intake-options button:hover:not(:disabled),
+.fk-return-intake-back:hover:not(:disabled) { background: #f0f3ed; }
+.fk-return-intake-options button:disabled,
+.fk-return-intake-back:disabled,
+.fk-return-intake-cancel:disabled { opacity: .55; cursor: not-allowed; }
+
+.fk-return-intake-back,
+.fk-return-intake-cancel { margin-top: 10px; }
+.fk-return-intake-cancel { color: #8a2d24; }
+.fk-return-intake-panel p { margin: 8px 0 12px; color: #68766f; font-size: 13px; }
+.fk-return-intake-panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 78px;
+  padding: 10px 12px;
+  border: 1px solid #d8ded6;
+  border-radius: 9px;
+  font: inherit;
+  resize: vertical;
+}
+
+.fk-return-intake-summary { display: grid; gap: 8px; margin: 12px 0; }
+.fk-return-intake-summary > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; }
+.fk-return-intake-summary dt { color: #68766f; font-size: 12px; }
+.fk-return-intake-summary dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.fk-return-intake-summary select { padding: 4px 8px; border: 1px solid #d8ded6; border-radius: 6px; }
+
+.fk-return-intake-previews { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.fk-return-intake-previews > div { display: grid; gap: 4px; width: 118px; font-size: 11px; overflow-wrap: anywhere; }
+.fk-return-intake-previews img { width: 118px; height: 90px; border-radius: 8px; border: 1px solid #d8ded6; object-fit: contain; background: #f1f0eb; }
+
+@media (max-width: 640px) {
+  .fk-return-intake-panel { padding: 14px; }
+  .fk-return-intake-summary > div { grid-template-columns: 90px minmax(0, 1fr); }
+}
+
 .fk-spinner {
   animation: fkSpin 0.9s linear infinite;
 }

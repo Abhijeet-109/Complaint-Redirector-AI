@@ -24,6 +24,8 @@ class GraphState(TypedDict, total=False):
 
     return_submission_key: str | None
 
+    return_intake: dict[str, Any]
+
     route: str
 
     answer: dict[str, Any]
