@@ -421,13 +421,13 @@ export function ODOverviewView({ onNavigate }) {
           </div>
 
           {/* Inventory Health Card */}
-          <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18, flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#122D29', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
                 INVENTORY HEALTH
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
                 <div>
                   <div style={{ fontSize: 10, color: '#7A8480', marginBottom: 2 }}>Total SKUs</div>
                   <div style={{ fontSize: 17, fontWeight: 800, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
@@ -449,14 +449,14 @@ export function ODOverviewView({ onNavigate }) {
               </div>
             </div>
 
-            <div style={{ marginTop: 'auto', paddingTop: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: '#5A6460', marginBottom: 5 }}>
-                <span>Stock health</span>
+            <div style={{ marginTop: 14, paddingTop: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12.5, color: '#5A6460', marginBottom: 6 }}>
+                <span style={{ fontWeight: 600 }}>Stock health</span>
                 <span style={{ fontWeight: 700, color: invHealth.health_score > 80 ? '#15803D' : '#B45309' }}>
                   {invHealth.health_score > 80 ? 'Healthy' : 'Attention'}
                 </span>
               </div>
-              <div style={{ width: '100%', height: 6, backgroundColor: '#EFECE4', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ width: '100%', height: 7, backgroundColor: '#EFECE4', borderRadius: 999, overflow: 'hidden' }}>
                 <div
                   style={{
                     width: `${Math.min(invHealth.health_score, 100)}%`,
@@ -548,10 +548,10 @@ export function ODOverviewView({ onNavigate }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ color: '#88928E', borderBottom: '1px solid #EFECE4', textAlign: 'left', fontSize: 11 }}>
-                <th style={{ width: '28%', padding: '6px 4px 6px 0', fontWeight: 500 }}>Shipment ID</th>
-                <th style={{ width: '30%', padding: '6px 4px', fontWeight: 500 }}>Destination</th>
-                <th style={{ width: '22%', padding: '6px 4px', fontWeight: 500 }}>ETA</th>
-                <th style={{ width: '20%', padding: '6px 0 6px 4px', fontWeight: 500, textAlign: 'right' }}>Status</th>
+                <th style={{ width: '24%', padding: '6px 4px 6px 0', fontWeight: 500 }}>Shipment ID</th>
+                <th style={{ width: '26%', padding: '6px 4px', fontWeight: 500 }}>Destination</th>
+                <th style={{ width: '27%', padding: '6px 4px', fontWeight: 500 }}>ETA</th>
+                <th style={{ width: '23%', padding: '6px 0 6px 4px', fontWeight: 500, textAlign: 'right' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -574,10 +574,10 @@ export function ODOverviewView({ onNavigate }) {
                     <td style={{ padding: '9px 4px', color: '#3A423F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={shp.destination}>
                       {shp.destination || 'Destination'}
                     </td>
-                    <td style={{ padding: '9px 4px', color: '#68726E', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 4px', color: '#68726E', overflowWrap: 'break-word', fontSize: 11.5 }} title={shp.eta}>
                       {shp.eta || 'Scheduled'}
                     </td>
-                    <td style={{ padding: '9px 0 9px 4px', textAlign: 'right' }}>
+                    <td style={{ padding: '9px 0 9px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <StatusBadge status={shp.status} />
                     </td>
                   </tr>

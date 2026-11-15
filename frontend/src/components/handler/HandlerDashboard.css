@@ -22,15 +22,54 @@
   --hd-radius-lg: 14px;
 }
 
+/* Ensure the document does not overflow when zoomed handler dashboard is mounted */
+html:has(.hd-layout),
+body:has(.hd-layout) {
+  height: 100%;
+  max-height: 100vh;
+  overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html:has(.hd-layout)::-webkit-scrollbar,
+body:has(.hd-layout)::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+#root:has(.hd-layout) {
+  height: calc(100vh / var(--fk-zoom, 1.1));
+  max-height: calc(100vh / var(--fk-zoom, 1.1));
+  overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+#root:has(.hd-layout)::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 /* Master Layout */
 .hd-layout {
   display: flex;
-  height: 100vh;
-  max-height: 100vh;
+  height: calc(100vh / var(--fk-zoom, 1.1));
+  max-height: calc(100vh / var(--fk-zoom, 1.1));
   overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   background-color: var(--hd-bg);
   color: var(--hd-text-primary);
   font-family: var(--font-family, 'Plus Jakarta Sans', sans-serif);
+}
+
+.hd-layout::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* ============================================================
@@ -194,6 +233,14 @@
   flex: 1;
   overflow-y: auto;
   margin-top: 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hd-sidebar-nav::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .hd-sidebar-item {
@@ -292,8 +339,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  height: 100vh;
-  max-height: 100vh;
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
   transition: margin-left 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -399,12 +446,12 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 24px 64px;
+  padding: 16px 24px 20px;
   max-width: 1600px;
   width: 100%;
   box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(18, 45, 41, 0.25) transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .hd-content:has(.hd-detail-page) {
@@ -413,16 +460,9 @@
 }
 
 .hd-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.hd-content::-webkit-scrollbar-thumb {
-  background-color: rgba(18, 45, 41, 0.2);
-  border-radius: 3px;
-}
-
-.hd-content::-webkit-scrollbar-track {
-  background: transparent;
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .hd-page {
@@ -742,8 +782,8 @@
 /* Prevent grid children from forcing overflow */
 .hd-overview-dominant-card,
 .hd-overview-right-column,
-.hd-overview-middle-grid > *,
-.hd-overview-kpi-grid > * {
+.hd-overview-middle-grid>*,
+.hd-overview-kpi-grid>* {
   min-width: 0;
 }
 
@@ -1138,12 +1178,29 @@
   table-layout: fixed;
 }
 
-.hd-recent-requests-table .hd-col-request-id { width: 12%; }
-.hd-recent-requests-table .hd-col-order-id { width: 16%; }
-.hd-recent-requests-table .hd-col-customer { width: 13%; }
-.hd-recent-requests-table .hd-col-type { width: 13%; }
-.hd-recent-requests-table .hd-col-status { width: 18%; }
-.hd-recent-requests-table .hd-col-requested { width: 28%; }
+.hd-recent-requests-table .hd-col-request-id {
+  width: 12%;
+}
+
+.hd-recent-requests-table .hd-col-order-id {
+  width: 16%;
+}
+
+.hd-recent-requests-table .hd-col-customer {
+  width: 13%;
+}
+
+.hd-recent-requests-table .hd-col-type {
+  width: 13%;
+}
+
+.hd-recent-requests-table .hd-col-status {
+  width: 18%;
+}
+
+.hd-recent-requests-table .hd-col-requested {
+  width: 28%;
+}
 
 .hd-recent-requests-table th,
 .hd-recent-requests-table td {
@@ -1556,6 +1613,7 @@
   .hd-overview-top-grid {
     grid-template-columns: 1fr;
   }
+
   .hd-overview-middle-grid,
   .hd-overview-bottom-grid,
   .hd-reports-middle-grid,
@@ -1564,9 +1622,11 @@
   .hd-detail-grid {
     grid-template-columns: 1fr;
   }
+
   .hd-kpi-row-4 {
     grid-template-columns: repeat(2, 1fr);
   }
+
   .hd-kpi-row-5 {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -1738,18 +1798,21 @@
   gap: 3px;
   min-width: 150px;
   padding: 9px 11px;
-  border: 1px solid rgba(255,255,255,.16);
+  border: 1px solid rgba(255, 255, 255, .16);
   border-radius: 8px;
   background: #0F3024;
   color: #fff;
   font-size: 11px;
   line-height: 1.35;
-  box-shadow: 0 6px 18px rgba(15,48,36,.2);
+  box-shadow: 0 6px 18px rgba(15, 48, 36, .2);
   pointer-events: none;
   transform: translate(-50%, calc(-100% - 9px));
 }
 
-.hd-trend-tooltip strong { font-size: 11px; margin-bottom: 2px; }
+.hd-trend-tooltip strong {
+  font-size: 11px;
+  margin-bottom: 2px;
+}
 
 .hd-chart-axis-text {
   font-size: 10px;
@@ -2409,8 +2472,15 @@
 }
 
 @keyframes hd-toast-in {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .hd-detail-loading,
@@ -2546,7 +2616,7 @@
   padding: 20px;
   border-radius: 14px;
   background: #fff;
-  box-shadow: 0 20px 70px rgba(0,0,0,.35);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, .35);
 }
 
 .hd-evidence-lightbox-close {
@@ -2719,7 +2789,7 @@
   padding: 14px 20px;
 }
 
-.hd-reports-page .hd-reports-bottom-grid > .hd-card {
+.hd-reports-page .hd-reports-bottom-grid>.hd-card {
   min-height: 190px;
 }
 
@@ -2754,22 +2824,40 @@
   max-height: 390px;
 }
 
-@media (max-width: 1200px), (max-height: 760px) {
-  .hd-content { overflow-y: auto; }
-  .hd-reports-page { height: auto; overflow: visible; }
+@media (max-width: 1200px),
+(max-height: 760px) {
+  .hd-content {
+    overflow-y: auto;
+  }
+
+  .hd-reports-page {
+    height: auto;
+    overflow: visible;
+  }
+
   .hd-review-queue-page,
   .hd-requests-page,
   .hd-complaints-page,
   .hd-tracking-page,
-  .hd-history-page { height: auto; overflow: visible; }
+  .hd-history-page {
+    height: auto;
+    overflow: visible;
+  }
+
   .hd-review-queue-page .hd-table-card,
   .hd-requests-page .hd-table-card,
   .hd-complaints-page .hd-table-card,
   .hd-tracking-page .hd-table-card,
-  .hd-history-page .hd-table-card { flex: none; min-height: 360px; }
+  .hd-history-page .hd-table-card {
+    flex: none;
+    min-height: 360px;
+  }
+
   .hd-review-queue-page .hd-table-wrapper,
   .hd-requests-page .hd-table-wrapper,
   .hd-complaints-page .hd-table-wrapper,
   .hd-tracking-page .hd-table-wrapper,
-  .hd-history-page .hd-table-wrapper { max-height: min(55vh, 390px); }
+  .hd-history-page .hd-table-wrapper {
+    max-height: min(55vh, 390px);
+  }
 }

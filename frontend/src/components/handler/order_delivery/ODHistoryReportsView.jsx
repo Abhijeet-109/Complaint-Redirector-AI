@@ -23,7 +23,7 @@ export function ODHistoryReportsView() {
   // History search
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(10);
 
   const loadData = useCallback(async () => {
     try {
