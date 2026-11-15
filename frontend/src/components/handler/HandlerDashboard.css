@@ -397,14 +397,14 @@
 .hd-content {
   flex: 1;
   min-height: 0;
-  overflow-y: hidden;
+  overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 24px;
+  padding: 16px 24px 64px;
   max-width: 1600px;
   width: 100%;
   box-sizing: border-box;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(18, 45, 41, 0.25) transparent;
 }
 
 .hd-content:has(.hd-detail-page) {
@@ -413,7 +413,16 @@
 }
 
 .hd-content::-webkit-scrollbar {
-  display: none;
+  width: 6px;
+}
+
+.hd-content::-webkit-scrollbar-thumb {
+  background-color: rgba(18, 45, 41, 0.2);
+  border-radius: 3px;
+}
+
+.hd-content::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .hd-page {

@@ -807,12 +807,17 @@ def list_order_delivery_return_handoffs(
         customer = db.get(User, order.user_id) if order else None
         items.append({
             "handoff_id": handoff.id,
+            "id": handoff.id,
             "return_request_id": claim.id if claim else None,
+            "claim_id": claim.id if claim else None,
             "handoff_type": handoff.handoff_type,
             "handoff_status": handoff.status,
+            "status": handoff.status,
             "order_id": order.id if order else None,
             "order_number": order.order_number if order else None,
             "customer_name": customer.name if customer else None,
+            "item_name": product_item.product_name if product_item else None,
+            "product_name": product_item.product_name if product_item else None,
             "item": ({"order_item_id": product_item.id, "product_name": product_item.product_name,
                       "variant_name": product_item.variant_name, "sku": product_item.sku,
                       "quantity": claim.quantity} if product_item and claim else None),
@@ -1348,6 +1353,7 @@ def get_order_delivery_reports_stats(
     actor=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
     _require_department_handler(db, actor, "Order & Delivery")
+    department = db.scalar(select(Department).where(Department.name == "Order & Delivery"))
 
     total_orders = db.scalar(select(func.count(CommerceOrder.id))) or 0
     delivered_orders = db.scalar(
@@ -1356,12 +1362,14 @@ def get_order_delivery_reports_stats(
     shipped_orders = db.scalar(
         select(func.count(Shipment.id)).where(Shipment.status.in_(["shipped", "out_for_delivery", "delivered"]))
     ) or 0
-    completed_handoffs = db.scalar(
-        select(func.count(ReturnHandoff.id)).where(
-            ReturnHandoff.current_owner == "Order & Delivery",
-            ReturnHandoff.status == "completed",
-        )
-    ) or 0
+    completed_handoffs = 0
+    if department:
+        completed_handoffs = db.scalar(
+            select(func.count(ReturnHandoff.id)).where(
+                ReturnHandoff.destination_department_id == department.id,
+                ReturnHandoff.status == "completed",
+            )
+        ) or 0
 
     return {
         "total_orders": total_orders,

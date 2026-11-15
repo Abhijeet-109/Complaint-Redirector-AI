@@ -13,12 +13,15 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { handlerService } from '../../../services/handlerService';
+import { HandlerPagination } from '../HandlerPagination';
 
 function StatusBadge({ status }) {
   const config = {
     pending: { bg: '#FEF3C7', color: '#B45309', label: 'Pending' },
+    accepted: { bg: '#E0F2FE', color: '#0369A1', label: 'Accepted' },
     in_progress: { bg: '#DBEAFE', color: '#1D4ED8', label: 'In Progress' },
     completed: { bg: '#DCFCE7', color: '#15803D', label: 'Completed' },
+    failed: { bg: '#FEE2E2', color: '#991B1B', label: 'Failed' },
     cancelled: { bg: '#F5F5F4', color: '#78716C', label: 'Cancelled' },
   }[String(status || '').toLowerCase()] || { bg: '#F5F5F4', color: '#78716C', label: status || 'Unknown' };
 
@@ -48,11 +51,16 @@ export function ODReturnsHandoffView({ onNavigate }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   const [selectedHandoff, setSelectedHandoff] = useState(null);
   const [handoffDetails, setHandoffDetails] = useState(null);
   const [milestoneInput, setMilestoneInput] = useState('');
   const [milestoneNote, setMilestoneNote] = useState('');
   const [savingMilestone, setSavingMilestone] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
 
@@ -82,11 +90,12 @@ export function ODReturnsHandoffView({ onNavigate }) {
       if (activeTab === 'replacement' && !type.includes('replacement')) {
         return false;
       }
-      if (statusFilter !== 'all' && h.status !== statusFilter) return false;
+      const st = String(h.status || h.handoff_status || '').toLowerCase();
+      if (statusFilter !== 'all' && st !== statusFilter) return false;
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const matchesId = String(h.id || h.handoff_id).includes(q);
-        const matchesReq = String(h.return_request_id || '').includes(q);
+        const matchesReq = String(h.return_request_id || h.claim_id || '').includes(q);
         const matchesOrder = (h.order_number || '').toLowerCase().includes(q);
         const matchesCustomer = (h.customer_name || '').toLowerCase().includes(q);
         if (!matchesId && !matchesReq && !matchesOrder && !matchesCustomer) return false;
@@ -94,6 +103,11 @@ export function ODReturnsHandoffView({ onNavigate }) {
       return true;
     });
   }, [handoffs, activeTab, statusFilter, searchTerm]);
+
+  const paginatedHandoffs = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredHandoffs.slice(start, start + pageSize);
+  }, [filteredHandoffs, page, pageSize]);
 
   const handleOpenDetail = async (handoff) => {
     setSelectedHandoff(handoff);
@@ -112,6 +126,27 @@ export function ODReturnsHandoffView({ onNavigate }) {
   const handleCloseDetail = () => {
     setSelectedHandoff(null);
     setHandoffDetails(null);
+  };
+
+  const handleTransitionStatus = async (nextStatus, defaultNote) => {
+    if (!selectedHandoff || updatingStatus) return;
+    setUpdatingStatus(true);
+    setActionError('');
+    setActionSuccess('');
+    try {
+      const handoffId = selectedHandoff.id || selectedHandoff.handoff_id;
+      await handlerService.updateHandoffStatus(handoffId, nextStatus, defaultNote);
+      setActionSuccess(`Handoff status transitioned to ${nextStatus.replace(/_/g, ' ')}.`);
+      await loadHandoffs();
+      const det = await handlerService.getOrderDeliveryReturnHandoffDetails(handoffId);
+      setHandoffDetails(det);
+      setSelectedHandoff((prev) => ({ ...prev, status: nextStatus, handoff_status: nextStatus }));
+      setMilestoneInput(det.next_milestone_options?.[0] || '');
+    } catch (err) {
+      setActionError(err.message || 'Status transition failed.');
+    } finally {
+      setUpdatingStatus(false);
+    }
   };
 
   const handleRecordMilestone = async () => {
@@ -138,6 +173,10 @@ export function ODReturnsHandoffView({ onNavigate }) {
       setSavingMilestone(false);
     }
   };
+
+  const currentHandoffStatus = String(
+    handoffDetails?.status || selectedHandoff?.status || selectedHandoff?.handoff_status || 'pending'
+  ).toLowerCase();
 
   return (
     <div style={{ padding: '0 4px 30px' }}>
@@ -178,7 +217,7 @@ export function ODReturnsHandoffView({ onNavigate }) {
       <div style={{ display: 'flex', borderBottom: '1px solid #E8E4D8', marginBottom: 16 }}>
         <button
           type="button"
-          onClick={() => setActiveTab('pickup')}
+          onClick={() => { setActiveTab('pickup'); setPage(1); }}
           style={{
             border: 'none',
             borderBottom: activeTab === 'pickup' ? '2px solid #183A34' : '2px solid transparent',
@@ -194,7 +233,7 @@ export function ODReturnsHandoffView({ onNavigate }) {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('replacement')}
+          onClick={() => { setActiveTab('replacement'); setPage(1); }}
           style={{
             border: 'none',
             borderBottom: activeTab === 'replacement' ? '2px solid #183A34' : '2px solid transparent',
@@ -230,7 +269,7 @@ export function ODReturnsHandoffView({ onNavigate }) {
             type="text"
             placeholder="Search handoff #, return req #, order #..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
             style={{
               width: '100%',
               padding: '7px 10px 7px 32px',
@@ -245,7 +284,7 @@ export function ODReturnsHandoffView({ onNavigate }) {
 
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           style={{
             padding: '6px 10px',
             border: '1px solid #E8E4D8',
@@ -257,6 +296,7 @@ export function ODReturnsHandoffView({ onNavigate }) {
         >
           <option value="all">All Handoff Statuses</option>
           <option value="pending">Pending</option>
+          <option value="accepted">Accepted</option>
           <option value="in_progress">In Progress</option>
           <option value="completed">Completed</option>
         </select>
@@ -276,72 +316,87 @@ export function ODReturnsHandoffView({ onNavigate }) {
             </p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#FAF7F2', borderBottom: '1px solid #E8E4D8', color: '#5A6460', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Handoff ID</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Return Req #</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Order Number</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Customer</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Item</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Type</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Status</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredHandoffs.map((h) => (
-                  <tr
-                    key={h.id || h.handoff_id}
-                    style={{ borderBottom: '1px solid #F0ECE1' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#FAF7F2'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                  >
-                    <td style={{ padding: '12px 16px', fontWeight: 700, color: '#122D29' }}>
-                      HND-{h.id || h.handoff_id}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#183A34', fontWeight: 600 }}>
-                      TRN-{h.return_request_id || h.claim_id}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#3A423F' }}>
-                      {h.order_number || '—'}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#2B322F', fontWeight: 500 }}>
-                      {h.customer_name || 'Customer'}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#5A6460' }}>
-                      {h.item_name || h.product_name || 'Item'}
-                    </td>
-                    <td style={{ padding: '12px 16px', textTransform: 'capitalize' }}>
-                      {(h.handoff_type || '').replace(/_/g, ' ')}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <StatusBadge status={h.status} />
-                    </td>
-                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        onClick={() => handleOpenDetail(h)}
-                        style={{
-                          background: '#FFFFFF',
-                          border: '1px solid #E8E4D8',
-                          borderRadius: 5,
-                          padding: '4px 10px',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: '#183A34',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Manage
-                      </button>
-                    </td>
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#FAF7F2', borderBottom: '1px solid #E8E4D8', color: '#5A6460', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Handoff ID</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Return Req #</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Order Number</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Customer</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Item</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Type</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Status</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {paginatedHandoffs.map((h) => (
+                    <tr
+                      key={h.id || h.handoff_id}
+                      style={{ borderBottom: '1px solid #F0ECE1' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#FAF7F2'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >
+                      <td style={{ padding: '12px 16px', fontWeight: 700, color: '#122D29' }}>
+                        HND-{h.id || h.handoff_id}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#183A34', fontWeight: 600 }}>
+                        TRN-{h.return_request_id || h.claim_id}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#3A423F' }}>
+                        {h.order_number || '—'}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#2B322F', fontWeight: 500 }}>
+                        {h.customer_name || 'Customer'}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#5A6460' }}>
+                        {h.item_name || h.product_name || 'Item'}
+                      </td>
+                      <td style={{ padding: '12px 16px', textTransform: 'capitalize' }}>
+                        {(h.handoff_type || '').replace(/_/g, ' ')}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <StatusBadge status={h.status || h.handoff_status} />
+                      </td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDetail(h)}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid #E8E4D8',
+                            borderRadius: 5,
+                            padding: '4px 10px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#183A34',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Manage
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Standardized Shared Pagination */}
+            <HandlerPagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalItems={filteredHandoffs.length}
+              onPageChange={(p) => setPage(p)}
+              onPageSizeChange={(sz) => {
+                setPageSize(sz);
+                setPage(1);
+              }}
+              pageSizeOptions={[5, 10, 20, 50]}
+            />
+          </>
         )}
       </div>
 
@@ -369,7 +424,7 @@ export function ODReturnsHandoffView({ onNavigate }) {
                 <h2 style={{ fontSize: 17, fontWeight: 800, color: '#122D29', margin: 0 }}>
                   Handoff #{selectedHandoff.id || selectedHandoff.handoff_id}
                 </h2>
-                <StatusBadge status={selectedHandoff.status} />
+                <StatusBadge status={currentHandoffStatus} />
               </div>
               <span style={{ fontSize: 11.5, color: '#68726E' }}>
                 {(selectedHandoff.handoff_type || '').replace(/_/g, ' ').toUpperCase()}
@@ -413,83 +468,156 @@ export function ODReturnsHandoffView({ onNavigate }) {
               <div style={{ fontSize: 12, color: '#5A6460', marginTop: 4 }}>
                 Customer: <strong>{selectedHandoff.customer_name || 'Customer'}</strong>
               </div>
-            </div>
-
-            {/* Milestone Actions */}
-            <div style={{ background: '#FAF7F2', border: '1px solid #E8E4D8', borderRadius: 8, padding: 16, marginBottom: 18 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#122D29', marginBottom: 8 }}>
-                Record Logistics Milestone
-              </div>
-
-              {handoffDetails?.next_milestone_options?.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#5A6460', marginBottom: 4 }}>
-                      Next Required Milestone:
-                    </label>
-                    <select
-                      value={milestoneInput}
-                      onChange={(e) => setMilestoneInput(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '8px 10px',
-                        border: '1px solid #D6CEB5',
-                        borderRadius: 6,
-                        fontSize: 12.5,
-                        backgroundColor: '#FFFFFF',
-                      }}
-                    >
-                      {handoffDetails.next_milestone_options.map((m) => (
-                        <option key={m} value={m}>{m.replace(/_/g, ' ').toUpperCase()}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#5A6460', marginBottom: 4 }}>
-                      Milestone Note (Required):
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={milestoneNote}
-                      onChange={(e) => setMilestoneNote(e.target.value)}
-                      placeholder="e.g. Package collected from customer address"
-                      style={{
-                        width: '100%',
-                        padding: '7px 10px',
-                        border: '1px solid #D6CEB5',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        backgroundColor: '#FFFFFF',
-                      }}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleRecordMilestone}
-                    disabled={savingMilestone || !milestoneNote.trim()}
-                    style={{
-                      background: '#183A34',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: 6,
-                      padding: '9px 16px',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: savingMilestone || !milestoneNote.trim() ? 'not-allowed' : 'pointer',
-                      opacity: !milestoneNote.trim() ? 0.6 : 1,
-                    }}
-                  >
-                    {savingMilestone ? 'Recording...' : `Record: ${milestoneInput.replace(/_/g, ' ')}`}
-                  </button>
+              {selectedHandoff.item_name && (
+                <div style={{ fontSize: 12, color: '#5A6460', marginTop: 2 }}>
+                  Item: <strong>{selectedHandoff.item_name}</strong>
                 </div>
-              ) : (
-                <p style={{ margin: 0, fontSize: 12, color: '#88928E' }}>
-                  All Order &amp; Delivery milestones for this handoff are complete.
-                </p>
               )}
             </div>
+
+            {/* Workflow Stage Transitions */}
+            {currentHandoffStatus === 'pending' && (
+              <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8, padding: 14, marginBottom: 18 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 4 }}>
+                  Action Required: Accept Handoff
+                </div>
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: '#B45309' }}>
+                  This reverse handoff has been assigned by Returns &amp; Replacement and is awaiting your acceptance before logistics work can begin.
+                </p>
+                <button
+                  type="button"
+                  disabled={updatingStatus}
+                  onClick={() => handleTransitionStatus('accepted', 'Handoff accepted by Order & Delivery')}
+                  style={{
+                    background: '#183A34',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '8px 14px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {updatingStatus ? 'Updating…' : 'Accept Handoff'}
+                </button>
+              </div>
+            )}
+
+            {currentHandoffStatus === 'accepted' && (
+              <div style={{ background: '#E0F2FE', border: '1px solid #BAE6FD', borderRadius: 8, padding: 14, marginBottom: 18 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#0369A1', marginBottom: 4 }}>
+                  Ready to Start Reverse Logistics
+                </div>
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: '#0284C7' }}>
+                  Handoff accepted. Advance to In Progress to start recording required physical collection and fulfilment milestones.
+                </p>
+                <button
+                  type="button"
+                  disabled={updatingStatus}
+                  onClick={() => handleTransitionStatus('in_progress', 'Started logistics processing')}
+                  style={{
+                    background: '#183A34',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '8px 14px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {updatingStatus ? 'Updating…' : 'Start Fulfilment (In Progress)'}
+                </button>
+              </div>
+            )}
+
+            {currentHandoffStatus === 'completed' && (
+              <div style={{ background: '#DCFCE7', border: '1px solid #BBF7D0', borderRadius: 8, padding: 14, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <CheckCircle2 size={18} color="#15803D" />
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#15803D' }}>
+                  All Order &amp; Delivery milestones for this handoff are completed.
+                </span>
+              </div>
+            )}
+
+            {/* Milestone Actions (Active when in_progress) */}
+            {currentHandoffStatus === 'in_progress' && (
+              <div style={{ background: '#FAF7F2', border: '1px solid #E8E4D8', borderRadius: 8, padding: 16, marginBottom: 18 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#122D29', marginBottom: 8 }}>
+                  Record Logistics Milestone
+                </div>
+
+                {handoffDetails?.next_milestone_options?.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#5A6460', marginBottom: 4 }}>
+                        Next Required Milestone:
+                      </label>
+                      <select
+                        value={milestoneInput}
+                        onChange={(e) => setMilestoneInput(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          border: '1px solid #D6CEB5',
+                          borderRadius: 6,
+                          fontSize: 12.5,
+                          backgroundColor: '#FFFFFF',
+                        }}
+                      >
+                        {handoffDetails.next_milestone_options.map((m) => (
+                          <option key={m} value={m}>{m.replace(/_/g, ' ').toUpperCase()}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#5A6460', marginBottom: 4 }}>
+                        Milestone Note (Required):
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={milestoneNote}
+                        onChange={(e) => setMilestoneNote(e.target.value)}
+                        placeholder="e.g. Package collected from customer address"
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          border: '1px solid #D6CEB5',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          backgroundColor: '#FFFFFF',
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleRecordMilestone}
+                      disabled={savingMilestone || !milestoneNote.trim()}
+                      style={{
+                        background: '#183A34',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: 6,
+                        padding: '9px 16px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: savingMilestone || !milestoneNote.trim() ? 'not-allowed' : 'pointer',
+                        opacity: !milestoneNote.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {savingMilestone ? 'Recording...' : `Record: ${milestoneInput.replace(/_/g, ' ')}`}
+                    </button>
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: 12, color: '#88928E' }}>
+                    All Order &amp; Delivery milestones for this handoff are complete.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Milestones timeline */}
             {handoffDetails?.milestones && handoffDetails.milestones.length > 0 && (

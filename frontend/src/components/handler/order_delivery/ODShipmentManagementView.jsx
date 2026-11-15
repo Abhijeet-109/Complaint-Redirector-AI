@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { handlerService } from '../../../services/handlerService';
+import { HandlerPagination } from '../HandlerPagination';
 
 function StatusBadge({ status }) {
   const statusConfig = {
@@ -73,7 +74,7 @@ export function ODShipmentManagementView({ onNavigate }) {
 
   // Pagination
   const [page, setPage] = useState(1);
-  const pageSize = 15;
+  const [pageSize, setPageSize] = useState(10);
 
   const loadShipments = useCallback(async () => {
     try {
@@ -418,46 +419,18 @@ export function ODShipmentManagementView({ onNavigate }) {
           </div>
         )}
 
-        {/* Pagination */}
-        <div style={{ padding: '12px 18px', background: '#FAF7F2', borderTop: '1px solid #E8E4D8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 12, color: '#68726E' }}>
-            Page {page} of {totalPages}
-          </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              type="button"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(p - 1, 1))}
-              style={{
-                border: '1px solid #E8E4D8',
-                background: page <= 1 ? '#F0ECE1' : '#FFFFFF',
-                color: page <= 1 ? '#A0A8A4' : '#183A34',
-                padding: '4px 10px',
-                borderRadius: 5,
-                fontSize: 11,
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-              style={{
-                border: '1px solid #E8E4D8',
-                background: page >= totalPages ? '#F0ECE1' : '#FFFFFF',
-                color: page >= totalPages ? '#A0A8A4' : '#183A34',
-                padding: '4px 10px',
-                borderRadius: 5,
-                fontSize: 11,
-                cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Next
-            </button>
-          </div>
-        </div>
+        {/* Standardized Shared Pagination */}
+        <HandlerPagination
+          currentPage={page}
+          pageSize={pageSize}
+          totalItems={filteredShipments.length}
+          onPageChange={(p) => setPage(p)}
+          onPageSizeChange={(sz) => {
+            setPageSize(sz);
+            setPage(1);
+          }}
+          pageSizeOptions={[5, 10, 20, 50]}
+        />
       </div>
 
       {/* Shipment Detail & Action Drawer */}

@@ -9,6 +9,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { handlerService } from '../../../services/handlerService';
+import { HandlerPagination } from '../HandlerPagination';
 
 function StockBadge({ status, available }) {
   if (available === 0 || status === 'out_of_stock') {
@@ -43,7 +44,7 @@ export function ODInventoryView() {
   const [searchTerm, setSearchTerm] = useState('');
   const [stockStatusFilter, setStockStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState(20);
 
   const loadInventory = useCallback(async () => {
     try {
@@ -276,7 +277,7 @@ export function ODInventoryView() {
                     <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Available</th>
                     <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Reserved</th>
                     <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Total Stock</th>
-                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Status</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600, minWidth: 130, width: 130 }}>Status</th>
                     <th style={{ padding: '10px 16px', fontWeight: 600 }}>Last Updated</th>
                   </tr>
                 </thead>
@@ -309,7 +310,7 @@ export function ODInventoryView() {
                       <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
                         {it.total_stock}
                       </td>
-                      <td style={{ padding: '12px 16px' }}>
+                      <td style={{ padding: '12px 16px', minWidth: 130, width: 130, whiteSpace: 'nowrap' }}>
                         <StockBadge status={it.stock_status} available={it.available_stock} />
                       </td>
                       <td style={{ padding: '12px 16px', color: '#88928E', fontSize: 11.5, whiteSpace: 'nowrap' }}>
@@ -321,46 +322,18 @@ export function ODInventoryView() {
               </table>
             </div>
 
-            {/* Pagination */}
-            <div style={{ padding: '12px 18px', background: '#FAF7F2', borderTop: '1px solid #E8E4D8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: '#68726E' }}>
-                Page {page} of {totalPages}
-              </span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  type="button"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                  style={{
-                    border: '1px solid #E8E4D8',
-                    background: page <= 1 ? '#F0ECE1' : '#FFFFFF',
-                    color: page <= 1 ? '#A0A8A4' : '#183A34',
-                    padding: '4px 10px',
-                    borderRadius: 5,
-                    fontSize: 11,
-                    cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-                  style={{
-                    border: '1px solid #E8E4D8',
-                    background: page >= totalPages ? '#F0ECE1' : '#FFFFFF',
-                    color: page >= totalPages ? '#A0A8A4' : '#183A34',
-                    padding: '4px 10px',
-                    borderRadius: 5,
-                    fontSize: 11,
-                    cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            {/* Standardized Shared Pagination */}
+            <HandlerPagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalItems={filteredItems.length}
+              onPageChange={(p) => setPage(p)}
+              onPageSizeChange={(sz) => {
+                setPageSize(sz);
+                setPage(1);
+              }}
+              pageSizeOptions={[10, 20, 50, 100]}
+            />
           </div>
         </>
       ) : (
@@ -371,28 +344,52 @@ export function ODInventoryView() {
               No category aggregates available.
             </div>
           ) : (
-            categories.map((cat, idx) => (
-              <div key={idx} style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#122D29', marginBottom: 12 }}>
-                  {cat.category_name || cat.name || 'Category'}
+            categories.map((cat, idx) => {
+              const directAvail = cat.available_stock ?? cat.total_available ?? 0;
+              const directRes = cat.reserved_stock ?? cat.total_reserved ?? 0;
+              const directTotal = cat.total_stock ?? (directAvail + directRes);
+
+              // Check if parent category with subcategories (e.g. Fashion)
+              const childCategories = categories.filter((c) => c.parent_id === cat.id || c.parent_id === cat.category_id);
+              const hasChildren = childCategories.length > 0;
+              const childAvail = childCategories.reduce((sum, c) => sum + (c.available_stock ?? c.total_available ?? 0), 0);
+              const childRes = childCategories.reduce((sum, c) => sum + (c.reserved_stock ?? c.total_reserved ?? 0), 0);
+              const childTotal = childCategories.reduce((sum, c) => sum + (c.total_stock ?? ((c.available_stock || 0) + (c.reserved_stock || 0))), 0);
+
+              const avail = (directAvail > 0 || !hasChildren) ? directAvail : childAvail;
+              const res = (directRes > 0 || !hasChildren) ? directRes : childRes;
+              const tot = (directTotal > 0 || !hasChildren) ? directTotal : childTotal;
+
+              return (
+                <div key={idx} style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#122D29' }}>
+                      {cat.category_name || cat.name || 'Category'}
+                    </div>
+                    {hasChildren && directAvail === 0 && (
+                      <span style={{ fontSize: 10, color: '#68726E', background: '#F5F2EA', padding: '2px 6px', borderRadius: 4 }}>
+                        Rollup
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#5A6460' }}>
+                      <span>Available Stock</span>
+                      <strong style={{ color: '#122D29' }}>{avail.toLocaleString()}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#5A6460' }}>
+                      <span>Reserved Stock</span>
+                      <strong style={{ color: '#7A8480' }}>{res.toLocaleString()}</strong>
+                    </div>
+                    <div style={{ height: 1, backgroundColor: '#EFECE4', margin: '4px 0' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#122D29', fontWeight: 700 }}>
+                      <span>Total Stock</span>
+                      <span>{tot.toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#5A6460' }}>
-                    <span>Available Stock</span>
-                    <strong style={{ color: '#122D29' }}>{(cat.total_available || 0).toLocaleString()}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#5A6460' }}>
-                    <span>Reserved Stock</span>
-                    <strong style={{ color: '#7A8480' }}>{(cat.total_reserved || 0).toLocaleString()}</strong>
-                  </div>
-                  <div style={{ height: 1, backgroundColor: '#EFECE4', margin: '4px 0' }} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#122D29', fontWeight: 700 }}>
-                    <span>Total Stock</span>
-                    <span>{((cat.total_available || 0) + (cat.total_reserved || 0)).toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}

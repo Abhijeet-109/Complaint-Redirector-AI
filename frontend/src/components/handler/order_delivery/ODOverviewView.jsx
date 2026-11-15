@@ -421,33 +421,35 @@ export function ODOverviewView({ onNavigate }) {
           </div>
 
           {/* Inventory Health Card */}
-          <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18, flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#122D29', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
-              INVENTORY HEALTH
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
-              <div>
-                <div style={{ fontSize: 10, color: '#7A8480', marginBottom: 2 }}>Total SKUs</div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
-                  {invHealth.total_skus?.toLocaleString() || '1,265'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: '#7A8480', marginBottom: 2 }}>Low Stock</div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: '#B45309', fontVariantNumeric: 'tabular-nums' }}>
-                  {invHealth.low_stock ?? 18}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: '#7A8480', marginBottom: 2 }}>Out of Stock</div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: '#991B1B', fontVariantNumeric: 'tabular-nums' }}>
-                  {invHealth.out_of_stock ?? 4}
-                </div>
-              </div>
-            </div>
-
+          <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#122D29', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
+                INVENTORY HEALTH
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: '#7A8480', marginBottom: 2 }}>Total SKUs</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: '#122D29', fontVariantNumeric: 'tabular-nums' }}>
+                    {invHealth.total_skus?.toLocaleString() || '1,265'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: '#7A8480', marginBottom: 2 }}>Low Stock</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: '#B45309', fontVariantNumeric: 'tabular-nums' }}>
+                    {invHealth.low_stock ?? 18}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: '#7A8480', marginBottom: 2 }}>Out of Stock</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: '#991B1B', fontVariantNumeric: 'tabular-nums' }}>
+                    {invHealth.out_of_stock ?? 4}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 'auto', paddingTop: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: '#5A6460', marginBottom: 5 }}>
                 <span>Stock health</span>
                 <span style={{ fontWeight: 700, color: invHealth.health_score > 80 ? '#15803D' : '#B45309' }}>
@@ -470,9 +472,9 @@ export function ODOverviewView({ onNavigate }) {
       </div>
 
       {/* C. Lower Row — Three Compact Tables */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 18 }}>
         {/* Table 1: Recent Orders */}
-        <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '16px 18px' }}>
+        <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '16px 18px', minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#122D29', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               RECENT ORDERS
@@ -486,13 +488,13 @@ export function ODOverviewView({ onNavigate }) {
             </button>
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ color: '#88928E', borderBottom: '1px solid #EFECE4', textAlign: 'left', fontSize: 11 }}>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>Order ID</th>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>Customer</th>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>Amount</th>
-                <th style={{ padding: '6px 0', fontWeight: 500, textAlign: 'right' }}>Status</th>
+                <th style={{ width: '38%', padding: '6px 4px 6px 0', fontWeight: 500 }}>Order ID</th>
+                <th style={{ width: '25%', padding: '6px 4px', fontWeight: 500 }}>Customer</th>
+                <th style={{ width: '17%', padding: '6px 4px', fontWeight: 500 }}>Amount</th>
+                <th style={{ width: '20%', padding: '6px 0 6px 4px', fontWeight: 500, textAlign: 'right' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -509,16 +511,16 @@ export function ODOverviewView({ onNavigate }) {
                     style={{ borderBottom: '1px solid #F5F2EA', cursor: 'pointer' }}
                     onClick={() => onNavigate && onNavigate('handler-dashboard', '/handler/orders')}
                   >
-                    <td style={{ padding: '9px 0', fontWeight: 600, color: '#122D29' }}>
+                    <td style={{ padding: '9px 4px 9px 0', fontWeight: 600, color: '#122D29', overflowWrap: 'anywhere', wordBreak: 'break-word', fontSize: 11.5 }}>
                       {ord.order_number || `#FK-${ord.id}`}
                     </td>
-                    <td style={{ padding: '9px 0', color: '#3A423F' }}>
+                    <td style={{ padding: '9px 4px', color: '#3A423F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ord.customer_name}>
                       {ord.customer_name || 'Customer'}
                     </td>
-                    <td style={{ padding: '9px 0', fontVariantNumeric: 'tabular-nums', color: '#122D29' }}>
+                    <td style={{ padding: '9px 4px', fontVariantNumeric: 'tabular-nums', color: '#122D29', whiteSpace: 'nowrap' }}>
                       {formatINR(ord.total_amount)}
                     </td>
-                    <td style={{ padding: '9px 0', textAlign: 'right' }}>
+                    <td style={{ padding: '9px 0 9px 4px', textAlign: 'right' }}>
                       <StatusBadge status={ord.status} />
                     </td>
                   </tr>
@@ -529,7 +531,7 @@ export function ODOverviewView({ onNavigate }) {
         </div>
 
         {/* Table 2: Shipment Updates */}
-        <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '16px 18px' }}>
+        <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '16px 18px', minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#122D29', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               SHIPMENT UPDATES
@@ -543,13 +545,13 @@ export function ODOverviewView({ onNavigate }) {
             </button>
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ color: '#88928E', borderBottom: '1px solid #EFECE4', textAlign: 'left', fontSize: 11 }}>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>Shipment ID</th>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>Destination</th>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>ETA</th>
-                <th style={{ padding: '6px 0', fontWeight: 500, textAlign: 'right' }}>Status</th>
+                <th style={{ width: '28%', padding: '6px 4px 6px 0', fontWeight: 500 }}>Shipment ID</th>
+                <th style={{ width: '30%', padding: '6px 4px', fontWeight: 500 }}>Destination</th>
+                <th style={{ width: '22%', padding: '6px 4px', fontWeight: 500 }}>ETA</th>
+                <th style={{ width: '20%', padding: '6px 0 6px 4px', fontWeight: 500, textAlign: 'right' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -566,16 +568,16 @@ export function ODOverviewView({ onNavigate }) {
                     style={{ borderBottom: '1px solid #F5F2EA', cursor: 'pointer' }}
                     onClick={() => onNavigate && onNavigate('handler-dashboard', '/handler/shipments')}
                   >
-                    <td style={{ padding: '9px 0', fontWeight: 600, color: '#122D29' }}>
+                    <td style={{ padding: '9px 4px 9px 0', fontWeight: 600, color: '#122D29', overflowWrap: 'anywhere', wordBreak: 'break-word', fontSize: 11.5 }}>
                       {shp.shipment_id || `SH-${shp.id}`}
                     </td>
-                    <td style={{ padding: '9px 0', color: '#3A423F' }}>
+                    <td style={{ padding: '9px 4px', color: '#3A423F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={shp.destination}>
                       {shp.destination || 'Destination'}
                     </td>
-                    <td style={{ padding: '9px 0', color: '#68726E' }}>
+                    <td style={{ padding: '9px 4px', color: '#68726E', whiteSpace: 'nowrap' }}>
                       {shp.eta || 'Scheduled'}
                     </td>
-                    <td style={{ padding: '9px 0', textAlign: 'right' }}>
+                    <td style={{ padding: '9px 0 9px 4px', textAlign: 'right' }}>
                       <StatusBadge status={shp.status} />
                     </td>
                   </tr>
@@ -586,7 +588,7 @@ export function ODOverviewView({ onNavigate }) {
         </div>
 
         {/* Table 3: Inventory Alerts */}
-        <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '16px 18px' }}>
+        <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '16px 18px', minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#122D29', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               INVENTORY ALERTS
@@ -600,13 +602,13 @@ export function ODOverviewView({ onNavigate }) {
             </button>
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ color: '#88928E', borderBottom: '1px solid #EFECE4', textAlign: 'left', fontSize: 11 }}>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>Product</th>
-                <th style={{ padding: '6px 0', fontWeight: 500 }}>SKU</th>
-                <th style={{ padding: '6px 0', fontWeight: 500, textAlign: 'right' }}>Available</th>
-                <th style={{ padding: '6px 0', fontWeight: 500, textAlign: 'right' }}>Reorder Level</th>
+                <th style={{ width: '36%', padding: '6px 4px 6px 0', fontWeight: 500 }}>Product</th>
+                <th style={{ width: '30%', padding: '6px 4px', fontWeight: 500 }}>SKU</th>
+                <th style={{ width: '17%', padding: '6px 4px', fontWeight: 500, textAlign: 'right' }}>Available</th>
+                <th style={{ width: '17%', padding: '6px 0 6px 4px', fontWeight: 500, textAlign: 'right' }}>Reorder Level</th>
               </tr>
             </thead>
             <tbody>
@@ -623,16 +625,16 @@ export function ODOverviewView({ onNavigate }) {
                     style={{ borderBottom: '1px solid #F5F2EA', cursor: 'pointer' }}
                     onClick={() => onNavigate && onNavigate('handler-dashboard', '/handler/inventory')}
                   >
-                    <td style={{ padding: '9px 0', fontWeight: 600, color: '#122D29' }}>
+                    <td style={{ padding: '9px 4px 9px 0', fontWeight: 600, color: '#122D29', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.product_name}>
                       {item.product_name}
                     </td>
-                    <td style={{ padding: '9px 0', color: '#68726E', fontSize: 11 }}>
+                    <td style={{ padding: '9px 4px', color: '#68726E', fontSize: 10.5, overflowWrap: 'anywhere', wordBreak: 'break-word', fontFamily: 'monospace' }} title={item.sku}>
                       {item.sku}
                     </td>
-                    <td style={{ padding: '9px 0', textAlign: 'right', fontWeight: 700, color: item.available_stock <= 5 ? '#991B1B' : '#B45309' }}>
+                    <td style={{ padding: '9px 4px', textAlign: 'right', fontWeight: 700, color: item.available_stock <= 5 ? '#991B1B' : '#B45309', fontVariantNumeric: 'tabular-nums' }}>
                       {item.available_stock}
                     </td>
-                    <td style={{ padding: '9px 0', textAlign: 'right', color: '#88928E' }}>
+                    <td style={{ padding: '9px 0 9px 4px', textAlign: 'right', color: '#88928E', fontVariantNumeric: 'tabular-nums' }}>
                       {item.reorder_level || 20}
                     </td>
                   </tr>

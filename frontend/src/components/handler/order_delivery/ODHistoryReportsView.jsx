@@ -11,6 +11,7 @@ import {
   Package,
 } from 'lucide-react';
 import { handlerService } from '../../../services/handlerService';
+import { HandlerPagination } from '../HandlerPagination';
 
 export function ODHistoryReportsView() {
   const [activeTab, setActiveTab] = useState('history'); // 'history' | 'reports'
@@ -22,7 +23,7 @@ export function ODHistoryReportsView() {
   // History search
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(25);
 
   const loadData = useCallback(async () => {
     try {
@@ -237,46 +238,18 @@ export function ODHistoryReportsView() {
               </div>
             )}
 
-            {/* Pagination */}
-            <div style={{ padding: '12px 18px', background: '#FAF7F2', borderTop: '1px solid #E8E4D8', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: '#68726E' }}>
-                Page {page} of {totalPages}
-              </span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  type="button"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                  style={{
-                    border: '1px solid #E8E4D8',
-                    background: page <= 1 ? '#F0ECE1' : '#FFFFFF',
-                    color: page <= 1 ? '#A0A8A4' : '#183A34',
-                    padding: '4px 10px',
-                    borderRadius: 5,
-                    fontSize: 11,
-                    cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-                  style={{
-                    border: '1px solid #E8E4D8',
-                    background: page >= totalPages ? '#F0ECE1' : '#FFFFFF',
-                    color: page >= totalPages ? '#A0A8A4' : '#183A34',
-                    padding: '4px 10px',
-                    borderRadius: 5,
-                    fontSize: 11,
-                    cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            {/* Standardized Shared Pagination */}
+            <HandlerPagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalItems={filteredEvents.length}
+              onPageChange={(p) => setPage(p)}
+              onPageSizeChange={(sz) => {
+                setPageSize(sz);
+                setPage(1);
+              }}
+              pageSizeOptions={[10, 25, 50, 100]}
+            />
           </div>
         </>
       ) : (
@@ -289,7 +262,7 @@ export function ODHistoryReportsView() {
                 TOTAL ORDERS
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#122D29' }}>
-                {reports?.total_orders ?? '—'}
+                {reports?.total_orders !== undefined ? reports.total_orders : '—'}
               </div>
             </div>
             <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18 }}>
@@ -297,7 +270,7 @@ export function ODHistoryReportsView() {
                 ORDERS DELIVERED
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#15803D' }}>
-                {reports?.delivered_orders ?? '—'}
+                {reports?.delivered_orders !== undefined ? reports.delivered_orders : '—'}
               </div>
             </div>
             <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18 }}>
@@ -305,7 +278,7 @@ export function ODHistoryReportsView() {
                 SHIPMENTS DISPATCHED
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#0E7490' }}>
-                {reports?.shipped_orders ?? '—'}
+                {reports?.shipped_orders !== undefined ? reports.shipped_orders : '—'}
               </div>
             </div>
             <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18 }}>
@@ -313,7 +286,7 @@ export function ODHistoryReportsView() {
                 COMPLETED REVERSE HANDOFFS
               </div>
               <div style={{ fontSize: 26, fontWeight: 800, color: '#6D28D9' }}>
-                {reports?.completed_handoffs ?? '—'}
+                {reports?.completed_handoffs !== undefined ? reports.completed_handoffs : '—'}
               </div>
             </div>
           </div>

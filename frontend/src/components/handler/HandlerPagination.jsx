@@ -38,7 +38,7 @@ export function HandlerPagination({
     <div className="hd-pagination-row">
       <div className="hd-pagination-left">
         <span className="hd-pagination-info">
-          Showing {startRecord}-{endRecord} of {totalItems}
+          Showing {startRecord}–{endRecord} of {totalItems}
         </span>
         {onPageSizeChange && (
           <div className="hd-page-size-selector">

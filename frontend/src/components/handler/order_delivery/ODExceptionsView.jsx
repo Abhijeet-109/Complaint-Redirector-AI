@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { handlerService } from '../../../services/handlerService';
+import { HandlerPagination } from '../HandlerPagination';
 
 function StatusBadge({ status }) {
   const config = {
@@ -43,6 +44,8 @@ export function ODExceptionsView({ onNavigate }) {
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedException, setSelectedException] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const loadExceptions = useCallback(async () => {
     try {
@@ -72,6 +75,11 @@ export function ODExceptionsView({ onNavigate }) {
         (ex.carrier || '').toLowerCase().includes(q)
     );
   }, [exceptions, searchTerm]);
+
+  const paginatedExceptions = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredExceptions.slice(start, start + pageSize);
+  }, [filteredExceptions, page, pageSize]);
 
   return (
     <div style={{ padding: '0 4px 30px' }}>
@@ -127,7 +135,10 @@ export function ODExceptionsView({ onNavigate }) {
             type="text"
             placeholder="Search order #, tracking, carrier..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(1);
+            }}
             style={{
               width: '100%',
               padding: '7px 10px 7px 32px',
@@ -172,72 +183,87 @@ export function ODExceptionsView({ onNavigate }) {
             </p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: '#FAF7F2', borderBottom: '1px solid #E8E4D8', color: '#5A6460', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Shipment Ref</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Order Number</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Customer</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Destination</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Exception Reason</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Status</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600 }}>Target ETA</th>
-                  <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredExceptions.map((ex) => (
-                  <tr
-                    key={ex.id}
-                    style={{ borderBottom: '1px solid #F0ECE1' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#FAF7F2'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                  >
-                    <td style={{ padding: '12px 16px', fontWeight: 700, color: '#122D29' }}>
-                      {ex.shipment_id}
-                    </td>
-                    <td style={{ padding: '12px 16px', fontWeight: 600, color: '#183A34' }}>
-                      {ex.order_number}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#2B322F', fontWeight: 500 }}>
-                      {ex.customer_name}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#5A6460' }}>
-                      {ex.destination}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#B45309', fontWeight: 600 }}>
-                      {ex.exception_reason}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <StatusBadge status={ex.status} />
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#88928E' }}>
-                      {ex.estimated_delivery_date ? new Date(ex.estimated_delivery_date).toLocaleDateString('en-IN') : '—'}
-                    </td>
-                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedException(ex)}
-                        style={{
-                          background: '#FFFFFF',
-                          border: '1px solid #E8E4D8',
-                          borderRadius: 5,
-                          padding: '4px 10px',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: '#183A34',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Review
-                      </button>
-                    </td>
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#FAF7F2', borderBottom: '1px solid #E8E4D8', color: '#5A6460', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Shipment Ref</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Order Number</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Customer</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Destination</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Exception Reason</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Status</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600 }}>Target ETA</th>
+                    <th style={{ padding: '10px 16px', fontWeight: 600, textAlign: 'right' }}>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {paginatedExceptions.map((ex) => (
+                    <tr
+                      key={ex.id}
+                      style={{ borderBottom: '1px solid #F0ECE1' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#FAF7F2'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >
+                      <td style={{ padding: '12px 16px', fontWeight: 700, color: '#122D29' }}>
+                        {ex.shipment_id}
+                      </td>
+                      <td style={{ padding: '12px 16px', fontWeight: 600, color: '#183A34' }}>
+                        {ex.order_number}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#2B322F', fontWeight: 500 }}>
+                        {ex.customer_name}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#5A6460' }}>
+                        {ex.destination}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#B45309', fontWeight: 600 }}>
+                        {ex.exception_reason}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <StatusBadge status={ex.status} />
+                      </td>
+                      <td style={{ padding: '12px 16px', color: '#88928E' }}>
+                        {ex.estimated_delivery_date ? new Date(ex.estimated_delivery_date).toLocaleDateString('en-IN') : '—'}
+                      </td>
+                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedException(ex)}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid #E8E4D8',
+                            borderRadius: 5,
+                            padding: '4px 10px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#183A34',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Review
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Standardized Shared Pagination */}
+            <HandlerPagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalItems={filteredExceptions.length}
+              onPageChange={(p) => setPage(p)}
+              onPageSizeChange={(sz) => {
+                setPageSize(sz);
+                setPage(1);
+              }}
+              pageSizeOptions={[5, 10, 20, 50]}
+            />
+          </>
         )}
       </div>
 
