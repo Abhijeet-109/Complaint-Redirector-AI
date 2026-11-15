@@ -1875,3 +1875,628 @@
     padding: 12px 14px 24px;
   }
 }
+
+/* ============================================================
+   COMPLAINTS OVERSIGHT REDESIGN
+   ============================================================ */
+
+/* 4-Column KPI Grid */
+.ad-kpi-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 1100px) {
+  .ad-kpi-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .ad-kpi-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Table Pagination within Admin Table Panel */
+.ad-table-panel .hd-pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-top: 1px solid #ECE7DC;
+  background-color: #FFFFFF;
+}
+
+.ad-table-panel .hd-pagination-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ad-table-panel .hd-pagination-info {
+  font-size: 12.5px;
+  color: #637073;
+}
+
+.ad-table-panel .hd-page-size-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #637073;
+}
+
+.ad-table-panel .hd-page-size-select {
+  background-color: #FFFFFF;
+  border: 1px solid #D8D2C4;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1A2421;
+  outline: none;
+  cursor: pointer;
+}
+
+.ad-table-panel .hd-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ad-table-panel .hd-page-nav-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid #D8D2C4;
+  background-color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #1A2421;
+  transition: all 0.12s ease;
+}
+
+.ad-table-panel .hd-page-nav-btn:hover:not(:disabled) {
+  background-color: #F8F5EE;
+}
+
+.ad-table-panel .hd-page-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ad-table-panel .hd-page-num-btn {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1A2421;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.ad-table-panel .hd-page-num-btn:hover {
+  background-color: #EDE8DE;
+}
+
+.ad-table-panel .hd-page-num-btn.active {
+  background-color: #122D29;
+  color: #FFFFFF;
+}
+
+.ad-table-panel .hd-pagination-ellipsis {
+  padding: 0 4px;
+  color: #637073;
+}
+
+@media (max-width: 650px) {
+  .ad-table-panel .hd-pagination-row {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+}
+
+/* Centered Complaint Details Modal */
+.ad-complaint-modal {
+  max-width: 720px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ad-complaint-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid #ECE7DC;
+  background-color: #FAF8F4;
+}
+
+.ad-complaint-modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ad-complaint-modal-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--fk-text-primary);
+}
+
+.ad-complaint-modal-id {
+  font-family: monospace;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #5A6668;
+  background-color: #ECE7DC;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.ad-complaint-modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.ad-modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ad-modal-section-title {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7B8789;
+}
+
+.ad-complaint-text-box {
+  background-color: #FAF8F4;
+  border: 1px solid #ECE7DC;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fk-text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ad-modal-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.ad-modal-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.ad-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ad-modal-field-label {
+  font-size: 11.5px;
+  color: #7B8789;
+  font-weight: 600;
+}
+
+.ad-modal-field-value {
+  font-size: 13.5px;
+  color: var(--fk-text-primary);
+}
+
+.ad-modal-redirection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ad-modal-redirection-item {
+  background-color: #FAF8F4;
+  border: 1px solid #ECE7DC;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ad-modal-redirection-route {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fk-text-primary);
+}
+
+.ad-modal-redirection-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .ad-modal-grid-2,
+  .ad-modal-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   SUPER ADMIN OVERVIEW REDESIGN (Master Prompt Implementation)
+   ============================================================ */
+
+.ad-overview-container {
+  padding-bottom: 24px;
+}
+
+/* 2-Column Upper Dashboard Grid */
+.ad-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(340px, 1fr) minmax(560px, 1.85fr);
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 1200px) {
+  .ad-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Primary Complaints Hero KPI Card */
+.ad-primary-kpi-card {
+  background-color: #FFFFFF;
+  border: 1px solid #E8E4D8;
+  border-radius: 10px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.ad-primary-kpi-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ad-primary-kpi-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #637073;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ad-eye-toggle-btn {
+  background: transparent;
+  border: none;
+  color: #88928E;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.ad-eye-toggle-btn:hover {
+  color: #122D29;
+}
+
+.ad-primary-kpi-value {
+  font-size: 44px;
+  font-weight: 800;
+  color: #122D29;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.ad-primary-kpi-sub {
+  font-size: 12.5px;
+  color: #637073;
+  margin-bottom: 18px;
+  line-height: 1.4;
+}
+
+/* Two Smaller Status KPIs inside the main card */
+.ad-primary-mini-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid #ECE7DC;
+  border-bottom: 1px solid #ECE7DC;
+  margin-bottom: 18px;
+}
+
+.ad-mini-kpi-box {
+  background-color: #FAF8F4;
+  border: 1px solid #ECE7DC;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.ad-mini-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.ad-mini-kpi-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #748082;
+}
+
+.ad-mini-kpi-val {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 2px;
+}
+
+.ad-mini-kpi-box.resolved .ad-mini-kpi-val,
+.ad-mini-kpi-box.resolved .ad-mini-kpi-icon {
+  color: #15803D;
+}
+
+.ad-mini-kpi-box.pending .ad-mini-kpi-val,
+.ad-mini-kpi-box.pending .ad-mini-kpi-icon {
+  color: #B45309;
+}
+
+.ad-mini-kpi-sub {
+  font-size: 11px;
+  color: #748082;
+}
+
+/* Quick Actions Section (Max 6) */
+.ad-quick-actions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ad-quick-actions-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #122D29;
+}
+
+.ad-quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px 10px;
+  text-align: center;
+}
+
+.ad-quick-action-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  transition: transform 0.12s ease;
+}
+
+.ad-quick-action-btn:hover {
+  transform: translateY(-2px);
+}
+
+.ad-quick-action-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid #E8E4D8;
+  background-color: #FAF7F2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #183A34;
+  transition: all 0.15s ease;
+}
+
+.ad-quick-action-btn:hover .ad-quick-action-icon {
+  background-color: #183A34;
+  color: #FFFFFF;
+  border-color: #183A34;
+}
+
+.ad-quick-action-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3A423F;
+  line-height: 1.25;
+  text-align: center;
+}
+
+/* Right Column */
+.ad-overview-right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Administration KPI Row */
+.ad-overview-admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+@media (max-width: 768px) {
+  .ad-overview-admin-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Chart and Redirections Row */
+.ad-overview-analytics-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .ad-overview-analytics-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Mini Table adjustments for Redirections in Overview */
+.ad-redirection-mini-table {
+  min-width: 0 !important;
+  width: 100%;
+}
+
+.ad-redirection-mini-table th,
+.ad-redirection-mini-table td {
+  padding: 8px 6px;
+  font-size: 12px;
+}
+
+.ad-redirection-mini-table .ad-redirection-route {
+  font-size: 12px;
+}
+
+/* Full-Width Recent Complaints Panel Header */
+.ad-table-panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid #ECE7DC;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ad-table-panel-title {
+  font-size: 16.5px;
+  font-weight: 800;
+  color: var(--fk-text-primary);
+  margin: 0;
+}
+
+.ad-table-panel-sub {
+  font-size: 12.5px;
+  color: #748082;
+  margin: 3px 0 0;
+}
+
+.ad-view-all-link {
+  background: none;
+  border: none;
+  color: #183A34;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: all 0.12s ease;
+}
+
+.ad-view-all-link:hover {
+  background-color: #F8F5EE;
+  text-decoration: underline;
+}
+
+.ad-confidence-pill {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #5A6668;
+  background-color: #FAF8F4;
+  border: 1px solid #ECE7DC;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.ad-refresh-circle-btn {
+  background: #FFFFFF;
+  border: 1px solid #E8E4D8;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #183A34;
+  transition: all 0.15s ease;
+}
+
+.ad-refresh-circle-btn:hover {
+  background-color: #F8F5EE;
+}
+
+.ad-spin-icon {
+  animation: adSpin 0.8s linear infinite;
+}
+
+@keyframes adSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ad-clickable-row {
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.ad-clickable-row:hover {
+  background-color: #FAF8F4;
+}
+
+/* Temporary 3-4s highlight when navigating from Overview */
+.ad-temporary-highlight-row {
+  background-color: #F5EFE0 !important;
+  box-shadow: inset 4px 0 0 #9A8042;
+  transition: background-color 0.8s ease, box-shadow 0.8s ease;
+}
+
+

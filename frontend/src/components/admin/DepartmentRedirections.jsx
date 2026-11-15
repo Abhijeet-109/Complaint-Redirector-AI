@@ -53,13 +53,15 @@ export function DepartmentRedirections({
           No department transfers logged yet.
         </div>
       ) : (
-        <div className="ad-redirection-table-wrap">
-          <table className="ad-redirection-table">
-            <colgroup>
-              <col className="ad-redirection-route-column" />
-              <col className="ad-redirection-count-column" />
-              <col className="ad-redirection-reason-column" />
-            </colgroup>
+        <div className={`ad-redirection-table-wrap ${isFullView ? 'full-view' : 'mini-view'}`}>
+          <table className={`ad-redirection-table ${isFullView ? '' : 'ad-redirection-mini-table'}`}>
+            {isFullView && (
+              <colgroup>
+                <col className="ad-redirection-route-column" />
+                <col className="ad-redirection-count-column" />
+                <col className="ad-redirection-reason-column" />
+              </colgroup>
+            )}
             <thead>
               <tr>
                 <th>From Department → To Department</th>
