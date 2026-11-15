@@ -57,6 +57,7 @@ export const handlerService = {
   getOrderDeliveryInventory(params = {}) {
     const query = new URLSearchParams();
     if (params.search) query.append('search', params.search);
+    if (params.transaction_type) query.append('transaction_type', params.transaction_type);
     if (params.stock_status) query.append('stock_status', params.stock_status);
     if (params.category_id !== undefined) query.append('category_id', String(params.category_id));
     if (params.limit !== undefined) query.append('limit', String(params.limit));

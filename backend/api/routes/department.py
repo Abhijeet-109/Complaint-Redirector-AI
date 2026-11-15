@@ -1755,38 +1755,78 @@ def list_payments_transactions(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     actor=Depends(require_role("department_handler", "admin", "super_admin")),
+    transaction_type: str | None = Query(default=None, pattern=r"^(payment|refund|all)$"),
 ):
     _require_department_handler(db, actor, "Payments & Refunds")
 
     query = select(PaymentAttempt).join(CommerceOrder, CommerceOrder.id == PaymentAttempt.order_id)
+    refund_query = select(Refund).join(CommerceOrder, CommerceOrder.id == Refund.order_id)
     if search and search.strip():
         s = f"%{search.strip()}%"
+        normalized_id = search.strip().lower()
+        attempt_id_term = normalized_id.removeprefix("att-")
+        refund_id_term = normalized_id.removeprefix("ref-")
+        attempt_search = [
+            cast(PaymentAttempt.id, String).ilike(s),
+            PaymentAttempt.provider_payment_id.ilike(s),
+            PaymentAttempt.provider_order_id.ilike(s),
+            CommerceOrder.order_number.ilike(s),
+            User.name.ilike(s),
+        ]
+        if attempt_id_term.isdigit():
+            attempt_search.append(PaymentAttempt.id == int(attempt_id_term))
+        refund_search = [
+            cast(Refund.id, String).ilike(s),
+            cast(Refund.payment_attempt_id, String).ilike(s),
+            Refund.provider_refund_id.ilike(s),
+            Refund.external_reference.ilike(s),
+            CommerceOrder.order_number.ilike(s),
+            User.name.ilike(s),
+        ]
+        if refund_id_term.isdigit():
+            refund_search.append(Refund.id == int(refund_id_term))
+        if attempt_id_term.isdigit():
+            refund_search.append(Refund.payment_attempt_id == int(attempt_id_term))
         query = query.outerjoin(User, User.id == CommerceOrder.user_id).where(
-            or_(
-                cast(PaymentAttempt.id, String).ilike(s),
-                PaymentAttempt.provider_payment_id.ilike(s),
-                PaymentAttempt.provider_order_id.ilike(s),
-                CommerceOrder.order_number.ilike(s),
-                User.name.ilike(s),
-            )
+            or_(*attempt_search)
         )
+        refund_query = refund_query.outerjoin(User, User.id == CommerceOrder.user_id).where(or_(*refund_search))
     failed_statuses = ("failed", "cancelled", "expired")
+    if transaction_type == "payment":
+        refund_query = refund_query.where(False)
+    elif transaction_type == "refund":
+        query = query.where(False)
     if payment_status == "failed":
         query = query.where(PaymentAttempt.status.in_(failed_statuses))
+        refund_query = refund_query.where(Refund.status == "failed")
+    elif payment_status == "refunded":
+        query = query.where(False)
+        refund_query = refund_query.where(Refund.status == "processed")
+    elif payment_status == "pending":
+        query = query.where(PaymentAttempt.status.in_(("pending", "created")))
+        refund_query = refund_query.where(Refund.status.in_(("pending", "processing")))
     elif payment_status and payment_status != "all":
         query = query.where(PaymentAttempt.status == payment_status)
+        refund_query = refund_query.where(Refund.status == payment_status)
     if payment_method and payment_method != "all":
         query = query.where(CommerceOrder.payment_method == payment_method)
+        refund_query = refund_query.where(CommerceOrder.payment_method == payment_method)
     if date_from:
         query = query.where(PaymentAttempt.created_at >= date_from)
+        refund_query = refund_query.where(Refund.created_at >= date_from)
     if date_to:
         query = query.where(PaymentAttempt.created_at <= date_to)
+        refund_query = refund_query.where(Refund.created_at <= date_to)
     if amount_min is not None:
         query = query.where(PaymentAttempt.amount >= amount_min)
+        refund_query = refund_query.where(Refund.amount >= amount_min)
     if amount_max is not None:
         query = query.where(PaymentAttempt.amount <= amount_max)
+        refund_query = refund_query.where(Refund.amount <= amount_max)
 
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    total_attempts = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    total_refunds = db.scalar(select(func.count()).select_from(refund_query.subquery())) or 0
+    total = total_attempts + total_refunds
 
     kpi_attempts = db.scalar(select(func.count(PaymentAttempt.id))) or 0
     kpi_captured = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status == "captured")) or 0
@@ -1800,8 +1840,23 @@ def list_payments_transactions(
             selectinload(PaymentAttempt.order).selectinload(CommerceOrder.items),
         )
         .order_by(PaymentAttempt.created_at.desc(), PaymentAttempt.id.desc())
-        .offset(offset).limit(limit)
     ).all()
+    refunds = db.scalars(
+        refund_query.options(
+            selectinload(Refund.order).selectinload(CommerceOrder.user),
+            selectinload(Refund.order).selectinload(CommerceOrder.items),
+        ).order_by(Refund.created_at.desc(), Refund.id.desc())
+    ).all()
+
+    handoff_by_claim = {}
+    claim_ids = {refund.return_request_id for refund in refunds if refund.return_request_id is not None}
+    if claim_ids:
+        handoffs = db.scalars(select(ReturnHandoff).where(
+            ReturnHandoff.return_request_id.in_(claim_ids),
+            ReturnHandoff.handoff_type == "refund_processing",
+        ).order_by(ReturnHandoff.id.desc())).all()
+        for handoff in handoffs:
+            handoff_by_claim.setdefault(handoff.return_request_id, handoff.id)
 
     items = []
     for att in attempts:
@@ -1810,6 +1865,10 @@ def list_payments_transactions(
         item_summary = ", ".join(i.product_name for i in (order.items or [])) if order and order.items else "—"
         items.append({
             "id": att.id,
+            "type": "Payment",
+            "transaction_id": f"ATT-{att.id}",
+            "attempt_id": f"ATT-{att.id}",
+            "original_payment_id": att.id,
             "provider_payment_id": att.provider_payment_id or f"TXN-{att.id}",
             "order_id": order.id if order else None,
             "order_number": order.order_number if order else "—",
@@ -1824,6 +1883,34 @@ def list_payments_transactions(
             "created_at": att.created_at.isoformat() if att.created_at else None,
             "paid_at": att.paid_at.isoformat() if att.paid_at else None,
         })
+
+    for refund in refunds:
+        order = refund.order
+        customer = order.user if order else None
+        items.append({
+            "id": f"refund-{refund.id}",
+            "refund_id": refund.id,
+            "type": "Refund",
+            "transaction_id": f"REF-{refund.id}",
+            "attempt_id": f"REF-{refund.id}",
+            "original_payment_id": refund.payment_attempt_id,
+            "return_request_id": refund.return_request_id,
+            "handoff_id": handoff_by_claim.get(refund.return_request_id),
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "customer_name": customer.name if customer else "Customer",
+            "item_summary": ", ".join(i.product_name for i in (order.items or [])) if order and order.items else "—",
+            "amount": float(refund.amount),
+            "currency": refund.currency,
+            "payment_method": order.payment_method if order else "online",
+            "provider": "Internal ledger" if refund.refund_method == "internal" else refund.refund_method,
+            "provider_reference": refund.provider_refund_id or refund.external_reference,
+            "status": "refunded" if refund.status == "processed" else refund.status,
+            "created_at": refund.updated_at.isoformat() if refund.status == "processed" and refund.updated_at else (refund.created_at.isoformat() if refund.created_at else None),
+        })
+
+    items.sort(key=lambda item: (item["created_at"] or "", str(item["id"])), reverse=True)
+    items = items[offset:offset + limit]
 
     kpis_dict = {
         "total_attempts": kpi_attempts,
@@ -1845,11 +1932,94 @@ def list_payments_transactions(
 
 @handler_router.get("/payments/transactions/{attempt_id}")
 def get_payment_transaction_details(
-    attempt_id: int,
+    attempt_id: str,
     db: Session = Depends(get_db),
     actor=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
     _require_department_handler(db, actor, "Payments & Refunds")
+    attempt_id = str(attempt_id)
+
+    if attempt_id.startswith("refund-"):
+        try:
+            refund_id = int(attempt_id.removeprefix("refund-"))
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Transaction not found.") from exc
+        refund = db.scalar(select(Refund).options(
+            selectinload(Refund.order).selectinload(CommerceOrder.user),
+            selectinload(Refund.order).selectinload(CommerceOrder.items),
+        ).where(Refund.id == refund_id))
+        if refund is None:
+            raise HTTPException(status_code=404, detail="Transaction not found.")
+        order = refund.order
+        customer = order.user if order else None
+        email_masked = "—"
+        if customer and customer.email:
+            parts = customer.email.split("@")
+            email_masked = f"{parts[0][:2]}***@{parts[1]}" if len(parts) == 2 else "***"
+        phone = (getattr(customer, "mobile_number", None) or getattr(customer, "phone", None)) if customer else None
+        handoff_id = db.scalar(select(ReturnHandoff.id).where(
+            ReturnHandoff.return_request_id == refund.return_request_id,
+            ReturnHandoff.handoff_type == "refund_processing",
+        ).order_by(ReturnHandoff.id.desc()).limit(1)) if refund.return_request_id else None
+        related_refunds = db.scalars(select(Refund).where(
+            Refund.order_id == refund.order_id,
+        ).order_by(Refund.created_at.desc())).all()
+        order_items = [{
+            "id": item.id,
+            "product_name": item.product_name,
+            "variant_name": item.variant_name,
+            "quantity": item.quantity,
+            "unit_price": float(item.unit_price),
+            "total_price": float(item.unit_price * item.quantity),
+        } for item in (order.items or [])] if order else []
+        return {
+            "id": f"refund-{refund.id}",
+            "refund_id": refund.id,
+            "type": "Refund",
+            "attempt_id": f"REF-{refund.id}",
+            "original_payment_id": refund.payment_attempt_id,
+            "return_request_id": refund.return_request_id,
+            "handoff_id": handoff_id,
+            "provider": "Internal ledger" if refund.refund_method == "internal" else refund.refund_method,
+            "provider_reference": refund.provider_refund_id or refund.external_reference or "—",
+            "provider_payment_id": refund.provider_refund_id or "—",
+            "provider_order_id": "—",
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "payment_method": order.payment_method if order else "online",
+            "amount": float(refund.amount),
+            "currency": refund.currency,
+            "status": "refunded" if refund.status == "processed" else refund.status,
+            "refund_status": refund.status,
+            "refund_method": refund.refund_method,
+            "failure_reason": refund.failure_reason,
+            "created_at": refund.created_at.isoformat() if refund.created_at else None,
+            "updated_at": refund.updated_at.isoformat() if refund.updated_at else None,
+            "paid_at": None,
+            "order": {
+                "id": order.id if order else None,
+                "order_number": order.order_number if order else "—",
+                "status": order.status if order else "—",
+                "payment_method": order.payment_method if order else "online",
+                "total_amount": float(order.total_amount) if order else float(refund.amount),
+                "items": order_items,
+            },
+            "customer": {
+                "name": customer.name if customer else "Customer",
+                "masked_email": email_masked,
+                "email_masked": email_masked,
+                "phone_masked": f"******{phone[-4:]}" if phone and len(phone) >= 4 else "******" if phone else "—",
+            },
+            "related_attempts": [],
+            "related_refunds": [{
+                "id": row.id,
+                "amount": float(row.amount),
+                "refund_method": row.refund_method,
+                "status": "refunded" if row.status == "processed" else row.status,
+                "provider_refund_id": row.provider_refund_id,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            } for row in related_refunds],
+        }
 
     att = db.scalar(
         select(PaymentAttempt)
@@ -1902,13 +2072,25 @@ def get_payment_transaction_details(
             .where(Refund.order_id == order.id)
             .order_by(Refund.created_at.desc())
         ).all()
+        linked_claim_ids = {r.return_request_id for r in r_list if r.return_request_id is not None}
+        related_handoffs = {}
+        if linked_claim_ids:
+            for claim_id, linked_handoff_id in db.execute(select(
+                ReturnHandoff.return_request_id, ReturnHandoff.id,
+            ).where(
+                ReturnHandoff.return_request_id.in_(linked_claim_ids),
+                ReturnHandoff.handoff_type == "refund_processing",
+            ).order_by(ReturnHandoff.id.desc())).all():
+                related_handoffs.setdefault(claim_id, linked_handoff_id)
         for r in r_list:
             related_refunds.append({
                 "id": r.id,
                 "amount": float(r.amount),
                 "refund_method": r.refund_method,
-                "status": r.status,
+                "status": "refunded" if r.status == "processed" else r.status,
                 "provider_refund_id": r.provider_refund_id,
+                "return_request_id": r.return_request_id,
+                "handoff_id": related_handoffs.get(r.return_request_id),
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             })
 
@@ -1926,6 +2108,7 @@ def get_payment_transaction_details(
 
     return {
         "id": att.id,
+        "type": "Payment",
         "provider": att.provider,
         "provider_payment_id": att.provider_payment_id or "—",
         "provider_order_id": att.provider_order_id or "—",
@@ -2109,7 +2292,7 @@ def list_payments_refunds(
             "amount": amount,
             "eligible_amount": amount,
             "status": current_status,
-            "refund_status": existing_refund.status if existing_refund else None,
+            "refund_status": ("refunded" if existing_refund.status == "processed" else existing_refund.status) if existing_refund else None,
             "pickup_status": pickup_status,
             "captured_payment_attempt_id": captured_attempt.id if captured_attempt else None,
             "captured_amount": float(captured_amount),
@@ -2401,7 +2584,7 @@ def get_payment_refund_details(
             "payment_method": order.payment_method if order else "online",
             "amount": requested_amount,
             "eligible_amount": min(requested_amount, remaining_balance),
-            "refund_status": existing_refund.status if existing_refund else None,
+            "refund_status": ("refunded" if existing_refund.status == "processed" else existing_refund.status) if existing_refund else None,
             "handoff_status": h.status,
             "is_eligible_for_refund": is_eligible,
             "ineligible_reason": ineligible_reason,
@@ -2409,7 +2592,7 @@ def get_payment_refund_details(
                 "is_eligible": is_eligible,
                 "reason": ineligible_reason,
             },
-            "refund_transaction_id": existing_refund.provider_refund_id if existing_refund else None,
+            "refund_transaction_id": (existing_refund.provider_refund_id or f"REF-{existing_refund.id}") if existing_refund else None,
             "customer": {
                 "name": cust.name if cust else "Customer",
                 "email_masked": email_masked or "—",
@@ -2474,7 +2657,7 @@ def get_payment_refund_details(
                 "is_eligible": False,
                 "reason": "This refund has already been completed.",
             },
-            "refund_transaction_id": rf.provider_refund_id,
+            "refund_transaction_id": rf.provider_refund_id or f"REF-{rf.id}",
             "customer": {
                 "name": cust.name if cust else "Customer",
                 "email_masked": email_masked or "—",

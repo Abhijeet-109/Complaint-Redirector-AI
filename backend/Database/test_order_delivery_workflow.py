@@ -1,5 +1,6 @@
 import unittest
 import sys
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -208,6 +209,36 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
         response = self.client.get("/api/v1/departments/order-delivery/shipments")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["items"][0]["next_status_options"], ["received"])
+
+    def test_shipment_queue_orders_newest_first_across_pages(self):
+        base_time = datetime(2026, 11, 1, 12, 0, 0)
+        shipments = []
+        for index in range(3):
+            order = CommerceOrder(
+                order_number=f"SHIP-ORDER-{index}", user_id=self.customer.id,
+                status="ready_to_ship", payment_method="cod", total_amount=100,
+            )
+            self.db.add(order)
+            self.db.flush()
+            shipment = Shipment(
+                order_id=order.id,
+                status="ready_for_dispatch",
+                created_at=base_time + timedelta(days=index),
+            )
+            self.db.add(shipment)
+            self.db.flush()
+            shipments.append(shipment)
+        self.db.commit()
+
+        first_page = self.client.get("/api/v1/departments/order-delivery/shipments", params={"limit": 2, "offset": 0})
+        second_page = self.client.get("/api/v1/departments/order-delivery/shipments", params={"limit": 2, "offset": 2})
+        self.assertEqual(first_page.status_code, 200, first_page.text)
+        self.assertEqual(second_page.status_code, 200, second_page.text)
+        first_rows = first_page.json()["items"]
+        second_rows = second_page.json()["items"]
+        self.assertEqual([row["id"] for row in first_rows + second_rows], [shipments[2].id, shipments[1].id, shipments[0].id])
+        timestamps = [row["created_at"] for row in first_rows + second_rows]
+        self.assertEqual(timestamps, sorted(timestamps, reverse=True))
 
     def test_admin_shipment_api_full_sequence_and_order_delivery_sync(self):
         for status in ("accepted", "processing", "packed", "ready_to_ship"):

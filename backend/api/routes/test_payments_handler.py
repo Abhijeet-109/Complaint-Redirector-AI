@@ -123,6 +123,54 @@ class PaymentsHandlerUnitTests(unittest.TestCase):
         self.assertEqual(detail["id"], self.attempt.id)
         self.assertIn("***@", detail["customer"]["masked_email"])
 
+    def test_transactions_include_linked_refunds_with_global_filters_and_pagination(self):
+        refund = Refund(
+            order_id=self.order.id,
+            payment_attempt_id=self.attempt.id,
+            return_request_id=self.claim.id,
+            amount=Decimal("500.00"),
+            currency="INR",
+            reason="Approved return",
+            refund_method="internal",
+            status="processed",
+            idempotency_key="return-refund-history-test",
+            processed_by_id=self.payments_handler.id,
+        )
+        self.db.add(refund)
+        self.db.commit()
+
+        all_rows = list_payments_transactions(
+            search=None, payment_status=None, payment_method=None,
+            date_from=None, date_to=None, amount_min=None, amount_max=None,
+            limit=1, offset=0, db=self.db, actor=self.payments_handler,
+        )
+        self.assertEqual(all_rows["total"], 2)
+        self.assertEqual(len(all_rows["items"]), 1)
+        next_page = list_payments_transactions(
+            search=None, payment_status=None, payment_method=None,
+            date_from=None, date_to=None, amount_min=None, amount_max=None,
+            limit=1, offset=1, db=self.db, actor=self.payments_handler,
+        )
+        self.assertEqual(len(next_page["items"]), 1)
+        self.assertNotEqual(all_rows["items"][0]["type"], next_page["items"][0]["type"])
+
+        refund_rows = list_payments_transactions(
+            search=f"REF-{refund.id}", payment_status="refunded", payment_method=None,
+            date_from=None, date_to=None, amount_min=None, amount_max=None,
+            limit=20, offset=0, db=self.db, actor=self.payments_handler, transaction_type="refund",
+        )
+        self.assertEqual(refund_rows["total"], 1)
+        self.assertEqual(refund_rows["items"][0]["type"], "Refund")
+        self.assertEqual(refund_rows["items"][0]["status"], "refunded")
+        self.assertEqual(refund_rows["items"][0]["original_payment_id"], self.attempt.id)
+        self.assertEqual(refund_rows["kpis"]["total_attempts"], 1)
+        self.assertEqual(refund_rows["kpis"]["refunded"], 1)
+
+        detail = get_payment_transaction_details(f"refund-{refund.id}", self.db, self.payments_handler)
+        self.assertEqual(detail["return_request_id"], self.claim.id)
+        self.assertEqual(detail["original_payment_id"], self.attempt.id)
+        self.assertEqual(detail["handoff_id"], self.handoff.id)
+
     def test_failed_filter_matches_failed_kpi_bucket_and_keeps_stored_status(self):
         for status, key in (("cancelled", "pay-cancelled"), ("expired", "pay-expired")):
             self.db.add(PaymentAttempt(

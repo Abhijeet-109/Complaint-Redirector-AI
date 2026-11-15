@@ -929,9 +929,12 @@ def has_verified_processed_refund(session: Session, claim: ReturnRequest) -> boo
         return False
     if refund.payment_attempt_id is not None:
         attempt = session.get(PaymentAttempt, refund.payment_attempt_id)
+        valid_method = (
+            refund.refund_method == "internal"
+            or (refund.refund_method == "razorpay" and bool(refund.provider_refund_id))
+        )
         if (attempt is None or attempt.order_id != order.id or attempt.status != "captured"
-                or order.payment_method == "cod" or refund.refund_method != "razorpay"
-                or not refund.provider_refund_id or refund.processed_by_id is None):
+                or order.payment_method == "cod" or not valid_method or refund.processed_by_id is None):
             return False
         reserved = session.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
             Refund.payment_attempt_id == attempt.id,
@@ -940,8 +943,9 @@ def has_verified_processed_refund(session: Session, claim: ReturnRequest) -> boo
         if reserved > attempt.amount:
             return False
     else:
-        if (order.payment_method != "cod" or refund.refund_method not in {"manual_cod", "manual_bank"}
-                or not refund.external_reference or refund.processed_by_id is None):
+        if (order.payment_method != "cod" or refund.refund_method not in {"internal", "manual_cod", "manual_bank"}
+                or (refund.refund_method != "internal" and not refund.external_reference)
+                or refund.processed_by_id is None):
             return False
         reserved = session.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
             Refund.order_id == order.id,

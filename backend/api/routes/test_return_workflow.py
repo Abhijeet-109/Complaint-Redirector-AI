@@ -775,7 +775,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(customer_details.status_code, 200, customer_details.text)
         self.assertNotIn("tracking", customer_details.json())
 
-    def test_razorpay_return_refund_is_linked_idempotent_and_completes_only_payments(self):
+    def test_return_refund_is_internal_linked_idempotent_and_completes_only_payments(self):
         handoff, attempt = self.prepare_refund_handoff()
         self.accept_payment_handoff(handoff)
         fake_module, calls = self.fake_razorpay(status="processed")
@@ -795,11 +795,10 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(refunds[0].order_id, self.order.id)
         self.assertEqual(refunds[0].idempotency_key, f"return-refund:{self.claim.id}:v1")
         self.assertEqual(refunds[0].return_request_id, self.claim.id)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(refunds[0].refund_method, "internal")
+        self.assertIsNone(refunds[0].provider_refund_id)
+        self.assertEqual(len(calls), 0)
         self.assertEqual(attempt.amount, self.item.unit_price * self.item.quantity)
-        self.assertEqual(Decimal(calls[0][1]["amount"]) / Decimal(100),
-                         attempt.amount * self.claim.quantity / self.item.quantity)
-        self.assertEqual(calls[0][1]["amount"], 10000)
         self.assertEqual(refunds[0].amount, self.item.unit_price * self.claim.quantity)
         self.db.refresh(handoff)
         self.assertEqual(handoff.status, "completed")
@@ -810,11 +809,17 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(pickup.status, "pending")
         self.assertEqual(handoff.source_department_id, self.handler_department.id)
         self.assertEqual(self.order.payment_status, "partially_refunded")
-        for event_type in ("payments_handoff_accepted", "refund_processing_initiated",
+        for event_type in ("payments_handoff_accepted",
                            "refund_successfully_processed", "refund_execution_retry"):
             self.assertGreaterEqual(self.db.query(ReturnRequestEvent).filter_by(
                 return_request_id=self.claim.id, event_type=event_type,
             ).count(), 1)
+        self.actor = self.customer
+        customer_order = self.client.get("/api/account/orders").json()[0]
+        self.assertEqual(customer_order["refund_summary"]["status"], "refunded")
+        self.assertEqual(customer_order["refund_summary"]["amount"], 100.0)
+        self.assertEqual(customer_order["payment_status"], "partially_refunded")
+        self.assertEqual(customer_order["tracking_milestones"][-1]["label"], "Delivered")
 
     def test_after_collection_routing_executes_linked_refund_only_after_collection(self):
         handoff, _ = self.prepare_refund_handoff(timing="after_collection")
@@ -827,7 +832,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             response = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["status"], "processed")
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 0)
         refund = self.db.scalar(select(Refund).where(Refund.return_request_id == self.claim.id))
         self.assertIsNotNone(refund)
         self.assertEqual(handoff.source_department_id, self.delivery_department.id)
@@ -846,10 +851,10 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         }):
             response = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(calls[0][1]["amount"], 10000)
+        self.assertEqual(calls, [])
         self.assertEqual(response.json()["amount"], "100.00")
 
-    def test_pending_razorpay_result_is_not_success_and_retry_does_not_call_provider_again(self):
+    def test_internal_refund_completes_immediately_without_provider_wait(self):
         handoff, _ = self.prepare_refund_handoff()
         self.accept_payment_handoff(handoff)
         fake_module, calls = self.fake_razorpay(status="pending")
@@ -859,14 +864,14 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             first = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
             second = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
         self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual(first.json()["status"], "processing")
-        self.assertEqual(second.json()["status"], "processing")
+        self.assertEqual(first.json()["status"], "processed")
+        self.assertEqual(second.json()["status"], "processed")
         self.assertTrue(second.json()["duplicate"])
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 0)
         self.db.refresh(handoff)
-        self.assertEqual(handoff.status, "in_progress")
+        self.assertEqual(handoff.status, "completed")
 
-    def test_uncertain_razorpay_result_is_not_retried(self):
+    def test_internal_refund_does_not_depend_on_provider_availability(self):
         handoff, _ = self.prepare_refund_handoff()
         self.accept_payment_handoff(handoff)
         fake_module, calls = self.fake_razorpay(raises=TimeoutError("provider response timed out"))
@@ -876,12 +881,12 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             first = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
             second = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
         self.assertEqual(first.status_code, 200, first.text)
-        self.assertEqual(first.json()["status"], "processing")
-        self.assertEqual(second.json()["status"], "processing")
+        self.assertEqual(first.json()["status"], "processed")
+        self.assertEqual(second.json()["status"], "processed")
         self.assertTrue(second.json()["duplicate"])
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 0)
         refund = self.db.scalar(select(Refund).where(Refund.return_request_id == self.claim.id))
-        self.assertIn("uncertain", refund.failure_reason.lower())
+        self.assertEqual(refund.status, "processed")
 
     def test_payments_handoff_cannot_complete_without_processed_refund(self):
         handoff, _ = self.prepare_refund_handoff()
@@ -897,7 +902,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(handoff.status, "in_progress")
         self.assertEqual(self.db.query(Refund).filter_by(return_request_id=self.claim.id).count(), 0)
 
-    def test_failed_razorpay_result_is_not_success(self):
+    def test_provider_failure_does_not_change_simulated_refund_result(self):
         handoff, _ = self.prepare_refund_handoff()
         self.accept_payment_handoff(handoff)
         fake_module, calls = self.fake_razorpay(status="failed")
@@ -906,13 +911,13 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         }):
             response = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["status"], "failed")
+        self.assertEqual(response.json()["status"], "processed")
         self.db.refresh(handoff)
-        self.assertEqual(handoff.status, "failed")
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(handoff.status, "completed")
+        self.assertEqual(len(calls), 0)
         self.assertEqual(self.db.query(ReturnRequestEvent).filter_by(
             return_request_id=self.claim.id, event_type="refund_processing_failed",
-        ).count(), 1)
+        ).count(), 0)
 
     def test_refund_amount_cannot_exceed_captured_payment(self):
         self.item.unit_price = 300
@@ -934,7 +939,54 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             ReturnRequestEvent.event_type == "department_handoff_status_changed",
             ReturnRequestEvent.new_status == "failed",
         ))
-        self.assertEqual(status_event.previous_status, "in_progress")
+        self.assertEqual(status_event.previous_status, "accepted")
+
+    def test_sequential_partial_refunds_cannot_exceed_capture_and_finish_as_full_refund(self):
+        first_handoff, attempt = self.prepare_refund_handoff()
+        self.accept_payment_handoff(first_handoff)
+        first = self.client.post(f"/api/v1/departments/return-handoffs/{first_handoff.id}/process-refund", json={})
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(self.order.payment_status, "partially_refunded")
+
+        second_claim = ReturnRequest(
+            order_id=self.order.id, order_item_id=self.item.id, quantity=1,
+            reason="Second eligible unit", status="approved", workflow_status="approved",
+            resolution_type="refund", refund_timing="immediate", submission_key="second-partial-refund",
+        )
+        self.db.add(second_claim)
+        self.db.flush()
+        second_handoff = ReturnHandoff(
+            return_request_id=second_claim.id,
+            source_department_id=self.handler_department.id,
+            destination_department_id=self.other_department.id,
+            handoff_type="refund_processing", status="accepted",
+            idempotency_key="second-partial-refund-handoff",
+        )
+        self.db.add(second_handoff)
+        self.db.commit()
+
+        second = self.client.post(f"/api/v1/departments/return-handoffs/{second_handoff.id}/process-refund", json={})
+        self.assertEqual(second.status_code, 200, second.text)
+        refunds = self.db.scalars(select(Refund).where(Refund.payment_attempt_id == attempt.id)).all()
+        self.assertEqual(sum((refund.amount for refund in refunds), Decimal("0.00")), Decimal("200.00"))
+        self.assertEqual(self.order.payment_status, "refunded")
+        self.db.refresh(second_handoff)
+        self.assertEqual(second_handoff.status, "completed")
+
+    def test_refund_transaction_rolls_back_if_commit_fails(self):
+        handoff, _ = self.prepare_refund_handoff()
+        self.accept_payment_handoff(handoff)
+        with patch.object(Session, "commit", side_effect=RuntimeError("forced commit failure")):
+            response = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
+        self.assertEqual(response.status_code, 500)
+        self.db.refresh(handoff)
+        self.db.refresh(self.order)
+        self.assertEqual(handoff.status, "accepted")
+        self.assertEqual(self.order.payment_status, "captured")
+        self.assertEqual(self.db.query(Refund).filter_by(return_request_id=self.claim.id).count(), 0)
+        self.assertEqual(self.db.query(ReturnRequestEvent).filter_by(
+            return_request_id=self.claim.id, event_type="refund_successfully_processed",
+        ).count(), 0)
 
     def test_unsupported_payment_method_is_rejected(self):
         handoff, _ = self.prepare_refund_handoff()
@@ -966,9 +1018,9 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             ReturnRequestEvent.event_type == "department_handoff_status_changed",
             ReturnRequestEvent.new_status == "failed",
         ))
-        self.assertEqual(handoff_event.previous_status, "in_progress")
+        self.assertEqual(handoff_event.previous_status, "accepted")
 
-    def test_missing_razorpay_configuration_does_not_simulate_refund(self):
+    def test_missing_razorpay_configuration_does_not_block_internal_refund(self):
         handoff, _ = self.prepare_refund_handoff()
         self.accept_payment_handoff(handoff)
         fake_module, calls = self.fake_razorpay(status="processed")
@@ -976,43 +1028,36 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             "RAZORPAY_KEY_ID": "", "RAZORPAY_KEY_SECRET": "",
         }):
             response = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(self.db.query(Refund).filter_by(return_request_id=self.claim.id).count(), 0)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "processed")
+        self.assertEqual(self.db.query(Refund).filter_by(return_request_id=self.claim.id).count(), 1)
         self.assertEqual(calls, [])
         self.db.refresh(handoff)
-        self.assertEqual(handoff.status, "failed")
+        self.assertEqual(handoff.status, "completed")
 
-    def test_cod_refund_uses_existing_service_and_return_link(self):
+    def test_cod_return_refund_is_internal_and_does_not_require_external_reference(self):
         handoff, _ = self.prepare_refund_handoff(payment_method="cod")
         self.accept_payment_handoff(handoff)
-        first = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund",
-                                 json={"external_reference": "BANK-REF-001"})
-        second = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund",
-                                  json={"external_reference": "BANK-REF-001"})
+        first = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
+        second = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
         self.assertEqual(first.status_code, 200, first.text)
         self.assertEqual(first.json()["status"], "processed")
         self.assertEqual(second.status_code, 200, second.text)
         self.assertTrue(second.json()["duplicate"])
         refunds = self.db.scalars(select(Refund).where(Refund.return_request_id == self.claim.id)).all()
         self.assertEqual(len(refunds), 1)
-        self.assertEqual(refunds[0].refund_method, "manual_cod")
-        self.assertEqual(refunds[0].external_reference, "BANK-REF-001")
+        self.assertEqual(refunds[0].refund_method, "internal")
+        self.assertIsNone(refunds[0].external_reference)
         self.assertEqual(self.order.payment_status, "partially_refunded")
 
-    def test_cod_validation_failure_marks_handoff_failed_without_refund(self):
+    def test_cod_refund_is_not_rejected_for_missing_external_reference(self):
         handoff, _ = self.prepare_refund_handoff(payment_method="cod")
         self.accept_payment_handoff(handoff)
         response = self.client.post(f"/api/v1/departments/return-handoffs/{handoff.id}/process-refund", json={})
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(self.db.query(Refund).filter_by(return_request_id=self.claim.id).count(), 0)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.db.query(Refund).filter_by(return_request_id=self.claim.id).count(), 1)
         self.db.refresh(handoff)
-        self.assertEqual(handoff.status, "failed")
-        self.assertIn("external reference is required", handoff.failure_reason.lower())
-        event = self.db.scalar(select(ReturnRequestEvent).where(
-            ReturnRequestEvent.return_request_id == self.claim.id,
-            ReturnRequestEvent.event_type == "refund_execution_failed_before_refund",
-        ))
-        self.assertEqual(event.new_status, "failed")
+        self.assertEqual(handoff.status, "completed")
 
     def test_replacement_tracking_has_payments_na_and_no_refund(self):
         replacement = ReturnRequest(

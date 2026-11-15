@@ -77,6 +77,7 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [methodFilter, setMethodFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
 
@@ -93,6 +94,7 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
         offset: (page - 1) * pageSize,
       };
       if (searchTerm.trim()) params.search = searchTerm.trim();
+      if (typeFilter !== 'all') params.transaction_type = typeFilter;
       if (statusFilter !== 'all') params.payment_status = statusFilter;
       if (methodFilter !== 'all') params.payment_method = methodFilter;
 
@@ -108,7 +110,7 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [page, pageSize, searchTerm, statusFilter, methodFilter]);
+  }, [page, pageSize, searchTerm, statusFilter, methodFilter, typeFilter]);
 
   useEffect(() => {
     setLoading(true);
@@ -124,6 +126,7 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
     setSearchTerm('');
     setStatusFilter('all');
     setMethodFilter('all');
+    setTypeFilter('all');
     setPage(1);
   };
 
@@ -344,6 +347,28 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
             <option value="pending">Pending</option>
             <option value="failed">Failed</option>
             <option value="cancelled">Cancelled</option>
+            <option value="refunded">Refunded</option>
+          </select>
+
+          <select
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value);
+              setPage(1);
+            }}
+            style={{
+              padding: '7px 10px',
+              fontSize: 12,
+              borderRadius: 6,
+              border: '1px solid #E8E4D8',
+              backgroundColor: '#FAF8F4',
+              color: '#122D29',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="all">All Types</option>
+            <option value="payment">Payments</option>
+            <option value="refund">Refunds</option>
           </select>
 
           {/* Method Filter */}
@@ -371,7 +396,7 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
             <option value="cod">Cash on Delivery</option>
           </select>
 
-          {(searchTerm || statusFilter !== 'all' || methodFilter !== 'all') && (
+          {(searchTerm || statusFilter !== 'all' || methodFilter !== 'all' || typeFilter !== 'all') && (
             <button
               type="button"
               onClick={handleResetFilters}
@@ -415,8 +440,9 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
           >
             <thead>
               <tr style={{ background: '#F9F8F3', borderBottom: '1px solid #ECE7DC', color: '#68726E' }}>
-                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Attempt ID</th>
+                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Transaction ID</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Order #</th>
+                <th style={{ padding: '10px 14px', fontWeight: 600 }}>Type</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Customer</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Amount</th>
                 <th style={{ padding: '10px 14px', fontWeight: 600 }}>Method</th>
@@ -429,25 +455,25 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: '40px 16px', textAlign: 'center', color: '#68726E' }}>
+                  <td colSpan={10} style={{ padding: '40px 16px', textAlign: 'center', color: '#68726E' }}>
                     <RefreshCw size={18} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
                     <div>Loading payment transactions...</div>
                   </td>
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: '40px 16px', textAlign: 'center', color: '#991B1B' }}>
+                  <td colSpan={10} style={{ padding: '40px 16px', textAlign: 'center', color: '#991B1B' }}>
                     <AlertTriangle size={18} style={{ marginBottom: 8 }} />
                     <div>{error}</div>
                   </td>
                 </tr>
               ) : transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: '50px 16px', textAlign: 'center', color: '#78827E' }}>
+                  <td colSpan={10} style={{ padding: '50px 16px', textAlign: 'center', color: '#78827E' }}>
                     <Receipt size={28} style={{ marginBottom: 8, color: '#A0AAA6' }} />
                     <div style={{ fontWeight: 600, fontSize: 14, color: '#183A34' }}>No payment transactions found</div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>
-                      {searchTerm || statusFilter !== 'all' || methodFilter !== 'all'
+                      {searchTerm || statusFilter !== 'all' || methodFilter !== 'all' || typeFilter !== 'all'
                         ? 'Try modifying your search or filters.'
                         : 'No payment attempts have been recorded yet.'}
                     </div>
@@ -484,11 +510,12 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
                       }}
                     >
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#183A34', fontFamily: 'monospace' }}>
-                        {tx.attempt_id ? tx.attempt_id.slice(0, 14) : `ATT-${tx.id}`}
+                        {tx.transaction_id || tx.attempt_id || `ATT-${tx.id}`}
                       </td>
                       <td style={{ padding: '10px 14px', color: '#122D29', fontWeight: 500 }}>
                         {tx.order_number || (tx.order_id ? `#${tx.order_id}` : '—')}
                       </td>
+                      <td style={{ padding: '10px 14px', color: '#2C3A36' }}>{tx.type || 'Payment'}</td>
                       <td style={{ padding: '10px 14px', color: '#2C3A36' }}>
                         {tx.customer_name || 'Customer'}
                       </td>
@@ -786,8 +813,8 @@ export function PaymentTransactionsView({ onNavigate, highlightId }) {
                       top: 0,
                     }}
                   >
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#78827E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Captured Amount
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#78827E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      {detailData.type === 'Refund' ? 'Refund Amount' : 'Captured Amount'}
                     </div>
                     <div style={{ fontSize: 26, fontWeight: 800, color: '#122D29', marginTop: 4, marginBottom: 12 }}>
                       {formatINR(detailData.amount)}
