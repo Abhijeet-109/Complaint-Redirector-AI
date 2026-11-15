@@ -5,10 +5,8 @@ import {
   EyeOff,
   CreditCard,
   RotateCcw,
-  Receipt,
-  Landmark,
-  ShieldAlert,
   ChartNoAxesColumn,
+  History,
   ArrowUpRight,
 } from 'lucide-react';
 import { handlerService } from '../../../services/handlerService';
@@ -179,14 +177,12 @@ export function PaymentsOverviewView({ onNavigate }) {
             Quick Actions
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px 8px', textAlign: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px 12px', textAlign: 'center' }}>
             {[
               { label: 'View Transactions', icon: CreditCard, path: '/handler/transactions' },
               { label: 'Process Refunds', icon: RotateCcw, path: '/handler/refunds' },
-              { label: 'Refund Requests', icon: Receipt, path: '/handler/refund-requests' },
-              { label: 'Reconciliation', icon: Landmark, path: '/handler/settlements' },
-              { label: 'Payment Disputes', icon: ShieldAlert, path: '/handler/disputes' },
               { label: 'Financial Reports', icon: ChartNoAxesColumn, path: '/handler/reports' },
+              { label: 'Audit History', icon: History, path: '/handler/history' },
             ].map(({ label, icon: Icon, path }) => (
               <button
                 key={label}
@@ -235,10 +231,10 @@ export function PaymentsOverviewView({ onNavigate }) {
           </div>
         </div>
 
-        {/* Column 2: 3 Supporting KPIs & Activity Chart */}
+        {/* Column 2: 2 Supporting KPIs & Activity Chart */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Top row of 3 compact KPI cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {/* Top row of 2 balanced KPI cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '14px 16px' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#5A6460', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
                 TOTAL COLLECTED
@@ -262,24 +258,12 @@ export function PaymentsOverviewView({ onNavigate }) {
                 Completed refunds
               </div>
             </div>
-
-            <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: '14px 16px' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#5A6460', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
-                REFUNDS PENDING
-              </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#122D29', marginBottom: 2 }}>
-                {formatINR(kpis.refunds_pending ?? 0)}
-              </div>
-              <div style={{ fontSize: 11, color: '#88928E' }}>
-                Awaiting processing
-              </div>
-            </div>
           </div>
 
           {/* Activity Chart Card */}
           <div style={{ background: '#FFFFFF', border: '1px solid #E8E4D8', borderRadius: 8, padding: 18, flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-              <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 12 }}>
+              <div style={{ minWidth: 0, flex: '1 1 auto' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#122D29', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   COLLECTIONS &amp; REFUNDS ACTIVITY
                 </div>
@@ -295,13 +279,13 @@ export function PaymentsOverviewView({ onNavigate }) {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 11.5, color: '#5A6460' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: '0 0 auto', marginLeft: 'auto' }}>
+                <span style={{ fontSize: 11.5, color: '#5A6460', whiteSpace: 'nowrap' }}>
                   Selected {activityPeriod} net <strong style={{ color: '#122D29' }}>{formatINR(kpis.selected_period_net ?? 0)}</strong>
                 </span>
 
-                {/* Segmented Day/Week/Month Controls */}
-                <div style={{ display: 'inline-flex', background: '#F5F0E8', padding: 3, borderRadius: 6 }}>
+                {/* Segmented Day/Week/Month Controls - firmly pinned to top right */}
+                <div style={{ display: 'inline-flex', background: '#F5F0E8', padding: 3, borderRadius: 6, flexShrink: 0 }}>
                   {['day', 'week', 'month'].map((p) => {
                     const isActive = activityPeriod === p;
                     return (
@@ -318,6 +302,8 @@ export function PaymentsOverviewView({ onNavigate }) {
                           padding: '4px 10px',
                           borderRadius: 4,
                           cursor: 'pointer',
+                          minWidth: 48,
+                          textAlign: 'center',
                           textTransform: 'capitalize',
                           transition: 'all 0.15s',
                         }}
@@ -531,7 +517,7 @@ export function PaymentsOverviewView({ onNavigate }) {
             </div>
             <button
               type="button"
-              onClick={() => onNavigate && onNavigate('handler-dashboard', '/handler/refund-requests')}
+              onClick={() => onNavigate && onNavigate('handler-dashboard', '/handler/refunds')}
               style={{ fontSize: 11.5, fontWeight: 600, color: '#8A875D', display: 'flex', alignItems: 'center', gap: 2 }}
             >
               View all <ArrowUpRight size={13} />

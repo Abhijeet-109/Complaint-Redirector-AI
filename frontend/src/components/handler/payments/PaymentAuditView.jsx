@@ -87,7 +87,7 @@ export function PaymentAuditView({ onNavigate }) {
       const res = await handlerService.getPaymentsHistoryAudit(params);
       setEvents(res.items || []);
       setTotalItems(res.total || 0);
-      if (res.summary) setSummary(res.summary);
+      if (res.summary || res.kpis) setSummary(res.summary || res.kpis);
       setError(null);
     } catch (err) {
       console.error('Failed to load payment history and audit:', err);

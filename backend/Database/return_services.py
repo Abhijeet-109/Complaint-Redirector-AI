@@ -820,7 +820,7 @@ def create_after_collection_refund_handoff(
     claim = get_return_claim(session, pickup.return_request_id, lock=True)
     if claim is None:
         raise LookupError("Return claim not found.")
-    if claim.resolution_type != "refund" or claim.refund_timing != "after_collection":
+    if claim.resolution_type != "refund" or claim.refund_timing not in {"after_collection", None}:
         return None
     delivery = _department_by_name(session, "Order & Delivery")
     returns = _department_by_name(session, "Returns & Replacement")

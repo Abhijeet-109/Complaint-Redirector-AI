@@ -112,7 +112,15 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
       const res = await handlerService.getPaymentsRefunds(params);
       setRefunds(res.items || []);
       setTotalItems(res.total || 0);
-      if (res.tab_counts) setTabCounts(res.tab_counts);
+      if (res.tab_counts) {
+        setTabCounts({
+          all: res.tab_counts.all ?? 0,
+          awaiting: res.tab_counts.awaiting ?? res.tab_counts.awaiting_processing ?? 0,
+          processing: res.tab_counts.processing ?? 0,
+          completed: res.tab_counts.completed ?? 0,
+          failed: res.tab_counts.failed ?? 0,
+        });
+      }
       setError(null);
     } catch (err) {
       console.error('Failed to load refunds:', err);

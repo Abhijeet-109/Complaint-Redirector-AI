@@ -54,12 +54,20 @@ export function PaymentReportsView({ onNavigate }) {
     fetchReports();
   };
 
+  const trendData = useMemo(() => {
+    return reportData?.trends || reportData?.trend || [];
+  }, [reportData]);
+
+  const methodData = useMemo(() => {
+    return reportData?.payment_methods || reportData?.methods || [];
+  }, [reportData]);
+
   const handleExportCSV = () => {
     if (!reportData) return;
     const rows = [
       ['Period Interval', 'Collections (INR)', 'Refunds (INR)', 'Net Collections (INR)'],
     ];
-    (reportData.trend || []).forEach((t) => {
+    trendData.forEach((t) => {
       rows.push([t.label, t.collections || 0, t.refunds || 0, t.net || 0]);
     });
     const csvContent =
@@ -74,12 +82,12 @@ export function PaymentReportsView({ onNavigate }) {
   };
 
   const maxChartValue = useMemo(() => {
-    if (!reportData?.trend || reportData.trend.length === 0) return 100000;
-    const maxCol = Math.max(...reportData.trend.map((t) => t.collections || 0), 0);
-    const maxRef = Math.max(...reportData.trend.map((t) => t.refunds || 0), 0);
+    if (!trendData || trendData.length === 0) return 100000;
+    const maxCol = Math.max(...trendData.map((t) => t.collections || 0), 0);
+    const maxRef = Math.max(...trendData.map((t) => t.refunds || 0), 0);
     const highest = Math.max(maxCol, maxRef);
     return highest > 0 ? highest * 1.15 : 100000;
-  }, [reportData]);
+  }, [trendData]);
 
   const kpis = reportData?.kpis || {
     total_collected: 0,
@@ -348,12 +356,12 @@ export function PaymentReportsView({ onNavigate }) {
               <div style={{ width: '100%', height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#78827E' }}>
                 <RefreshCw size={20} style={{ animation: 'spin 1s linear infinite' }} />
               </div>
-            ) : !reportData?.trend || reportData.trend.length === 0 ? (
+            ) : (!trendData || trendData.length === 0) ? (
               <div style={{ width: '100%', height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#78827E', fontSize: 12 }}>
                 No activity recorded for this period
               </div>
             ) : (
-              reportData.trend.map((point, idx) => {
+              trendData.map((point, idx) => {
                 const colHeight = Math.max(4, Math.round(((point.collections || 0) / maxChartValue) * 180));
                 const refHeight = Math.max(3, Math.round(((point.refunds || 0) / maxChartValue) * 180));
                 return (
@@ -416,7 +424,7 @@ export function PaymentReportsView({ onNavigate }) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-            {(!reportData?.methods || reportData.methods.length === 0) ? (
+            {(!methodData || methodData.length === 0) ? (
               [
                 { label: 'UPI', amount: '₹0', percentage: 0 },
                 { label: 'Cards', amount: '₹0', percentage: 0 },
@@ -435,24 +443,27 @@ export function PaymentReportsView({ onNavigate }) {
                 </div>
               ))
             ) : (
-              reportData.methods.map((m, idx) => (
-                <div key={idx}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#122D29' }}>
-                    <span style={{ fontWeight: 500 }}>{m.label || m.method?.toUpperCase()}</span>
-                    <span style={{ fontWeight: 700 }}>{formatINR(m.amount)}</span>
+              methodData.map((m, idx) => {
+                const amt = m.amount ?? m.volume ?? 0;
+                return (
+                  <div key={idx}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#122D29' }}>
+                      <span style={{ fontWeight: 500 }}>{m.label || m.method?.toUpperCase()}</span>
+                      <span style={{ fontWeight: 700 }}>{formatINR(amt)}</span>
+                    </div>
+                    <div style={{ height: 6, backgroundColor: '#FAF8F4', borderRadius: 3, marginTop: 4, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${Math.min(100, Math.max(4, m.percentage || 0))}%`,
+                          height: '100%',
+                          backgroundColor: '#183A34',
+                          borderRadius: 3,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div style={{ height: 6, backgroundColor: '#FAF8F4', borderRadius: 3, marginTop: 4, overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        width: `${Math.min(100, Math.max(4, m.percentage || 0))}%`,
-                        height: '100%',
-                        backgroundColor: '#183A34',
-                        borderRadius: 3,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -513,14 +524,14 @@ export function PaymentReportsView({ onNavigate }) {
               </tr>
             </thead>
             <tbody>
-              {(!reportData?.trend || reportData.trend.length === 0) ? (
+              {(!trendData || trendData.length === 0) ? (
                 <tr>
                   <td colSpan={5} style={{ padding: '30px 16px', textAlign: 'center', color: '#78827E' }}>
                     No summary data available
                   </td>
                 </tr>
               ) : (
-                reportData.trend.map((row, idx) => (
+                trendData.map((row, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid #F1ECE1' }}>
                     <td style={{ padding: '10px 14px', fontWeight: 600, color: '#183A34' }}>
                       {row.label}

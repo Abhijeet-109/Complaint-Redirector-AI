@@ -1813,18 +1813,21 @@ def list_payments_transactions(
             "paid_at": att.paid_at.isoformat() if att.paid_at else None,
         })
 
+    kpis_dict = {
+        "total_attempts": kpi_attempts,
+        "captured": kpi_captured,
+        "pending": kpi_pending,
+        "failed": kpi_failed,
+        "refunded": kpi_refunded,
+    }
+
     return {
         "items": items,
         "total": total,
         "limit": limit,
         "offset": offset,
-        "kpis": {
-            "total_attempts": kpi_attempts,
-            "captured": kpi_captured,
-            "pending": kpi_pending,
-            "failed": kpi_failed,
-            "refunded": kpi_refunded,
-        },
+        "kpis": kpis_dict,
+        "summary": kpis_dict,
     }
 
 
@@ -1950,122 +1953,64 @@ def list_payments_refunds(
     if not payments_dept:
         return {"items": [], "total": 0, "limit": limit, "offset": offset, "tab_counts": {}}
 
-    # Base query on ReturnHandoff where destination is Payments & Refunds
-    base_query = (
+    # Ensure any completed reverse pickups have their refund_processing handoff created
+    completed_pickups = db.scalars(
         select(ReturnHandoff)
+        .join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id)
+        .where(
+            ReturnHandoff.handoff_type == "refund_pickup",
+            ReturnHandoff.status == "completed",
+            ReturnRequest.resolution_type == "refund",
+        )
+    ).all()
+    for cp in completed_pickups:
+        has_proc = db.scalar(
+            select(ReturnHandoff.id).where(
+                ReturnHandoff.return_request_id == cp.return_request_id,
+                ReturnHandoff.handoff_type == "refund_processing",
+            ).limit(1)
+        )
+        if not has_proc:
+            try:
+                create_after_collection_refund_handoff(db, cp, actor_id=getattr(actor, "id", 1))
+                db.commit()
+            except Exception:
+                db.rollback()
+
+    # Query all Payments return handoffs
+    handoffs = db.scalars(
+        select(ReturnHandoff)
+        .options(
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
+        )
         .where(
             ReturnHandoff.destination_department_id == payments_dept.id,
             ReturnHandoff.handoff_type == "refund_processing",
         )
-    )
-
-    # Calculate Tab counts
-    # Awaiting: pending or accepted handoff
-    cnt_awaiting = db.scalar(
-        select(func.count(ReturnHandoff.id)).where(
-            ReturnHandoff.destination_department_id == payments_dept.id,
-            ReturnHandoff.handoff_type == "refund_processing",
-            ReturnHandoff.status.in_(["pending", "accepted"]),
-        )
-    ) or 0
-
-    # Processing: handoffs with in_progress OR refunds with processing
-    cnt_processing = db.scalar(
-        select(func.count(ReturnHandoff.id)).where(
-            ReturnHandoff.destination_department_id == payments_dept.id,
-            ReturnHandoff.handoff_type == "refund_processing",
-            ReturnHandoff.status == "in_progress",
-        )
-    ) or 0
-    cnt_processing += (db.scalar(
-        select(func.count(Refund.id)).where(Refund.status == "processing")
-    ) or 0)
-
-    # Completed: refunds processed
-    cnt_completed = db.scalar(
-        select(func.count(Refund.id)).where(Refund.status == "processed")
-    ) or 0
-
-    # Failed: refunds failed OR handoffs failed
-    cnt_failed = db.scalar(
-        select(func.count(Refund.id)).where(Refund.status == "failed")
-    ) or 0
-
-    tab_counts = {
-        "awaiting_processing": cnt_awaiting,
-        "processing": cnt_processing,
-        "completed": cnt_completed,
-        "failed": cnt_failed,
-    }
-
-    # Filter by status tab
-    query = base_query
-    if status == "awaiting_processing":
-        query = query.where(ReturnHandoff.status.in_(["pending", "accepted"]))
-    elif status == "processing":
-        query = query.where(ReturnHandoff.status == "in_progress")
-    elif status == "completed":
-        query = query.where(ReturnHandoff.status == "completed")
-    elif status == "failed":
-        query = query.where(ReturnHandoff.status == "failed")
-
-    # Filter by timing
-    if refund_timing and refund_timing != "all":
-        query = query.join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id).where(
-            ReturnRequest.refund_timing == refund_timing
-        )
-
-    # Search filter
-    if search and search.strip():
-        s = f"%{search.strip()}%"
-        query = (
-            query.join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id)
-            .join(CommerceOrder, CommerceOrder.id == ReturnRequest.order_id)
-            .outerjoin(User, User.id == CommerceOrder.user_id)
-            .where(
-                or_(
-                    cast(ReturnHandoff.id, String).ilike(s),
-                    cast(ReturnRequest.id, String).ilike(s),
-                    CommerceOrder.order_number.ilike(s),
-                    User.name.ilike(s),
-                )
-            )
-        )
-
-    # Payment method filter
-    if payment_method and payment_method != "all":
-        if "CommerceOrder" not in str(query):
-            query = query.join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id).join(
-                CommerceOrder, CommerceOrder.id == ReturnRequest.order_id
-            )
-        query = query.where(CommerceOrder.payment_method == payment_method)
-
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-
-    handoffs = db.scalars(
-        query.options(
-            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
-            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
-        )
-        .order_by(ReturnHandoff.updated_at.desc(), ReturnHandoff.id.desc())
-        .offset(offset).limit(limit)
+        .order_by(ReturnHandoff.created_at.desc(), ReturnHandoff.id.desc())
     ).all()
 
-    items = []
+    combined_items = []
+    seen_claim_ids = set()
+
     for h in handoffs:
         claim = h.return_request
         order = claim.order if claim else None
         cust = order.user if order else None
         item = claim.order_item if claim else None
-        amount = float(item.unit_price * claim.quantity) if item and claim else 0.0
+        amount = float(item.unit_price * claim.quantity) if item and claim else (float(order.total_amount) if order else 0.0)
 
-        # Check pickup status from sibling pickup handoff if exists
-        pickup_status = "N/A"
+        if claim:
+            seen_claim_ids.add(claim.id)
+
+        # Pickup status from sibling pickup handoff if exists
+        pickup_status = "completed"
         if claim:
             sib_pickup = db.scalar(
                 select(ReturnHandoff.status).where(
                     ReturnHandoff.return_request_id == claim.id,
-                    ReturnHandoff.handoff_type.in_(("refund_pickup", "replacement_fulfillment")),
+                    ReturnHandoff.handoff_type == "refund_pickup",
                 ).limit(1)
             )
             if sib_pickup:
@@ -2082,34 +2027,140 @@ def list_payments_refunds(
         # Eligibility check
         is_eligible = False
         if h.status in ("pending", "accepted"):
-            if claim and claim.refund_timing == "immediate":
+            if claim and (claim.refund_timing == "immediate" or claim.refund_timing is None):
                 is_eligible = True
             elif claim and claim.refund_timing == "after_collection":
                 is_eligible = pickup_status == "completed"
 
-        current_display_status = existing_refund.status if existing_refund else h.status
+        if existing_refund and existing_refund.status == "processed":
+            current_status = "completed"
+        elif existing_refund and existing_refund.status == "failed":
+            current_status = "failed"
+        elif h.status in ("pending", "accepted"):
+            current_status = "awaiting_processing"
+        elif h.status == "in_progress":
+            current_status = "processing"
+        elif h.status == "completed":
+            current_status = "completed"
+        elif h.status == "failed":
+            current_status = "failed"
+        else:
+            current_status = h.status
 
-        items.append({
+        claim_num = f"TRN-{claim.id}" if claim else "—"
+        timing_label = claim.refund_timing if (claim and claim.refund_timing) else "after_collection"
+
+        combined_items.append({
             "id": h.id,
             "handoff_id": h.id,
+            "claim_number": claim_num,
             "refund_id": f"RF-{existing_refund.id}" if existing_refund else f"RF-{h.id}",
             "return_request_id": claim.id if claim else None,
             "order_id": order.id if order else None,
             "order_number": order.order_number if order else "—",
             "customer_name": cust.name if cust else "Customer",
             "refund_type": claim.resolution_type if claim else "refund",
-            "refund_timing": claim.refund_timing if claim else "immediate",
+            "refund_timing": timing_label,
+            "payment_method": (order.payment_method or "online").upper() if order else "ONLINE",
             "original_payment_method": order.payment_method if order else "online",
             "amount": amount,
-            "status": current_display_status,
+            "eligible_amount": amount,
+            "status": current_status,
             "pickup_status": pickup_status,
             "is_eligible": is_eligible,
             "created_at": h.created_at.isoformat() if h.created_at else None,
             "updated_at": h.updated_at.isoformat() if h.updated_at else None,
         })
 
+    # Query completed standalone refunds not associated with handoffs
+    standalone_refunds = db.scalars(
+        select(Refund)
+        .options(
+            selectinload(Refund.order).selectinload(CommerceOrder.user),
+        )
+        .order_by(Refund.created_at.desc(), Refund.id.desc())
+    ).all()
+
+    for rf in standalone_refunds:
+        if rf.return_request_id and rf.return_request_id in seen_claim_ids:
+            continue
+        order = rf.order
+        cust = order.user if order else None
+        status_norm = "completed" if rf.status == "processed" else rf.status
+        combined_items.append({
+            "id": f"rf-{rf.id}",
+            "handoff_id": rf.id,
+            "claim_number": f"TRN-{rf.return_request_id}" if rf.return_request_id else "—",
+            "refund_id": rf.provider_refund_id or f"RF-{rf.id}",
+            "return_request_id": rf.return_request_id,
+            "order_id": rf.order_id,
+            "order_number": order.order_number if order else "—",
+            "customer_name": cust.name if cust else "Customer",
+            "refund_type": "refund",
+            "refund_timing": "completed",
+            "payment_method": (rf.refund_method or (order.payment_method if order else "online")).upper(),
+            "original_payment_method": rf.refund_method or "online",
+            "amount": float(rf.amount),
+            "eligible_amount": float(rf.amount),
+            "status": status_norm,
+            "pickup_status": "N/A",
+            "is_eligible": False,
+            "created_at": rf.created_at.isoformat() if rf.created_at else None,
+            "updated_at": (rf.updated_at or rf.created_at).isoformat() if (rf.updated_at or rf.created_at) else None,
+        })
+
+    # Tab counts based on all items
+    cnt_awaiting = sum(1 for it in combined_items if it["status"] in ("pending", "accepted", "awaiting_processing"))
+    cnt_processing = sum(1 for it in combined_items if it["status"] in ("in_progress", "processing"))
+    cnt_completed = sum(1 for it in combined_items if it["status"] in ("completed", "processed"))
+    cnt_failed = sum(1 for it in combined_items if it["status"] == "failed")
+    tab_counts = {
+        "all": len(combined_items),
+        "awaiting": cnt_awaiting,
+        "awaiting_processing": cnt_awaiting,
+        "processing": cnt_processing,
+        "completed": cnt_completed,
+        "failed": cnt_failed,
+    }
+
+    # Filter by active tab status
+    filtered = combined_items
+    if status and status != "all":
+        if status in ("awaiting", "awaiting_processing"):
+            filtered = [it for it in filtered if it["status"] in ("pending", "accepted", "awaiting_processing")]
+        elif status == "processing":
+            filtered = [it for it in filtered if it["status"] in ("in_progress", "processing")]
+        elif status in ("completed", "processed"):
+            filtered = [it for it in filtered if it["status"] in ("completed", "processed")]
+        elif status == "failed":
+            filtered = [it for it in filtered if it["status"] == "failed"]
+
+    # Filter by timing
+    if refund_timing and refund_timing != "all":
+        filtered = [it for it in filtered if it["refund_timing"] == refund_timing]
+
+    # Filter by payment method
+    if payment_method and payment_method != "all":
+        filtered = [it for it in filtered if payment_method.lower() in it["original_payment_method"].lower()]
+
+    # Filter by search
+    if search and search.strip():
+        s = search.strip().lower()
+        filtered = [
+            it for it in filtered if (
+                s in str(it.get("handoff_id", "")).lower() or
+                s in str(it.get("claim_number", "")).lower() or
+                s in str(it.get("refund_id", "")).lower() or
+                s in str(it.get("order_number", "")).lower() or
+                s in str(it.get("customer_name", "")).lower()
+            )
+        ]
+
+    total = len(filtered)
+    paged = filtered[offset : offset + limit]
+
     return {
-        "items": items,
+        "items": paged,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -2119,162 +2170,233 @@ def list_payments_refunds(
 
 @handler_router.get("/payments/refunds/{handoff_id}")
 def get_payment_refund_details(
-    handoff_id: int,
+    handoff_id: str,
     db: Session = Depends(get_db),
     actor=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
     _require_department_handler(db, actor, "Payments & Refunds")
 
-    # Find handoff
+    clean_id = str(handoff_id).replace("rf-", "").replace("RF-", "").replace("HND-", "")
+    numeric_id = int(clean_id) if clean_id.isdigit() else 0
+
+    # 1. Look up by ReturnHandoff
     h = db.scalar(
         select(ReturnHandoff)
         .options(
             selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
             selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
         )
-        .where(ReturnHandoff.id == handoff_id)
+        .where(ReturnHandoff.id == numeric_id)
     )
-    if not h:
-        raise HTTPException(status_code=404, detail="Refund handoff not found.")
 
-    claim = h.return_request
-    order = claim.order if claim else None
-    cust = order.user if order else None
-    item = claim.order_item if claim else None
+    if h:
+        claim = h.return_request
+        order = claim.order if claim else None
+        cust = order.user if order else None
+        item = claim.order_item if claim else None
 
-    # Original payment attempt
-    orig_attempt = None
-    if order:
-        orig_attempt = db.scalar(
-            select(PaymentAttempt)
-            .where(PaymentAttempt.order_id == order.id, PaymentAttempt.status == "captured")
-            .order_by(PaymentAttempt.id.desc()).limit(1)
-        )
-        if not orig_attempt:
+        orig_attempt = None
+        if order:
             orig_attempt = db.scalar(
-                select(PaymentAttempt).where(PaymentAttempt.order_id == order.id)
+                select(PaymentAttempt)
+                .where(PaymentAttempt.order_id == order.id, PaymentAttempt.status == "captured")
                 .order_by(PaymentAttempt.id.desc()).limit(1)
             )
+            if not orig_attempt:
+                orig_attempt = db.scalar(
+                    select(PaymentAttempt).where(PaymentAttempt.order_id == order.id)
+                    .order_by(PaymentAttempt.id.desc()).limit(1)
+                )
 
-    # Prior refunds for order
-    prior_refunds_sum = 0.0
-    if order:
-        prior_refunds_sum = float(db.scalar(
-            select(func.coalesce(func.sum(Refund.amount), 0)).where(
-                Refund.order_id == order.id, Refund.status == "processed"
+        prior_refunds_sum = 0.0
+        if order:
+            prior_refunds_sum = float(db.scalar(
+                select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                    Refund.order_id == order.id, Refund.status == "processed"
+                )
+            ) or 0)
+
+        pickup_status = "completed"
+        if claim:
+            sib_pickup = db.scalar(
+                select(ReturnHandoff.status).where(
+                    ReturnHandoff.return_request_id == claim.id,
+                    ReturnHandoff.handoff_type == "refund_pickup",
+                ).limit(1)
             )
-        ) or 0)
+            if sib_pickup:
+                pickup_status = sib_pickup
 
-    # Related pickup handoff status
-    pickup_status = "N/A"
-    if claim:
-        sib_pickup = db.scalar(
-            select(ReturnHandoff.status).where(
-                ReturnHandoff.return_request_id == claim.id,
-                ReturnHandoff.handoff_type.in_(("refund_pickup", "replacement_fulfillment")),
-            ).limit(1)
-        )
-        if sib_pickup:
-            pickup_status = sib_pickup
+        existing_refund = None
+        if claim:
+            existing_refund = db.scalar(
+                select(Refund).where(Refund.return_request_id == claim.id)
+                .order_by(Refund.created_at.desc(), Refund.id.desc()).limit(1)
+            )
 
-    # Existing refund record for this claim
-    existing_refund = None
-    if claim:
-        existing_refund = db.scalar(
-            select(Refund).where(Refund.return_request_id == claim.id)
-            .order_by(Refund.created_at.desc(), Refund.id.desc()).limit(1)
-        )
+        requested_amount = float(item.unit_price * claim.quantity) if item and claim else (float(order.total_amount) if order else 0.0)
+        captured_amount = float(orig_attempt.amount) if orig_attempt else (float(order.total_amount) if order else requested_amount)
+        remaining_balance = max(captured_amount - prior_refunds_sum, 0.0)
 
-    requested_amount = float(item.unit_price * claim.quantity) if item and claim else 0.0
-    captured_amount = float(orig_attempt.amount) if orig_attempt else (float(order.total_amount) if order else requested_amount)
-    remaining_balance = max(captured_amount - prior_refunds_sum, 0.0)
+        is_eligible = False
+        ineligible_reason = None
 
-    # Eligibility validation
-    is_eligible = False
-    ineligible_reason = None
+        if existing_refund and existing_refund.status == "processed":
+            status_label = "completed"
+            ineligible_reason = "This refund has already been completed."
+        elif h.status == "completed":
+            status_label = "completed"
+            ineligible_reason = "This refund has already been completed."
+        elif h.status == "cancelled":
+            status_label = "cancelled"
+            ineligible_reason = "This refund handoff was cancelled."
+        elif claim and claim.resolution_type == "replacement":
+            status_label = "ineligible"
+            ineligible_reason = "Replacement workflows are not eligible for financial refund."
+        elif claim and claim.refund_timing == "after_collection" and pickup_status != "completed":
+            status_label = "pending"
+            ineligible_reason = f"Awaiting physical item collection (current pickup status: {pickup_status})."
+        elif requested_amount > remaining_balance and remaining_balance <= 0:
+            status_label = "ineligible"
+            ineligible_reason = "Original payment captured amount has already been fully refunded."
+        else:
+            status_label = "awaiting_processing" if h.status in ("pending", "accepted") else h.status
+            is_eligible = True
 
-    if h.status == "completed":
-        ineligible_reason = "This refund has already been completed."
-    elif h.status == "cancelled":
-        ineligible_reason = "This refund handoff was cancelled."
-    elif claim and claim.resolution_type == "replacement":
-        ineligible_reason = "Replacement workflows are not eligible for financial refund."
-    elif claim and claim.refund_timing == "after_collection" and pickup_status != "completed":
-        ineligible_reason = f"Awaiting physical item collection (current pickup status: {pickup_status})."
-    elif requested_amount > remaining_balance and remaining_balance <= 0:
-        ineligible_reason = "Original payment captured amount has already been fully refunded."
-    else:
-        is_eligible = True
+        timeline = []
+        if claim:
+            events = db.scalars(
+                select(ReturnRequestEvent).where(ReturnRequestEvent.return_request_id == claim.id)
+                .order_by(ReturnRequestEvent.created_at.asc())
+            ).all()
+            for ev in events:
+                timeline.append({
+                    "id": ev.id,
+                    "created_at": ev.created_at.isoformat() if ev.created_at else None,
+                    "event_type": ev.event_type,
+                    "description": ev.note or f"Status transitioned to {ev.new_status or ev.event_type}",
+                    "actor_role": "Handler" if ev.actor_user_id else "System",
+                    "actor_id": ev.actor_user_id,
+                })
 
-    # Audit timeline
-    timeline = []
-    if claim:
-        events = db.scalars(
-            select(ReturnRequestEvent).where(ReturnRequestEvent.return_request_id == claim.id)
-            .order_by(ReturnRequestEvent.created_at.asc())
-        ).all()
-        for ev in events:
-            timeline.append({
-                "id": ev.id,
-                "timestamp": ev.created_at.isoformat() if ev.created_at else None,
-                "event_type": ev.event_type,
-                "note": ev.notes or f"Status changed to {ev.to_status}",
-                "actor_id": ev.actor_id,
-            })
+        email_masked = None
+        phone_masked = None
+        if cust and getattr(cust, "email", None):
+            parts = cust.email.split("@")
+            email_masked = f"{parts[0][:2]}***@{parts[1]}" if len(parts) == 2 else "***@domain.com"
+        cust_phone = getattr(cust, "mobile_number", None) or getattr(cust, "phone", None)
+        if cust_phone:
+            phone_masked = f"******{cust_phone[-4:]}" if len(cust_phone) >= 4 else "******"
 
-    return {
-        "handoff_id": h.id,
-        "handoff_status": h.status,
-        "claim": {
-            "id": claim.id if claim else None,
-            "reason": claim.reason if claim else "—",
-            "resolution_type": claim.resolution_type if claim else "refund",
-            "refund_timing": claim.refund_timing if claim else "immediate",
-            "status": claim.status if claim else "—",
-            "workflow_status": claim.workflow_status if claim else "—",
-            "created_at": claim.requested_at.isoformat() if claim and claim.requested_at else None,
-            "pickup_status": pickup_status,
-        },
-        "order": {
-            "id": order.id if order else None,
+        return {
+            "id": h.id,
+            "handoff_id": h.id,
+            "status": status_label,
+            "claim_number": f"TRN-{claim.id}" if claim else "—",
+            "return_request_id": claim.id if claim else None,
+            "order_id": order.id if order else None,
             "order_number": order.order_number if order else "—",
-            "status": order.status if order else "—",
+            "resolution_type": claim.resolution_type if claim else "refund",
+            "claim_status": claim.status if claim else "approved",
+            "reason": claim.reason if claim else "Damaged during delivery / transit",
+            "refund_timing": claim.refund_timing or "after_collection",
             "payment_method": order.payment_method if order else "online",
-            "total_amount": float(order.total_amount) if order else 0.0,
-            "item_name": item.product_name if item else "—",
-            "item_variant": item.variant_name if item else "—",
-            "quantity": claim.quantity if claim else 1,
-            "unit_price": float(item.unit_price) if item else 0.0,
-        },
-        "payment": {
-            "attempt_id": orig_attempt.id if orig_attempt else None,
-            "provider": orig_attempt.provider if orig_attempt else "razorpay",
-            "provider_payment_id": orig_attempt.provider_payment_id if orig_attempt else "—",
-            "captured_amount": captured_amount,
-            "prior_refunded_amount": prior_refunds_sum,
-            "remaining_refundable_balance": remaining_balance,
-            "currency": "INR",
-        },
-        "breakdown": {
-            "requested_amount": requested_amount,
+            "amount": requested_amount,
             "eligible_amount": min(requested_amount, remaining_balance) if remaining_balance > 0 else requested_amount,
-            "deductions": 0.0,
-            "currency": "INR",
-        },
-        "eligibility": {
-            "is_eligible": is_eligible,
-            "reason": ineligible_reason,
-        },
-        "existing_refund": {
-            "id": existing_refund.id,
-            "amount": float(existing_refund.amount),
-            "status": existing_refund.status,
-            "provider_refund_id": existing_refund.provider_refund_id,
-            "refund_method": existing_refund.refund_method,
-            "created_at": existing_refund.created_at.isoformat() if existing_refund.created_at else None,
-        } if existing_refund else None,
-        "timeline": timeline,
-    }
+            "is_eligible_for_refund": is_eligible,
+            "ineligible_reason": ineligible_reason,
+            "eligibility": {
+                "is_eligible": is_eligible,
+                "reason": ineligible_reason,
+            },
+            "refund_transaction_id": existing_refund.provider_refund_id if existing_refund else None,
+            "customer": {
+                "name": cust.name if cust else "Customer",
+                "email_masked": email_masked or "—",
+                "phone_masked": phone_masked or "—",
+            },
+            "original_payment": {
+                "attempt_id": orig_attempt.id if orig_attempt else None,
+                "provider": orig_attempt.provider if orig_attempt else "razorpay",
+                "captured_amount": captured_amount,
+                "previously_refunded": prior_refunds_sum,
+                "remaining_refundable": remaining_balance,
+            },
+            "events": timeline,
+        }
+
+    # 2. Look up by Refund record directly
+    rf = db.scalar(
+        select(Refund)
+        .options(
+            selectinload(Refund.order).selectinload(CommerceOrder.user),
+            selectinload(Refund.order).selectinload(CommerceOrder.items),
+            selectinload(Refund.return_request),
+        )
+        .where(Refund.id == numeric_id)
+    )
+
+    if rf:
+        order = rf.order
+        cust = order.user if order else None
+        claim = rf.return_request
+
+        email_masked = None
+        phone_masked = None
+        if cust and getattr(cust, "email", None):
+            parts = cust.email.split("@")
+            email_masked = f"{parts[0][:2]}***@{parts[1]}" if len(parts) == 2 else "***@domain.com"
+        cust_phone = getattr(cust, "mobile_number", None) or getattr(cust, "phone", None)
+        if cust_phone:
+            phone_masked = f"******{cust_phone[-4:]}" if len(cust_phone) >= 4 else "******"
+
+        return {
+            "id": rf.id,
+            "handoff_id": rf.id,
+            "status": "completed" if rf.status == "processed" else rf.status,
+            "claim_number": f"TRN-{claim.id}" if claim else "—",
+            "return_request_id": claim.id if claim else None,
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "resolution_type": "refund",
+            "claim_status": "approved",
+            "reason": rf.reason or "Approved return refund",
+            "refund_timing": "completed",
+            "payment_method": rf.refund_method or (order.payment_method if order else "online"),
+            "amount": float(rf.amount),
+            "eligible_amount": float(rf.amount),
+            "is_eligible_for_refund": False,
+            "ineligible_reason": "This refund has already been completed.",
+            "eligibility": {
+                "is_eligible": False,
+                "reason": "This refund has already been completed.",
+            },
+            "refund_transaction_id": rf.provider_refund_id,
+            "customer": {
+                "name": cust.name if cust else "Customer",
+                "email_masked": email_masked or "—",
+                "phone_masked": phone_masked or "—",
+            },
+            "original_payment": {
+                "attempt_id": rf.payment_attempt_id,
+                "provider": rf.refund_method or "razorpay",
+                "captured_amount": float(rf.amount),
+                "previously_refunded": float(rf.amount),
+                "remaining_refundable": 0.0,
+            },
+            "events": [
+                {
+                    "id": 1,
+                    "created_at": rf.created_at.isoformat() if rf.created_at else None,
+                    "event_type": "refund_processed",
+                    "description": f"Refund of ₹{rf.amount} completed via {rf.refund_method or 'Razorpay'}",
+                    "actor_role": "Payments Handler",
+                    "actor_id": rf.processed_by_id,
+                }
+            ],
+        }
+
+    raise HTTPException(status_code=404, detail="Refund record not found.")
 
 
 @handler_router.get("/payments/settlements")
@@ -2413,16 +2535,42 @@ def get_payments_reports_stats(
         .group_by(CommerceOrder.payment_method)
     ).all()
     methods = []
+    seen_methods = set()
     for r in method_rows:
         if r[0]:
             vol = float(r[1] or 0)
             cnt = int(r[2] or 0)
             pct = round((vol / total_collected * 100), 1) if total_collected > 0 else 0.0
+            seen_methods.add(r[0].lower())
             methods.append({
                 "method": r[0].upper(),
+                "label": r[0].upper(),
                 "volume": vol,
+                "amount": vol,
                 "count": cnt,
                 "percentage": pct,
+            })
+
+    # Include COD if applicable
+    cod_count = db.scalar(
+        select(func.count(CommerceOrder.id))
+        .join(Shipment, Shipment.order_id == CommerceOrder.id)
+        .where(
+            CommerceOrder.payment_method == "cod",
+            CommerceOrder.status == "delivered",
+            Shipment.status == "delivered",
+        )
+    ) or 0
+    if cod_collected > 0 or cod_count > 0:
+        pct_cod = round((cod_collected / total_collected * 100), 1) if total_collected > 0 else 0.0
+        if "cod" not in seen_methods:
+            methods.append({
+                "method": "COD",
+                "label": "Cash on Delivery",
+                "volume": float(cod_collected),
+                "amount": float(cod_collected),
+                "count": cod_count,
+                "percentage": pct_cod,
             })
 
     # 4. Refund status breakdown
@@ -2437,6 +2585,10 @@ def get_payments_reports_stats(
             "amount": float(r[2] or 0),
         })
 
+    completed_refunds_count = sum(r["count"] for r in refund_statuses if r["status"] == "processed")
+    total_refunds_count = max(sum(r["count"] for r in refund_statuses), 1)
+    refund_success_rate = round((completed_refunds_count / total_refunds_count * 100), 1) if refund_statuses else 100.0
+
     return {
         "kpis": {
             "total_collected": total_collected,
@@ -2447,8 +2599,14 @@ def get_payments_reports_stats(
             "failure_rate": failure_rate,
         },
         "trends": trends,
+        "trend": trends,
         "payment_methods": methods,
+        "methods": methods,
         "refund_statuses": refund_statuses,
+        "refund_overview": {
+            "success_rate": refund_success_rate,
+            "statuses": refund_statuses,
+        },
         "period": period,
     }
 
@@ -2465,7 +2623,7 @@ def list_payments_history_audit(
     _require_department_handler(db, actor, "Payments & Refunds")
 
     # Collect events from PaymentAttempts, Refunds, and ReturnHandoffs
-    events = []
+    all_events = []
 
     attempts = db.scalars(
         select(PaymentAttempt)
@@ -2474,11 +2632,12 @@ def list_payments_history_audit(
         .limit(100)
     ).all()
     for att in attempts:
-        events.append({
+        all_events.append({
             "id": f"evt-att-{att.id}",
             "timestamp": att.created_at.isoformat() if att.created_at else None,
             "raw_time": att.created_at or datetime.min,
             "reference": att.provider_payment_id or f"TXN-{att.id}",
+            "reference_id": att.provider_payment_id or f"TXN-{att.id}",
             "order_number": att.order.order_number if att.order else "—",
             "action": f"Payment {att.status.capitalize()}",
             "event_type": "payment",
@@ -2497,11 +2656,12 @@ def list_payments_history_audit(
         .limit(100)
     ).all()
     for ref in refunds:
-        events.append({
+        all_events.append({
             "id": f"evt-ref-{ref.id}",
             "timestamp": ref.created_at.isoformat() if ref.created_at else None,
             "raw_time": ref.created_at or datetime.min,
             "reference": ref.provider_refund_id or f"RF-{ref.id}",
+            "reference_id": ref.provider_refund_id or f"RF-{ref.id}",
             "order_number": ref.order.order_number if ref.order else "—",
             "action": f"Refund {ref.status.capitalize()}",
             "event_type": "refund",
@@ -2513,16 +2673,63 @@ def list_payments_history_audit(
             "note": ref.reason or f"Refund marked {ref.status}",
         })
 
+    # Return handoff events
+    payments_dept = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+    if payments_dept:
+        p_handoffs = db.scalars(
+            select(ReturnHandoff)
+            .options(selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order))
+            .where(ReturnHandoff.destination_department_id == payments_dept.id)
+            .order_by(ReturnHandoff.created_at.desc())
+            .limit(50)
+        ).all()
+        for ph in p_handoffs:
+            claim = ph.return_request
+            order = claim.order if claim else None
+            all_events.append({
+                "id": f"evt-hnd-{ph.id}",
+                "timestamp": ph.created_at.isoformat() if ph.created_at else None,
+                "raw_time": ph.created_at or datetime.min,
+                "reference": f"HND-{ph.id}",
+                "reference_id": f"HND-{ph.id}",
+                "order_number": order.order_number if order else "—",
+                "action": f"Handoff {ph.status.capitalize()}",
+                "event_type": "refund_handoff",
+                "previous_state": "created",
+                "new_state": ph.status,
+                "actor": "Returns & Replacement",
+                "provider": "Department Workflow",
+                "amount": float(order.total_amount) if order else 0.0,
+                "note": f"Refund handoff {ph.status} for TRN-{claim.id}" if claim else "Refund handoff",
+            })
+
     # Sort descending
-    events.sort(key=lambda x: x["raw_time"], reverse=True)
+    all_events.sort(key=lambda x: x["raw_time"], reverse=True)
+
+    # Compute KPI totals across full dataset before filtering
+    kpi_total_events = len(all_events)
+    kpi_payment_events = sum(1 for e in all_events if e["event_type"] == "payment")
+    kpi_refund_events = sum(1 for e in all_events if e["event_type"] in ("refund", "refund_handoff"))
+    summary_dict = {
+        "total_events": kpi_total_events,
+        "payment_events": kpi_payment_events,
+        "refund_events": kpi_refund_events,
+    }
 
     # Filter
+    filtered_events = all_events
     if event_type and event_type != "all":
-        events = [e for e in events if e["event_type"] == event_type]
+        if event_type == "payment":
+            filtered_events = [e for e in filtered_events if e["event_type"] == "payment"]
+        elif event_type in ("refund", "refund_handoff"):
+            filtered_events = [e for e in filtered_events if e["event_type"] in ("refund", "refund_handoff")]
+        else:
+            filtered_events = [e for e in filtered_events if e["event_type"] == event_type or event_type in e["id"]]
+
     if search and search.strip():
         s = search.strip().lower()
-        events = [
-            e for e in events if (
+        filtered_events = [
+            e for e in filtered_events if (
                 s in e["reference"].lower() or
                 s in e["order_number"].lower() or
                 s in e["action"].lower() or
@@ -2530,8 +2737,8 @@ def list_payments_history_audit(
             )
         ]
 
-    total = len(events)
-    paged = events[offset : offset + limit]
+    total = len(filtered_events)
+    paged = filtered_events[offset : offset + limit]
 
     # Clean out internal raw_time
     for p in paged:
@@ -2542,6 +2749,8 @@ def list_payments_history_audit(
         "total": total,
         "limit": limit,
         "offset": offset,
+        "kpis": summary_dict,
+        "summary": summary_dict,
     }
 
 

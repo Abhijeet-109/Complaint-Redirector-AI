@@ -17,9 +17,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CreditCard,
-  Receipt,
-  Landmark,
-  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -156,24 +153,6 @@ export function HandlerSidebar({
       icon: RotateCcw,
       badge: queueCount > 0 ? queueCount : null,
       activeMatch: (p) => p.startsWith('/handler/refunds'),
-    },
-    {
-      label: 'Refund Requests',
-      path: '/handler/refund-requests',
-      icon: Receipt,
-      activeMatch: (p) => p.startsWith('/handler/refund-requests'),
-    },
-    {
-      label: 'Settlements & Reconciliation',
-      path: '/handler/settlements',
-      icon: Landmark,
-      activeMatch: (p) => p.startsWith('/handler/settlements'),
-    },
-    {
-      label: 'Disputes',
-      path: '/handler/disputes',
-      icon: ShieldAlert,
-      activeMatch: (p) => p.startsWith('/handler/disputes'),
     },
   ];
 

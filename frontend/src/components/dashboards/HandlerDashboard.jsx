@@ -23,8 +23,6 @@ import { ODHistoryReportsView } from '../handler/order_delivery/ODHistoryReports
 import { PaymentsOverviewView } from '../handler/payments/PaymentsOverviewView';
 import { PaymentTransactionsView } from '../handler/payments/PaymentTransactionsView';
 import { PaymentRefundManagementView } from '../handler/payments/PaymentRefundManagementView';
-import { PaymentSettlementsView } from '../handler/payments/PaymentSettlementsView';
-import { PaymentDisputesView } from '../handler/payments/PaymentDisputesView';
 import { PaymentReportsView } from '../handler/payments/PaymentReportsView';
 import { PaymentAuditView } from '../handler/payments/PaymentAuditView';
 import '../handler/HandlerDashboard.css';
@@ -246,13 +244,8 @@ export function HandlerDashboard({ onNavigate, routePath }) {
         case '/handler/transactions':
           return <PaymentTransactionsView onNavigate={onNavigate} />;
         case '/handler/refunds':
-          return <PaymentRefundManagementView onNavigate={onNavigate} initialTab="all" />;
         case '/handler/refund-requests':
-          return <PaymentRefundManagementView onNavigate={onNavigate} initialTab="awaiting" />;
-        case '/handler/settlements':
-          return <PaymentSettlementsView onNavigate={onNavigate} />;
-        case '/handler/disputes':
-          return <PaymentDisputesView onNavigate={onNavigate} />;
+          return <PaymentRefundManagementView onNavigate={onNavigate} initialTab="all" />;
         case '/handler/reports':
           return <PaymentReportsView onNavigate={onNavigate} />;
         case '/handler/history':
