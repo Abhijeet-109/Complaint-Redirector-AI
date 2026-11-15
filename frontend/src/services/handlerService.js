@@ -221,10 +221,10 @@ export const handlerService = {
    * Approve a return claim.
    * POST /api/v1/departments/returns/{claim_id}/approve
    */
-  async approveClaim(claimId, note) {
+  async approveClaim(claimId, note, refundTiming = null) {
     return await apiRequest(`/api/v1/departments/returns/${claimId}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ note, ...(refundTiming ? { refund_timing: refundTiming } : {}) }),
     });
   },
 

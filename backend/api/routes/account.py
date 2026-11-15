@@ -87,7 +87,6 @@ class ReturnClaimCreate(BaseModel):
     quantity: int = Field(gt=0)
 
     resolution_type: Literal["refund", "replacement"]
-    refund_timing: Literal["immediate", "after_collection"] | None = None
     reason_code: str = Field(min_length=1, max_length=40)
     description: str | None = Field(default=None, max_length=2000)
 
@@ -305,7 +304,8 @@ def _order_payload(order, return_claims=None, cancellation_refund=None):
             "requested_at": claim.requested_at.isoformat() if claim.requested_at else None,
         })
     for output, item in zip(result["items"], order.items):
-        images = item.variant.product.images
+        product = item.variant.product if item.variant else None
+        images = product.images if product else []
         chosen = next((image for image in images if image.variant_id == item.variant_id), None)
         chosen = chosen or next((image for image in images if image.variant_id is None), None)
         output["image"] = chosen.storage_key if chosen else None
@@ -415,11 +415,6 @@ def submit_return_claim(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    if payload.resolution_type == "refund" and payload.refund_timing not in {"immediate", "after_collection"}:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="A valid refund timing (immediate or after_collection) is required for refund requests.",
-        )
     try:
         claim = create_return_claim(
             db,
@@ -428,7 +423,7 @@ def submit_return_claim(
             order_item_id=payload.order_item_id,
             quantity=payload.quantity,
             resolution_type=payload.resolution_type,
-            refund_timing=payload.refund_timing,
+            refund_timing=None,
             reason_code=payload.reason_code,
             description=payload.description,
         )

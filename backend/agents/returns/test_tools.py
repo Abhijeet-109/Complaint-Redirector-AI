@@ -187,7 +187,7 @@ class ReturnsToolsTests(unittest.TestCase):
             )}["submit_my_return_request"]
             payload = {
                 "order_id": self.order.id, "order_item_id": self.item.id, "quantity": 1,
-                "resolution_type": "refund", "refund_timing": "immediate",
+                "resolution_type": "refund",
                 "reason_code": "damaged", "description": "Photo evidence attached",
             }
             first = tool.invoke(payload)

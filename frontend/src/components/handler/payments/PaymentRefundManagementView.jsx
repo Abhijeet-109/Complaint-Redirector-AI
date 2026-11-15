@@ -38,6 +38,7 @@ function StatusBadge({ status }) {
     approved: { bg: '#E0F2FE', color: '#0369A1', label: 'Approved' },
     failed: { bg: '#FEE2E2', color: '#991B1B', label: 'Failed' },
     cancelled: { bg: '#F5F5F4', color: '#78716C', label: 'Cancelled' },
+    invalid_state: { bg: '#FEE2E2', color: '#991B1B', label: 'Requires Reconciliation' },
   };
   const key = String(status || '').toLowerCase().replace(/\s+/g, '_');
   const config = statusConfig[key] || { bg: '#F5F5F4', color: '#78716C', label: status || 'Unknown' };
@@ -838,19 +839,32 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Captured Amount</div>
                         <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
-                          {formatINR(detailData.original_payment?.captured_amount || detailData.amount)}
+                          {formatINR(detailData.original_payment?.captured_amount ?? detailData.amount)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: '#78827E', fontSize: 11 }}>Captured Transaction</div>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3, overflowWrap: 'anywhere' }}>
+                          {detailData.original_payment?.provider_payment_id ||
+                            (detailData.original_payment?.attempt_id ? `Attempt #${detailData.original_payment.attempt_id}` : 'Unavailable')}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Prior Refunds</div>
                         <div style={{ fontWeight: 600, color: '#991B1B', marginTop: 3 }}>
-                          {formatINR(detailData.original_payment?.previously_refunded || 0)}
+                          {formatINR(detailData.original_payment?.previously_refunded ?? 0)}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: '#78827E', fontSize: 11 }}>Refunds Being Processed</div>
+                        <div style={{ fontWeight: 600, color: '#0369A1', marginTop: 3 }}>
+                          {formatINR(detailData.original_payment?.reserved_refunds ?? 0)}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Remaining Refundable</div>
                         <div style={{ fontWeight: 700, color: '#15803D', marginTop: 3 }}>
-                          {formatINR(detailData.original_payment?.remaining_refundable || detailData.eligible_amount || detailData.amount)}
+                          {formatINR(detailData.original_payment?.remaining_refundable ?? 0)}
                         </div>
                       </div>
                     </div>
@@ -865,12 +879,15 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#FAF8F4', borderRadius: 6, fontSize: 12 }}>
                       <div>
                         <div style={{ fontWeight: 600, color: '#183A34' }}>
-                          Physical Collection: {detailData.pickup_status === 'completed' ? 'Completed' : 'Pending'}
+                          Physical Collection: {detailData.pickup_status === 'completed' ? 'Completed' :
+                            detailData.pickup_status === 'unavailable' ? 'Unavailable' : detailData.pickup_status}
                         </div>
                         <div style={{ color: '#68726E', fontSize: 11, marginTop: 2 }}>
                           {detailData.pickup_status === 'completed'
                             ? 'The reverse pickup was verified and marked completed by Order & Delivery.'
-                            : 'Awaiting courier collection and inbound return confirmation.'}
+                            : detailData.pickup_status === 'unavailable'
+                              ? 'No Order & Delivery pickup handoff is linked to this refund request.'
+                              : `Current collection status: ${detailData.pickup_status}.`}
                         </div>
                       </div>
                       <span
@@ -881,11 +898,14 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
                           borderRadius: 4,
                           fontSize: 11,
                           fontWeight: 700,
-                          backgroundColor: detailData.pickup_status === 'completed' ? '#DCFCE7' : '#FEF3C7',
-                          color: detailData.pickup_status === 'completed' ? '#15803D' : '#B45309',
+                          backgroundColor: detailData.pickup_status === 'completed' ? '#DCFCE7' :
+                            detailData.pickup_status === 'unavailable' ? '#FEE2E2' : '#FEF3C7',
+                          color: detailData.pickup_status === 'completed' ? '#15803D' :
+                            detailData.pickup_status === 'unavailable' ? '#991B1B' : '#B45309',
                         }}
                       >
-                        {detailData.pickup_status === 'completed' ? 'Completed' : 'Pending'}
+                        {detailData.pickup_status === 'completed' ? 'Completed' :
+                          detailData.pickup_status === 'unavailable' ? 'Unavailable' : detailData.pickup_status}
                       </span>
                     </div>
                   </div>
@@ -940,11 +960,21 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
                       top: 0,
                     }}
                   >
+                    <div style={{ marginBottom: 14, padding: 12, background: '#FAF8F4', borderRadius: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12 }}>
+                        <span>Payments handoff</span>
+                        <StatusBadge status={detailData.handoff_status || 'unavailable'} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, marginTop: 9 }}>
+                        <span>Actual refund outcome</span>
+                        <StatusBadge status={detailData.refund_status || 'not initiated'} />
+                      </div>
+                    </div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#78827E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       Refund Amount Due
                     </div>
                     <div style={{ fontSize: 26, fontWeight: 800, color: '#122D29', marginTop: 4, marginBottom: 12 }}>
-                      {formatINR(detailData.eligible_amount || detailData.amount)}
+                      {formatINR(detailData.amount ?? 0)}
                     </div>
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>

@@ -46,7 +46,7 @@ def _stamp(value):
 
 
 def _existing_submission(session, *, user_id, submission_key, order_id, order_item_id,
-                         quantity, resolution_type, refund_timing, reason_code, description):
+                         quantity, resolution_type, reason_code, description):
     claim = session.scalar(
         select(ReturnRequest)
         .join(CommerceOrder, ReturnRequest.order_id == CommerceOrder.id)
@@ -58,7 +58,6 @@ def _existing_submission(session, *, user_id, submission_key, order_id, order_it
     same_payload = (
         claim.order_id == order_id and claim.order_item_id == order_item_id
         and claim.quantity == quantity and claim.resolution_type == resolution_type
-        and claim.refund_timing == (refund_timing if resolution_type == "refund" else None)
         and claim.reason_code == reason_code
         and claim.description == (description.strip() if description and description.strip() else None)
     )
@@ -472,7 +471,7 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
     @tool
     def submit_my_return_request(
         order_id: int, order_item_id: int, quantity: int, resolution_type: str,
-        refund_timing: str | None, reason_code: str, description: str | None = None,
+        reason_code: str, description: str | None = None,
     ) -> dict:
         """Submit an eligible claim with all evidence staged in this authenticated chat."""
         for value, name in ((order_id, "order ID"), (order_item_id, "order item ID"),
@@ -492,10 +491,6 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
             return {"success": False, "message": "The submitted item does not match the selected purchased item."}
         if resolution_type not in {"refund", "replacement"}:
             return {"success": False, "message": "Resolution must be refund or replacement."}
-        if resolution_type == "refund" and refund_timing not in {"immediate", "after_collection"}:
-            return {"success": False, "message": "Choose immediate refund or refund after collection."}
-        if resolution_type == "replacement" and refund_timing not in {None, ""}:
-            return {"success": False, "message": "Replacement requests do not use refund timing."}
         try:
             reason_code = normalize_return_reason_code(reason_code)
         except ValueError as exc:
@@ -514,7 +509,7 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
                 existing = _existing_submission(
                     session, user_id=user_id, submission_key=stable_submission_key,
                     order_id=order_id, order_item_id=order_item_id, quantity=quantity,
-                    resolution_type=resolution_type, refund_timing=refund_timing or None,
+                    resolution_type=resolution_type,
                     reason_code=reason_code, description=description,
                 )
                 if existing is not None:
@@ -539,7 +534,7 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
                 claim = create_return_claim(
                     session, user_id=user_id, order_id=order_id, order_item_id=order_item_id,
                     quantity=quantity, resolution_type=resolution_type,
-                    refund_timing=refund_timing or None, reason_code=reason_code,
+                    reason_code=reason_code,
                     description=description, submission_key=stable_submission_key,
                 )
                 for item in matching:
@@ -574,7 +569,7 @@ def build_returns_tools(user_id: int, thread_id: str | None = None,
                     existing = _existing_submission(
                         session, user_id=user_id, submission_key=stable_submission_key,
                         order_id=order_id, order_item_id=order_item_id, quantity=quantity,
-                        resolution_type=resolution_type, refund_timing=refund_timing or None,
+                        resolution_type=resolution_type,
                         reason_code=reason_code, description=description,
                     )
                 if existing is not None:

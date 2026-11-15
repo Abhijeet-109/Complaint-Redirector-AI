@@ -22,6 +22,7 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionNote, setActionNote] = useState('');
+  const [refundTiming, setRefundTiming] = useState('');
   const [submittingAction, setSubmittingAction] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
   const [evidencePreviews, setEvidencePreviews] = useState({});
@@ -113,10 +114,14 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
       alert('Please enter a note or reason for this decision.');
       return;
     }
+    if (decisionType === 'approved' && claim?.resolution_type === 'refund' && !refundTiming) {
+      alert('Choose the refund timing for this approved refund.');
+      return;
+    }
     setSubmittingAction(true);
     try {
       if (decisionType === 'approved') {
-        await handlerService.approveClaim(resolvedId, actionNote);
+        await handlerService.approveClaim(resolvedId, actionNote, refundTiming || null);
         setToastMessage({ type: 'success', text: 'Return claim approved successfully!' });
       } else if (decisionType === 'rejected') {
         await handlerService.rejectClaim(resolvedId, actionNote);
@@ -126,6 +131,7 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
         setToastMessage({ type: 'success', text: 'Information request sent to customer.' });
       }
       setActionNote('');
+      if (decisionType === 'approved') setRefundTiming('');
       await loadClaim();
       if (onRefresh) onRefresh();
     } catch (err) {
@@ -361,6 +367,17 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
                 value={actionNote}
                 onChange={(e) => setActionNote(e.target.value)}
               />
+
+              {claim?.resolution_type === 'refund' && ['submitted', 'under_review', 'information_requested'].includes(claim?.workflow_status) && (
+                <label className="hd-form-label">
+                  Refund timing
+                  <select value={refundTiming} onChange={(event) => setRefundTiming(event.target.value)}>
+                    <option value="">Choose the operational refund path</option>
+                    <option value="immediate">Refund before collection</option>
+                    <option value="after_collection">Refund after collection</option>
+                  </select>
+                </label>
+              )}
 
               <div className="hd-action-btn-row">
                 <button

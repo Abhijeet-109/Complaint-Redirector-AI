@@ -91,6 +91,13 @@ const itemId = (item) => item?.id ?? item?.order_item_id;
 
 function OrderLifecycleTimeline({ order }) {
   const milestones = order.tracking_milestones || [];
+  const hasPersistedMilestones = milestones.some((milestone) => milestone.created_at);
+  const lastCompletedIndex = milestones.reduce(
+    (last, milestone, index) => milestone.created_at ? index : last, -1,
+  );
+  const historyGap = milestones.slice(0, lastCompletedIndex + 1).some((milestone) => !milestone.created_at);
+  const historyUnavailable = (!hasPersistedMilestones
+    && !['pending_payment', 'payment_failed', 'cancelled'].includes(order.status)) || historyGap;
 
   return (
     <div className="fk-delivery-timeline-block">
@@ -108,7 +115,23 @@ function OrderLifecycleTimeline({ order }) {
           </div>
         </div>
       ))}
+      {historyUnavailable && (
+        <p className="fk-timeline-history-note" role="status">
+          Current order status: {humanize(order.status)}. Persisted tracking events are incomplete for this order.
+        </p>
+      )}
     </div>
+  );
+}
+
+function OrderProductImage({ src, alt, imageClassName, placeholderClassName, size }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return src && !failed ? (
+    <img src={src} alt={alt || 'Product'} className={imageClassName} loading="lazy"
+      onError={() => setFailed(true)} />
+  ) : (
+    <Package size={size} className={placeholderClassName} aria-label="Product image unavailable" />
   );
 }
 
@@ -117,7 +140,7 @@ function customerOrderTrackingStatus(order) {
   const completed = (order.tracking_milestones || []).filter((item) => item.created_at);
   if (completed.length) return completed[completed.length - 1].label;
   if (['cancelled', 'payment_failed', 'pending_payment'].includes(order.status)) return humanize(order.status);
-  return 'Order Confirmed';
+  return humanize(order.status || 'confirmation pending');
 }
 
 export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger, onStartReturnIntake }) {
@@ -356,16 +379,8 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                   {/* Zone 1 (Left): Order identity */}
                   <div className="fk-order-summary-left">
                     <div className="fk-order-thumbnail-box">
-                      {currentItem.image ? (
-                        <img
-                          src={currentItem.image}
-                          alt={currentItem.product_name || 'Product'}
-                          className="fk-order-thumbnail-img"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <Package size={20} className="fk-thumbnail-placeholder" />
-                      )}
+                      <OrderProductImage src={currentItem.image} alt={currentItem.product_name}
+                        imageClassName="fk-order-thumbnail-img" placeholderClassName="fk-thumbnail-placeholder" size={20} />
                     </div>
                     <div className="fk-order-meta-info">
                       <span className="fk-order-number-text">
@@ -446,15 +461,8 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                         <div className={`fk-pre-delivery-main-row ${isDelivered ? 'is-delivered' : ''}`}>
                           <section className="fk-pre-delivery-product">
                             <div className="fk-product-image-box">
-                              {currentItem.image ? (
-                                <img
-                                  src={currentItem.image}
-                                  alt={currentItem.product_name || 'Product'}
-                                  className="fk-product-hero-img"
-                                />
-                              ) : (
-                                <Package size={52} className="fk-product-placeholder-icon" />
-                              )}
+                              <OrderProductImage src={currentItem.image} alt={currentItem.product_name}
+                                imageClassName="fk-product-hero-img" placeholderClassName="fk-product-placeholder-icon" size={52} />
                             </div>
                             <div className="fk-product-details-block">
                               <h2 className="fk-product-name-heading">{currentItem.product_name}</h2>

@@ -208,7 +208,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.db.commit()
         self.actor = self.handler
         approved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
-                                    json={"note": "Refund approved"})
+                                    json={"note": "Refund approved", "refund_timing": timing})
         self.assertEqual(approved.status_code, 200, approved.text)
         if timing == "after_collection":
             pickup = self.db.scalar(select(ReturnHandoff).where(
@@ -393,12 +393,12 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.close_seed_claim()
         refund = self.client.post("/api/account/returns", json={
             "order_id": self.order.id, "order_item_id": self.item.id,
-            "quantity": 1, "resolution_type": "refund", "refund_timing": "immediate",
+            "quantity": 1, "resolution_type": "refund",
             "reason_code": "damaged",
         })
         self.assertEqual(refund.status_code, 201, refund.text)
         self.assertEqual(refund.json()["return_request"]["workflow_status"], "submitted")
-        self.assertEqual(refund.json()["return_request"]["refund_timing"], "immediate")
+        self.assertIsNone(refund.json()["return_request"]["refund_timing"])
         submitted_refund_id = refund.json()["return_request"]["id"]
         submitted_refund = self.db.get(ReturnRequest, submitted_refund_id)
         submitted_refund.status = "rejected"
@@ -412,21 +412,20 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(replacement.json()["return_request"]["resolution_type"], "replacement")
         self.assertEqual(replacement.json()["return_request"]["workflow_status"], "submitted")
 
-    def test_claim_intake_validates_refund_timing(self):
+    def test_customer_cannot_supply_refund_timing(self):
         self.close_seed_claim()
-        bad = self.client.post("/api/account/returns", json={
+        unexpected = self.client.post("/api/account/returns", json={
             "order_id": self.order.id, "order_item_id": self.item.id,
-            "quantity": 1, "resolution_type": "refund", "refund_timing": "later",
+            "quantity": 1, "resolution_type": "refund", "refund_timing": "immediate",
             "reason_code": "damaged",
         })
-        self.assertEqual(bad.status_code, 422)
-        good = self.client.post("/api/account/returns", json={
+        self.assertEqual(unexpected.status_code, 422)
+        submitted = self.client.post("/api/account/returns", json={
             "order_id": self.order.id, "order_item_id": self.item.id,
-            "quantity": 1, "resolution_type": "refund", "refund_timing": "after_collection",
-            "reason_code": "damaged",
+            "quantity": 1, "resolution_type": "refund", "reason_code": "damaged",
         })
-        self.assertEqual(good.status_code, 201, good.text)
-        self.assertEqual(good.json()["return_request"]["refund_timing"], "after_collection")
+        self.assertEqual(submitted.status_code, 201, submitted.text)
+        self.assertIsNone(submitted.json()["return_request"]["refund_timing"])
 
     def test_return_submission_key_returns_the_original_claim_on_retry(self):
         key = str(uuid.uuid4())
@@ -567,7 +566,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
                           role="department_handler", department_id=self.other_department.id)
         self.assertEqual(self.client.get(f"/api/v1/departments/returns/{self.claim.id}").status_code, 403)
         self.actor = self.handler
-        response = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve", json={"note": "Evidence reviewed"})
+        response = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve", json={"note": "Evidence reviewed", "refund_timing": "immediate"})
         self.assertEqual(response.status_code, 200, response.text)
         handoff = self.db.scalar(select(ReturnHandoff).where(ReturnHandoff.return_request_id == self.claim.id))
         self.assertIsNotNone(handoff)
@@ -610,26 +609,22 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.assertEqual(response.json()["workflow_status"], "under_review")
         self.assertGreaterEqual(self.db.query(ReturnRequestEvent).filter_by(return_request_id=self.claim.id).count(), 3)
 
-    def test_legacy_admin_status_update_keeps_structured_claim_audited(self):
+    def test_admin_status_update_cannot_bypass_structured_returns_workflow(self):
         self.actor = self.admin
         response = self.client.patch(f"/api/admin/commerce/returns/{self.claim.id}/status",
                                      json={"status": "approved", "restock": False})
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.status_code, 422, response.text)
         self.db.refresh(self.claim)
-        self.assertEqual(self.claim.status, "approved")
-        self.assertEqual(self.claim.workflow_status, "approved")
-        event = self.db.scalar(select(ReturnRequestEvent).where(
-            ReturnRequestEvent.return_request_id == self.claim.id,
-            ReturnRequestEvent.event_type == "legacy_status_changed",
-        ))
-        self.assertIsNotNone(event)
+        self.assertEqual(self.claim.status, "requested")
+        self.assertEqual(self.claim.workflow_status, "submitted")
+        self.assertEqual(self.db.query(ReturnHandoff).filter_by(return_request_id=self.claim.id).count(), 0)
 
     def test_evidence_review_is_separate_from_physical_inspection(self):
         self.claim.refund_timing = "after_collection"
         self.db.commit()
         self.actor = self.handler
         approved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
-                                    json={"note": "Photo evidence reviewed"})
+                                    json={"note": "Photo evidence reviewed", "refund_timing": "after_collection"})
         self.assertEqual(approved.status_code, 200, approved.text)
         self.assertEqual(
             self.db.scalars(select(ReturnHandoff).where(
@@ -703,7 +698,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.db.commit()
         self.actor = self.handler
         approved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
-                                    json={"note": "Refund after collection"})
+                                    json={"note": "Refund after collection", "refund_timing": "after_collection"})
         self.assertEqual(approved.status_code, 200, approved.text)
         pickup = self.db.scalar(select(ReturnHandoff).where(
             ReturnHandoff.return_request_id == self.claim.id,
@@ -1058,7 +1053,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.db.commit()
         self.actor = self.handler
         failed = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
-                                  json={"note": "Refund approved"})
+                                  json={"note": "Refund approved", "refund_timing": "immediate"})
         self.assertEqual(failed.status_code, 404)
         self.db.refresh(self.claim)
         self.assertEqual(self.claim.workflow_status, "submitted")
@@ -1069,7 +1064,7 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.db.commit()
         self.actor = self.handler
         approved = self.client.post(f"/api/v1/departments/returns/{self.claim.id}/approve",
-                                    json={"note": "Pickup approved"})
+                                    json={"note": "Pickup approved", "refund_timing": "after_collection"})
         self.assertEqual(approved.status_code, 200, approved.text)
         pickup = self.db.scalar(select(ReturnHandoff).where(ReturnHandoff.return_request_id == self.claim.id))
         self.actor = self.delivery_handler
@@ -1211,6 +1206,10 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         self.actor = self.delivery_handler
         self.assertEqual(self.client.post(f"/api/v1/departments/returns/{self.claim.id}/resolve",
                                           json={"note": "Wrong department"}).status_code, 403)
+        self.actor = self.admin
+        self.assertEqual(self.client.post(f"/api/v1/departments/returns/{self.claim.id}/resolve",
+                                          json={"note": "Admin bypass attempt"}).status_code, 403)
+        self.actor = self.delivery_handler
         for state in ("accepted", "in_progress"):
             response = self.client.patch(f"/api/v1/departments/return-handoffs/{pickup.id}/status",
                                          json={"status": state, "note": f"Pickup {state}"})
@@ -1232,6 +1231,56 @@ class ReturnWorkflowApiTests(unittest.TestCase):
             ReturnRequestEvent.event_type == "request_manually_resolved",
         ))
         self.assertEqual(event.actor_user_id, self.handler.id)
+
+    def test_generic_admin_return_status_cannot_complete_request(self):
+        self.claim.status = "inspected"
+        self.claim.workflow_status = "approved"
+        self.db.commit()
+        self.actor = self.admin
+        response = self.client.patch(
+            f"/api/admin/commerce/returns/{self.claim.id}/status",
+            json={"status": "completed", "restock": False},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.db.refresh(self.claim)
+        self.assertEqual(self.claim.status, "inspected")
+        self.assertEqual(self.claim.workflow_status, "approved")
+
+    def test_generic_admin_status_cannot_approve_structured_request(self):
+        self.actor = self.admin
+        response = self.client.patch(
+            f"/api/admin/commerce/returns/{self.claim.id}/status",
+            json={"status": "approved", "restock": False},
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.db.refresh(self.claim)
+        self.assertEqual(self.claim.status, "requested")
+        self.assertEqual(self.claim.workflow_status, "submitted")
+
+    def test_completed_handoffs_cannot_resolve_while_refund_is_processing(self):
+        handoff, attempt = self.prepare_refund_handoff(payment_method="upi")
+        pickup = self.db.scalar(select(ReturnHandoff).where(
+            ReturnHandoff.return_request_id == self.claim.id,
+            ReturnHandoff.handoff_type == "refund_pickup",
+        ))
+        pickup.status = "completed"
+        handoff.status = "completed"
+        self.db.add(Refund(
+            order_id=self.order.id, payment_attempt_id=attempt.id,
+            return_request_id=self.claim.id, amount=Decimal("100.00"),
+            currency="INR", reason="Return", refund_method="razorpay",
+            provider_refund_id="rfnd_processing_test", status="processing",
+            idempotency_key=f"return-processing:{self.claim.id}", processed_by_id=self.payments_handler.id,
+        ))
+        self.db.commit()
+        self.actor = self.handler
+        response = self.client.post(
+            f"/api/v1/departments/returns/{self.claim.id}/resolve",
+            json={"note": "Attempt resolution before provider completion"},
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.db.refresh(self.claim)
+        self.assertEqual(self.claim.workflow_status, "approved")
 
 
 if __name__ == "__main__":

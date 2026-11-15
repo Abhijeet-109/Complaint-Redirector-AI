@@ -75,7 +75,7 @@ class PaymentsHandlerUnitTests(unittest.TestCase):
         self.db.flush()
 
         claim = ReturnRequest(order_id=order.id, order_item_id=order_item.id,
-                              quantity=1, reason="Defective", status="approved", workflow_status="pending_refund",
+                              quantity=1, reason="Defective", status="approved", workflow_status="approved",
                               resolution_type="refund", refund_timing="immediate", submission_key="sub-key-1")
         self.db.add(claim)
         self.db.flush()
@@ -123,6 +123,43 @@ class PaymentsHandlerUnitTests(unittest.TestCase):
         self.assertEqual(detail["id"], self.attempt.id)
         self.assertIn("***@", detail["customer"]["masked_email"])
 
+    def test_failed_filter_matches_failed_kpi_bucket_and_keeps_stored_status(self):
+        for status, key in (("cancelled", "pay-cancelled"), ("expired", "pay-expired")):
+            self.db.add(PaymentAttempt(
+                order_id=self.order.id, provider="razorpay", status=status,
+                amount=Decimal("2480.00"), currency="INR", idempotency_key=key,
+                failure_reason=f"Stored {status} status",
+                expires_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            ))
+        self.db.commit()
+
+        result = list_payments_transactions(
+            search=None, payment_status="failed", payment_method=None,
+            date_from=None, date_to=None, amount_min=None, amount_max=None,
+            limit=20, offset=0, db=self.db, actor=self.payments_handler,
+        )
+        self.assertEqual(result["kpis"]["failed"], 2)
+        self.assertEqual(result["total"], 2)
+        self.assertEqual({row["status"] for row in result["items"]}, {"cancelled", "expired"})
+
+    def test_processing_provider_refund_is_not_reported_as_completed(self):
+        self.handoff.status = "completed"
+        self.claim.workflow_status = "completed"
+        self.db.add(Refund(
+            order_id=self.order.id, payment_attempt_id=self.attempt.id,
+            return_request_id=self.claim.id, amount=Decimal("2480.00"),
+            currency="INR", reason="Return", refund_method="razorpay",
+            provider_refund_id="rfnd_pending_test", status="processing",
+            idempotency_key="return-pending-test", processed_by_id=self.payments_handler.id,
+        ))
+        self.db.commit()
+
+        detail = get_payment_refund_details(self.handoff.id, self.db, self.payments_handler)
+        self.assertEqual(detail["refund_status"], "processing")
+        self.assertEqual(detail["status"], "processing")
+        self.assertEqual(detail["handoff_status"], "completed")
+        self.assertFalse(detail["is_eligible_for_refund"])
+
     def test_payments_refunds_queue_and_details(self):
         data = list_payments_refunds(None, None, None, None, 20, 0, self.db, self.payments_handler)
         self.assertEqual(data["total"], 1)
@@ -131,6 +168,9 @@ class PaymentsHandlerUnitTests(unittest.TestCase):
         detail = get_payment_refund_details(self.handoff.id, self.db, self.payments_handler)
         self.assertEqual(detail["handoff_id"], self.handoff.id)
         self.assertTrue(detail["eligibility"]["is_eligible"])
+        self.assertEqual(detail["original_payment"]["provider_payment_id"], "pay_ABC123")
+        self.assertEqual(detail["original_payment"]["captured_amount"], 2480.0)
+        self.assertEqual(detail["original_payment"]["remaining_refundable"], 2480.0)
 
     def test_payments_settlements_and_disputes_honest_empty(self):
         s_res = list_payments_settlements(self.db, self.payments_handler)

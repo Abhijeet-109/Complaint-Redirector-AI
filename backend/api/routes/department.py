@@ -31,6 +31,7 @@ from backend.Database.return_services import (
     apply_claim_decision, claim_details, create_after_collection_refund_handoff,
     get_return_claim, record_inspection, resolve_return_claim,
     order_delivery_milestone_state, record_order_delivery_milestone,
+    has_verified_processed_refund,
 )
 from backend.Database.admin_commerce_services import (
     execute_return_refund, get_return_refund_tracking, list_return_refund_handoffs,
@@ -60,6 +61,7 @@ handler_router = APIRouter(
 class ReturnDecisionInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     note: str = Field(min_length=3, max_length=2000)
+    refund_timing: str | None = Field(default=None, pattern=r"^(immediate|after_collection)$")
 
 
 class ReturnInspectionInput(BaseModel):
@@ -885,6 +887,8 @@ def add_order_delivery_return_handoff_milestone(
     actor=Depends(require_role("department_handler")),
 ):
     _require_department_handler(db, actor, "Order & Delivery")
+    if actor.role != "department_handler":
+        raise HTTPException(status_code=403, detail="Return milestones require an assigned Order & Delivery handler.")
     return _commit_claim_operation(db, lambda: record_order_delivery_milestone(
         db, handoff_id, milestone=payload.milestone, actor_id=actor.id, note=payload.note,
     ))
@@ -1389,6 +1393,9 @@ def resolve_return_claim_handler(
     db: Session = Depends(get_db),
     actor=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
+    _require_department_handler(db, actor, "Returns & Replacement")
+    if actor.role != "department_handler":
+        raise HTTPException(status_code=403, detail="Final resolution requires an assigned Returns & Replacement handler.")
     _require_claim_access(db, claim_id, actor)
     claim = _commit_claim_operation(db, lambda: resolve_return_claim(
         db, claim_id, actor_id=actor.id, note=payload.note or "",
@@ -1418,6 +1425,8 @@ def process_return_refund_handoff(
     actor=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
     _require_department_handler(db, actor, "Payments & Refunds")
+    if actor.role != "department_handler":
+        raise HTTPException(status_code=403, detail="Refund handoffs can only be processed by an assigned Payments & Refunds handler.")
     try:
         return execute_return_refund(
             db, handoff_id=handoff_id, actor=actor,
@@ -1761,7 +1770,10 @@ def list_payments_transactions(
                 User.name.ilike(s),
             )
         )
-    if payment_status and payment_status != "all":
+    failed_statuses = ("failed", "cancelled", "expired")
+    if payment_status == "failed":
+        query = query.where(PaymentAttempt.status.in_(failed_statuses))
+    elif payment_status and payment_status != "all":
         query = query.where(PaymentAttempt.status == payment_status)
     if payment_method and payment_method != "all":
         query = query.where(CommerceOrder.payment_method == payment_method)
@@ -1779,7 +1791,7 @@ def list_payments_transactions(
     kpi_attempts = db.scalar(select(func.count(PaymentAttempt.id))) or 0
     kpi_captured = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status == "captured")) or 0
     kpi_pending = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status.in_(["pending", "created"]))) or 0
-    kpi_failed = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status.in_(["failed", "cancelled", "expired"]))) or 0
+    kpi_failed = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status.in_(failed_statuses))) or 0
     kpi_refunded = db.scalar(select(func.count(func.distinct(Refund.order_id))).where(Refund.status == "processed")) or 0
 
     attempts = db.scalars(
@@ -1963,30 +1975,8 @@ def list_payments_refunds(
     payments_dept = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
     if not payments_dept:
         return {"items": [], "total": 0, "limit": limit, "offset": offset, "tab_counts": {}}
-
-    # Ensure any completed reverse pickups have their refund_processing handoff created
-    completed_pickups = db.scalars(
-        select(ReturnHandoff)
-        .join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id)
-        .where(
-            ReturnHandoff.handoff_type == "refund_pickup",
-            ReturnHandoff.status == "completed",
-            ReturnRequest.resolution_type == "refund",
-        )
-    ).all()
-    for cp in completed_pickups:
-        has_proc = db.scalar(
-            select(ReturnHandoff.id).where(
-                ReturnHandoff.return_request_id == cp.return_request_id,
-                ReturnHandoff.handoff_type == "refund_processing",
-            ).limit(1)
-        )
-        if not has_proc:
-            try:
-                create_after_collection_refund_handoff(db, cp, actor_id=getattr(actor, "id", 1))
-                db.commit()
-            except Exception:
-                db.rollback()
+    returns_dept_id = db.scalar(select(Department.id).where(Department.name == "Returns & Replacement"))
+    delivery_dept_id = db.scalar(select(Department.id).where(Department.name == "Order & Delivery"))
 
     # Query all Payments return handoffs
     handoffs = db.scalars(
@@ -2016,7 +2006,7 @@ def list_payments_refunds(
             seen_claim_ids.add(claim.id)
 
         # Pickup status from sibling pickup handoff if exists
-        pickup_status = "completed"
+        pickup_status = "unavailable"
         if claim:
             sib_pickup = db.scalar(
                 select(ReturnHandoff.status).where(
@@ -2036,25 +2026,65 @@ def list_payments_refunds(
             )
 
         # Eligibility check
-        is_eligible = False
-        if h.status in ("pending", "accepted"):
-            if claim and claim.refund_timing == "immediate":
-                is_eligible = True
-            elif claim and claim.refund_timing == "after_collection":
-                is_eligible = (pickup_status == "completed")
-            elif claim and claim.refund_timing is None:
-                is_eligible = False
+        captured_attempt = db.scalar(
+            select(PaymentAttempt).where(
+                PaymentAttempt.order_id == order.id,
+                PaymentAttempt.status == "captured",
+                PaymentAttempt.provider_payment_id.isnot(None),
+            ).order_by(PaymentAttempt.paid_at.desc(), PaymentAttempt.id.desc()).limit(1)
+        ) if order and order.payment_method != "cod" else None
+        if order and order.payment_method == "cod":
+            captured_amount = Decimal(str(order.total_amount or 0))
+            reserved_refunds = db.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.order_id == order.id,
+                Refund.status.in_(("pending", "processing", "processed")),
+            )) or 0
+            prior_refunds = db.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.order_id == order.id, Refund.status == "processed",
+            )) or 0
+        elif captured_attempt:
+            captured_amount = Decimal(str(captured_attempt.amount))
+            reserved_refunds = db.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.payment_attempt_id == captured_attempt.id,
+                Refund.status.in_(("pending", "processing", "processed")),
+            )) or 0
+            prior_refunds = db.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.payment_attempt_id == captured_attempt.id, Refund.status == "processed",
+            )) or 0
+        else:
+            captured_amount = Decimal("0")
+            reserved_refunds = Decimal("0")
+            prior_refunds = Decimal("0")
+        remaining_refundable = max(captured_amount - Decimal(str(reserved_refunds)), Decimal("0"))
+        expected_source_id = (
+            returns_dept_id if claim and claim.refund_timing == "immediate" else
+            delivery_dept_id if claim and claim.refund_timing == "after_collection" else None
+        )
+        is_eligible = bool(
+            claim and h.status in ("pending", "accepted", "in_progress")
+            and claim.workflow_status == "approved"
+            and claim.resolution_type == "refund"
+            and h.source_department_id == expected_source_id
+            and h.destination_department_id == payments_dept.id
+            and existing_refund is None
+            and order is not None
+            and (order.payment_method == "cod" or captured_attempt is not None)
+            and Decimal(str(amount)) > 0
+            and Decimal(str(amount)) <= remaining_refundable
+            and (claim.refund_timing == "immediate"
+                 or (claim.refund_timing == "after_collection" and pickup_status == "completed"))
+        )
 
         if existing_refund and existing_refund.status == "processed":
-            current_status = "completed"
-        elif existing_refund and existing_refund.status == "failed":
-            current_status = "failed"
+            current_status = "completed" if has_verified_processed_refund(db, claim) else "invalid_state"
+        elif existing_refund:
+            current_status = existing_refund.status
         elif h.status in ("pending", "accepted"):
             current_status = "awaiting_processing"
         elif h.status == "in_progress":
             current_status = "processing"
         elif h.status == "completed":
-            current_status = "completed"
+            current_status = "invalid_state"
         elif h.status == "failed":
             current_status = "failed"
         else:
@@ -2079,7 +2109,13 @@ def list_payments_refunds(
             "amount": amount,
             "eligible_amount": amount,
             "status": current_status,
+            "refund_status": existing_refund.status if existing_refund else None,
             "pickup_status": pickup_status,
+            "captured_payment_attempt_id": captured_attempt.id if captured_attempt else None,
+            "captured_amount": float(captured_amount),
+            "prior_refunds": float(prior_refunds),
+            "reserved_refunds": float(reserved_refunds),
+            "remaining_refundable": float(remaining_refundable),
             "is_eligible": is_eligible,
             "created_at": h.created_at.isoformat() if h.created_at else None,
             "updated_at": h.updated_at.isoformat() if h.updated_at else None,
@@ -2199,7 +2235,13 @@ def get_payment_refund_details(
             selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
             selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
         )
-        .where(ReturnHandoff.id == numeric_id)
+        .where(
+            ReturnHandoff.id == numeric_id,
+            ReturnHandoff.handoff_type == "refund_processing",
+            ReturnHandoff.destination_department_id == select(Department.id).where(
+                Department.name == "Payments & Refunds"
+            ).scalar_subquery(),
+        )
     )
 
     if h:
@@ -2208,28 +2250,36 @@ def get_payment_refund_details(
         cust = order.user if order else None
         item = claim.order_item if claim else None
 
-        orig_attempt = None
-        if order:
-            orig_attempt = db.scalar(
-                select(PaymentAttempt)
-                .where(PaymentAttempt.order_id == order.id, PaymentAttempt.status == "captured")
-                .order_by(PaymentAttempt.id.desc()).limit(1)
+        orig_attempt = db.scalar(
+            select(PaymentAttempt)
+            .where(PaymentAttempt.order_id == order.id, PaymentAttempt.status == "captured",
+                   PaymentAttempt.provider_payment_id.isnot(None))
+            .order_by(PaymentAttempt.paid_at.desc(), PaymentAttempt.id.desc()).limit(1)
+        ) if order and order.payment_method != "cod" else None
+
+        refund_base_query = select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.status.in_(("pending", "processing", "processed"))
+        )
+        if orig_attempt:
+            refund_base_query = refund_base_query.where(Refund.payment_attempt_id == orig_attempt.id)
+            processed_refunds_query = select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.payment_attempt_id == orig_attempt.id, Refund.status == "processed"
             )
-            if not orig_attempt:
-                orig_attempt = db.scalar(
-                    select(PaymentAttempt).where(PaymentAttempt.order_id == order.id)
-                    .order_by(PaymentAttempt.id.desc()).limit(1)
-                )
+            captured_amount = Decimal(str(orig_attempt.amount))
+        elif order and order.payment_method == "cod":
+            refund_base_query = refund_base_query.where(Refund.order_id == order.id)
+            processed_refunds_query = select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.order_id == order.id, Refund.status == "processed"
+            )
+            captured_amount = Decimal(str(order.total_amount or 0))
+        else:
+            refund_base_query = refund_base_query.where(Refund.id == -1)
+            processed_refunds_query = select(func.coalesce(func.sum(Refund.amount), 0)).where(Refund.id == -1)
+            captured_amount = Decimal("0")
+        reserved_refunds_sum = Decimal(str(db.scalar(refund_base_query) or 0))
+        prior_refunds_sum = Decimal(str(db.scalar(processed_refunds_query) or 0))
 
-        prior_refunds_sum = 0.0
-        if order:
-            prior_refunds_sum = float(db.scalar(
-                select(func.coalesce(func.sum(Refund.amount), 0)).where(
-                    Refund.order_id == order.id, Refund.status == "processed"
-                )
-            ) or 0)
-
-        pickup_status = "completed"
+        pickup_status = "unavailable"
         if claim:
             sib_pickup = db.scalar(
                 select(ReturnHandoff.status).where(
@@ -2248,34 +2298,58 @@ def get_payment_refund_details(
             )
 
         requested_amount = float(item.unit_price * claim.quantity) if item and claim else (float(order.total_amount) if order else 0.0)
-        captured_amount = float(orig_attempt.amount) if orig_attempt else (float(order.total_amount) if order else requested_amount)
-        remaining_balance = max(captured_amount - prior_refunds_sum, 0.0)
+        remaining_balance = max(float(captured_amount - reserved_refunds_sum), 0.0)
+        expected_source_id = None
+        if claim and claim.refund_timing == "immediate":
+            expected_source_id = db.scalar(select(Department.id).where(Department.name == "Returns & Replacement"))
+        elif claim and claim.refund_timing == "after_collection":
+            expected_source_id = db.scalar(select(Department.id).where(Department.name == "Order & Delivery"))
 
         is_eligible = False
         ineligible_reason = None
 
-        if existing_refund and existing_refund.status == "processed":
-            status_label = "completed"
-            ineligible_reason = "This refund has already been completed."
+        verified_refund = bool(claim and existing_refund and existing_refund.status == "processed"
+                               and has_verified_processed_refund(db, claim))
+        if existing_refund:
+            status_label = (
+                "completed" if verified_refund else
+                "invalid_state" if existing_refund.status == "processed" else
+                existing_refund.status
+            )
+            ineligible_reason = (
+                "This refund has already been completed."
+                if verified_refund else "An existing refund operation requires reconciliation before another refund can be initiated."
+            )
+        elif claim and (claim.workflow_status != "approved" or claim.resolution_type != "refund"):
+            status_label = "ineligible"
+            ineligible_reason = "Only an approved refund request can be processed."
+        elif claim and claim.refund_timing is None:
+            status_label = "ineligible"
+            ineligible_reason = "Refund timing is unavailable for this request. Authorized review is required before refund execution."
+        elif h.source_department_id != expected_source_id:
+            status_label = "ineligible"
+            ineligible_reason = "The Payments handoff source does not match the approved refund timing."
         elif h.status == "completed":
-            status_label = "completed"
-            ineligible_reason = "This refund has already been completed."
+            status_label = "invalid_state"
+            ineligible_reason = "The handoff is complete but no linked refund record verifies successful processing."
         elif h.status == "cancelled":
             status_label = "cancelled"
             ineligible_reason = "This refund handoff was cancelled."
         elif claim and claim.resolution_type == "replacement":
             status_label = "ineligible"
             ineligible_reason = "Replacement workflows are not eligible for financial refund."
-        elif claim and claim.refund_timing is None:
-            status_label = "ineligible"
-            is_eligible = False
-            ineligible_reason = "Refund timing is unavailable for this request. Authorized review is required before refund execution."
         elif claim and claim.refund_timing == "after_collection" and pickup_status != "completed":
             status_label = "pending"
             ineligible_reason = f"Awaiting physical item collection (current pickup status: {pickup_status})."
-        elif requested_amount > remaining_balance and remaining_balance <= 0:
+        elif order and order.payment_method != "cod" and orig_attempt is None:
             status_label = "ineligible"
-            ineligible_reason = "Original payment captured amount has already been fully refunded."
+            ineligible_reason = "No captured payment is linked to this order."
+        elif requested_amount <= 0 or requested_amount > remaining_balance:
+            status_label = "ineligible"
+            ineligible_reason = "The remaining refundable balance is below the approved amount due."
+        elif h.status not in {"pending", "accepted", "in_progress"}:
+            status_label = h.status
+            ineligible_reason = "This refund handoff is not in a processable state."
         else:
             status_label = "awaiting_processing" if h.status in ("pending", "accepted") else h.status
             is_eligible = True
@@ -2321,7 +2395,9 @@ def get_payment_refund_details(
             "pickup_status": pickup_status,
             "payment_method": order.payment_method if order else "online",
             "amount": requested_amount,
-            "eligible_amount": min(requested_amount, remaining_balance) if remaining_balance > 0 else requested_amount,
+            "eligible_amount": min(requested_amount, remaining_balance),
+            "refund_status": existing_refund.status if existing_refund else None,
+            "handoff_status": h.status,
             "is_eligible_for_refund": is_eligible,
             "ineligible_reason": ineligible_reason,
             "eligibility": {
@@ -2336,9 +2412,12 @@ def get_payment_refund_details(
             },
             "original_payment": {
                 "attempt_id": orig_attempt.id if orig_attempt else None,
-                "provider": orig_attempt.provider if orig_attempt else "razorpay",
-                "captured_amount": captured_amount,
-                "previously_refunded": prior_refunds_sum,
+                "provider": orig_attempt.provider if orig_attempt else ("manual_cod" if order and order.payment_method == "cod" else None),
+                "payment_method": order.payment_method if order else None,
+                "provider_payment_id": orig_attempt.provider_payment_id if orig_attempt else None,
+                "captured_amount": float(captured_amount),
+                "previously_refunded": float(prior_refunds_sum),
+                "reserved_refunds": float(max(reserved_refunds_sum - prior_refunds_sum, Decimal("0"))),
                 "remaining_refundable": remaining_balance,
             },
             "events": timeline,
@@ -2795,9 +2874,13 @@ def _commit_claim_operation(db: Session, operation):
 
 
 def _decide_claim(claim_id: int, decision: str, payload: ReturnDecisionInput, db: Session, actor):
+    _require_department_handler(db, actor, "Returns & Replacement")
+    if actor.role != "department_handler":
+        raise HTTPException(status_code=403, detail="Return decisions require an assigned Returns & Replacement handler.")
     _require_claim_access(db, claim_id, actor)
     claim = _commit_claim_operation(db, lambda: apply_claim_decision(
         db, claim_id, actor_id=actor.id, decision=decision, note=payload.note,
+        refund_timing=payload.refund_timing,
     ))
     return {"id": claim.id, "status": claim.status, "workflow_status": claim.workflow_status}
 
@@ -2831,6 +2914,8 @@ def create_return_inspection(claim_id: int, payload: ReturnInspectionInput,
         claim = _require_claim_access(db, claim_id, actor)
     else:
         _require_department_handler(db, actor, "Order & Delivery")
+        if actor.role != "department_handler":
+            raise HTTPException(status_code=403, detail="Physical pickup inspections require an assigned Order & Delivery handler.")
         claim = get_return_claim(db, claim_id)
         if claim is None:
             raise HTTPException(status_code=404, detail="Return claim not found.")
@@ -2906,7 +2991,7 @@ def update_return_handoff_status(handoff_id: int, payload: ReturnHandoffStatusIn
     handoff = db.scalar(select(ReturnHandoff).where(ReturnHandoff.id == handoff_id).with_for_update())
     if handoff is None:
         raise HTTPException(status_code=404, detail="Return handoff not found.")
-    if actor.role == "department_handler" and actor.department_id != handoff.destination_department_id:
+    if actor.role != "department_handler" or actor.department_id != handoff.destination_department_id:
         raise HTTPException(status_code=403, detail="This handoff is assigned to another department.")
     allowed = {"pending": {"accepted", "failed"}, "accepted": {"in_progress", "failed"},
                "in_progress": {"completed", "failed"}}
@@ -2914,12 +2999,26 @@ def update_return_handoff_status(handoff_id: int, payload: ReturnHandoffStatusIn
     if payload.status not in allowed.get(previous, set()):
         raise HTTPException(status_code=409, detail="Invalid handoff status transition.")
     if payload.status == "completed" and handoff.handoff_type == "refund_processing":
-        processed_refund = db.scalar(select(Refund.id).where(
-            Refund.return_request_id == handoff.return_request_id,
-            Refund.status == "processed",
-        ).limit(1))
-        if processed_refund is None:
-            raise HTTPException(status_code=409, detail="A Payments refund handoff requires a processed Refund record before completion.")
+        claim = get_return_claim(db, handoff.return_request_id)
+        returns_dept = db.scalar(select(Department).where(Department.name == "Returns & Replacement"))
+        delivery_dept = db.scalar(select(Department).where(Department.name == "Order & Delivery"))
+        payments_dept = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+        expected_source = (
+            returns_dept.id if claim and claim.refund_timing == "immediate" and returns_dept else
+            delivery_dept.id if claim and claim.refund_timing == "after_collection" and delivery_dept else None
+        )
+        if (claim is None or claim.workflow_status != "approved" or claim.resolution_type != "refund"
+                or handoff.destination_department_id != (payments_dept.id if payments_dept else None)
+                or handoff.source_department_id != expected_source):
+            raise HTTPException(status_code=409, detail="Payments handoff ownership does not match an approved refund request.")
+        if claim.refund_timing == "after_collection" and db.scalar(select(ReturnHandoff.id).where(
+            ReturnHandoff.return_request_id == claim.id,
+            ReturnHandoff.handoff_type == "refund_pickup",
+            ReturnHandoff.status == "completed",
+        ).limit(1)) is None:
+            raise HTTPException(status_code=409, detail="Collection must be completed before the Payments handoff can be completed.")
+        if not has_verified_processed_refund(db, claim):
+            raise HTTPException(status_code=409, detail="A Payments refund handoff requires a verified processed Refund record for the linked payment before completion.")
     if payload.status == "completed" and handoff.handoff_type in {"refund_pickup", "replacement_fulfillment"}:
         milestone_state = order_delivery_milestone_state(db, handoff)
         if not milestone_state["milestone_complete"]:

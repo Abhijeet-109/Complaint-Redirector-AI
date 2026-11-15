@@ -9,6 +9,7 @@ from backend.Database.models import (
     CommerceOrder,
     CommerceOrderItem,
     Department,
+    PaymentAttempt,
     ProductVariant,
     ReturnEvidence,
     ReturnHandoff,
@@ -677,7 +678,10 @@ def record_order_delivery_milestone(
     }
 
 
-def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, decision: str, note: str):
+def apply_claim_decision(
+    session: Session, claim_id: int, *, actor_id: int, decision: str, note: str,
+    refund_timing: str | None = None,
+):
     claim = get_return_claim(session, claim_id, lock=True)
     if claim is None:
         raise LookupError("Return claim not found.")
@@ -690,18 +694,25 @@ def apply_claim_decision(session: Session, claim_id: int, *, actor_id: int, deci
         raise ValueError("Invalid claim decision.")
     if decision == "approved" and claim.resolution_type not in {"refund", "replacement"}:
         raise ValueError("This claim has no valid resolution type and cannot be approved.")
-    if decision == "approved" and claim.resolution_type == "refund" and claim.refund_timing not in {
+    if decision == "approved" and claim.resolution_type == "refund" and refund_timing not in {
         "immediate", "after_collection"
     }:
         raise ValueError("Refund timing must be selected before approving this refund request.")
+    if decision != "approved" and refund_timing is not None:
+        raise ValueError("Refund timing can only be selected when approving a refund request.")
+    if decision == "approved" and claim.resolution_type == "replacement" and refund_timing is not None:
+        raise ValueError("Replacement requests do not use refund timing.")
 
+    if decision == "approved" and claim.resolution_type == "refund":
+        claim.refund_timing = refund_timing
     claim.workflow_status = decision
     claim.status = "approved" if decision == "approved" else "rejected" if decision == "rejected" else "requested"
     claim.decision_note = note.strip()
     claim.decision_by_id = actor_id
     claim.decided_at = _utcnow_naive() if decision in {"approved", "rejected"} else None
     claim.updated_at = _utcnow_naive()
-    _event(session, claim, decision, actor_id, previous=previous, new=decision, note=note.strip())
+    _event(session, claim, decision, actor_id, previous=previous, new=decision, note=note.strip(),
+           data={"refund_timing": claim.refund_timing} if decision == "approved" and claim.resolution_type == "refund" else None)
 
     if decision == "approved":
         source = _department_by_name(session, "Returns & Replacement")
@@ -820,7 +831,7 @@ def create_after_collection_refund_handoff(
     claim = get_return_claim(session, pickup.return_request_id, lock=True)
     if claim is None:
         raise LookupError("Return claim not found.")
-    if claim.resolution_type != "refund" or claim.refund_timing not in {"after_collection", None}:
+    if claim.resolution_type != "refund" or claim.refund_timing != "after_collection":
         return None
     delivery = _department_by_name(session, "Order & Delivery")
     returns = _department_by_name(session, "Returns & Replacement")
@@ -862,21 +873,31 @@ def resolve_return_claim(session: Session, claim_id: int, *, actor_id: int, note
     delivery_handoff = next((row for row in handoffs if row.handoff_type == required_type), None)
     if delivery_handoff is None or delivery_handoff.status != "completed":
         raise ValueError("Order & Delivery work must be completed before resolving this request.")
+    returns_department = _department_by_name(session, "Returns & Replacement")
+    delivery_department = _department_by_name(session, "Order & Delivery")
+    if (delivery_handoff.source_department_id != returns_department.id
+            or delivery_handoff.destination_department_id != delivery_department.id):
+        raise ValueError("Order & Delivery handoff ownership does not match the approved return workflow.")
+    milestone_state = order_delivery_milestone_state(session, delivery_handoff)
+    if not milestone_state["milestone_complete"]:
+        raise ValueError("All required Order & Delivery milestones must be recorded before resolving this request.")
     if claim.resolution_type == "replacement":
-        milestone_state = order_delivery_milestone_state(session, delivery_handoff)
-        # Older completed handoffs predate milestone capture; retain their existing resolution path.
-        if milestone_state["milestones"] and not milestone_state["milestone_complete"]:
-            raise ValueError("The replacement must be delivered before resolving this request.")
+        if any(row.handoff_type == "refund_processing" for row in handoffs):
+            raise ValueError("Replacement requests must not have a Payments refund handoff.")
 
     if claim.resolution_type == "refund":
+        if claim.refund_timing not in {"immediate", "after_collection"}:
+            raise ValueError("Refund timing must be selected by Returns before resolving this request.")
         payments_handoff = next((row for row in handoffs if row.handoff_type == "refund_processing"), None)
         if payments_handoff is None or payments_handoff.status != "completed":
             raise ValueError("Payments work must be completed before resolving this refund request.")
-        processed_refund = session.scalar(select(Refund.id).where(
-            Refund.return_request_id == claim.id, Refund.status == "processed",
-        ).limit(1))
-        if processed_refund is None:
-            raise ValueError("A processed financial refund is required before resolving this request.")
+        payments_department = _department_by_name(session, "Payments & Refunds")
+        expected_source_id = returns_department.id if claim.refund_timing == "immediate" else delivery_department.id
+        if (payments_handoff.source_department_id != expected_source_id
+                or payments_handoff.destination_department_id != payments_department.id):
+            raise ValueError("Payments handoff ownership does not match the approved refund workflow.")
+        if not has_verified_processed_refund(session, claim):
+            raise ValueError("A verified processed refund for the linked order payment is required before resolving this request.")
     elif claim.resolution_type != "replacement":
         raise ValueError("This request has no supported resolution type.")
 
@@ -887,3 +908,45 @@ def resolve_return_claim(session: Session, claim_id: int, *, actor_id: int, note
     _event(session, claim, "request_manually_resolved", actor_id, previous=previous,
            new="resolved", note=(note or "").strip())
     return claim
+
+
+def has_verified_processed_refund(session: Session, claim: ReturnRequest) -> bool:
+    """Check that the claim has a successful refund tied to its real payment."""
+    refund = session.scalar(
+        select(Refund).where(
+            Refund.return_request_id == claim.id,
+            Refund.status == "processed",
+        ).order_by(Refund.created_at.desc(), Refund.id.desc()).limit(1)
+    )
+    if refund is None or refund.order_id != claim.order_id or refund.amount <= 0 or refund.currency != "INR":
+        return False
+    item = session.scalar(select(CommerceOrderItem).where(
+        CommerceOrderItem.id == claim.order_item_id,
+        CommerceOrderItem.order_id == claim.order_id,
+    ))
+    order = session.get(CommerceOrder, claim.order_id)
+    if item is None or order is None or refund.amount > item.unit_price * claim.quantity:
+        return False
+    if refund.payment_attempt_id is not None:
+        attempt = session.get(PaymentAttempt, refund.payment_attempt_id)
+        if (attempt is None or attempt.order_id != order.id or attempt.status != "captured"
+                or order.payment_method == "cod" or refund.refund_method != "razorpay"
+                or not refund.provider_refund_id or refund.processed_by_id is None):
+            return False
+        reserved = session.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.payment_attempt_id == attempt.id,
+            Refund.status.in_(("pending", "processing", "processed")),
+        )) or 0
+        if reserved > attempt.amount:
+            return False
+    else:
+        if (order.payment_method != "cod" or refund.refund_method not in {"manual_cod", "manual_bank"}
+                or not refund.external_reference or refund.processed_by_id is None):
+            return False
+        reserved = session.scalar(select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.order_id == order.id,
+            Refund.status.in_(("pending", "processing", "processed")),
+        )) or 0
+        if reserved > (order.total_amount or 0):
+            return False
+    return True

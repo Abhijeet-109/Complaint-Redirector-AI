@@ -13,7 +13,7 @@ from backend.Database.admin_commerce_services import get_admin_order_detail, upd
 from backend.Database.admin_commerce_services import get_store_dashboard_kpis
 from backend.Database.connection import Base
 from backend.Database.models import (
-    CommerceOrder, CommerceOrderItem, Department, Inventory, ProductVariant,
+    CommerceOrder, CommerceOrderItem, Department, Inventory, ProductImage, ProductVariant,
     Shipment, ShipmentEvent, User, PaymentAttempt,
 )
 from backend.Database.seed_commerce import seed_catalog
@@ -68,6 +68,11 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
             sku=self.variant.sku,
             quantity=2,
             unit_price=50,
+        ))
+        self.db.add(ProductImage(
+            product_id=self.variant.product_id, variant_id=self.variant.id,
+            storage_key="https://images.example.test/workflow-product.jpg",
+            provider="imagekit", alt_text="Workflow test product",
         ))
         self.inventory.total_stock = 12
         self.inventory.available_stock = 10
@@ -152,7 +157,29 @@ class OrderDeliveryWorkflowTests(unittest.TestCase):
             "order_confirmed", "shipped", "out_for_delivery", "delivered",
         ])
         self.assertEqual(len([event for event in customer_order["tracking_milestones"] if event.get("created_at")]), 4)
+        self.assertEqual(customer_order["items"][0]["image"], "https://images.example.test/workflow-product.jpg")
         self.assertEqual(customer_order["shipment"]["carrier"], None)
+
+    def test_missing_order_confirmation_event_stays_pending_in_history(self):
+        self.db.query(ShipmentEvent).filter(
+            ShipmentEvent.event_type == "order_status",
+            ShipmentEvent.order_id == self.order.id,
+            ShipmentEvent.new_status == "placed",
+        ).delete(synchronize_session=False)
+        self.db.commit()
+        self.actor = self.customer
+
+        response = self.client.get("/api/account/orders")
+        self.assertEqual(response.status_code, 200, response.text)
+        customer_order = next(item for item in response.json() if item["id"] == self.order.id)
+        confirmation = customer_order["tracking_milestones"][0]
+        self.assertEqual(confirmation["stage"], "order_confirmed")
+        self.assertIsNone(confirmation["created_at"])
+        self.assertEqual(self.db.query(ShipmentEvent).filter(
+            ShipmentEvent.event_type == "order_status",
+            ShipmentEvent.order_id == self.order.id,
+            ShipmentEvent.new_status == "placed",
+        ).count(), 0)
 
     def test_admin_order_detail_serializes_next_shipment_transition_for_every_state(self):
         self.order.status = "ready_to_ship"

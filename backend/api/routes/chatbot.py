@@ -53,7 +53,7 @@ class ConversationCreateRequest(BaseModel):
 class ReturnIntakeActionRequest(BaseModel):
     model_config = {"extra": "forbid"}
     thread_id: str = Field(min_length=1, max_length=255)
-    action: Literal["select_resolution", "select_reason", "select_refund_timing",
+    action: Literal["select_resolution", "select_reason",
                     "set_description", "skip_description", "set_quantity",
                     "go_back", "cancel", "confirm"]
     value: str | None = Field(default=None, max_length=2000)
@@ -247,13 +247,19 @@ def return_intake_action(
     if values.get("user_id") != current_user.id or intake.get("return_submission_key") != values.get("return_submission_key"):
         raise HTTPException(status_code=404, detail="Return intake not found.")
 
+    # Resume an in-progress intake created before refund timing moved to the
+    # Returns approval step. The old customer choice is discarded.
+    if intake.get("step") == "refund_timing":
+        intake.pop("refund_timing", None)
+        intake["step"] = "description"
+
     action = payload.action
     step = intake.get("step")
     if action == "select_resolution":
         if step != "resolution" or payload.value not in {"refund", "replacement"}:
             raise HTTPException(status_code=409, detail="Choose a valid resolution at this step.")
         if intake.get("resolution_type") != payload.value:
-            intake.update(reason_code=None, refund_timing=None, description=None)
+            intake.update(reason_code=None, description=None)
         intake.update(resolution_type=payload.value, step="reason")
     elif action == "select_reason":
         if step != "reason":
@@ -263,12 +269,7 @@ def return_intake_action(
             reason_code = normalize_return_reason_code(payload.value)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Choose one of the supported return reasons.") from exc
-        intake.update(reason_code=reason_code,
-                      step="refund_timing" if intake.get("resolution_type") == "refund" else "description")
-    elif action == "select_refund_timing":
-        if step != "refund_timing" or payload.value not in {"immediate", "after_collection"}:
-            raise HTTPException(status_code=409, detail="Choose a valid refund timing at this step.")
-        intake.update(refund_timing=payload.value, step="description")
+        intake.update(reason_code=reason_code, step="description")
     elif action in {"set_description", "skip_description"}:
         if step != "description":
             raise HTTPException(status_code=409, detail="Description can only be updated at this step.")
@@ -282,12 +283,11 @@ def return_intake_action(
             raise HTTPException(status_code=422, detail="Quantity is outside the purchased item quantity.")
         intake["quantity"] = quantity
     elif action == "go_back":
-        previous = {"reason": "resolution", "refund_timing": "reason", "description": "reason",
+        previous = {"reason": "resolution", "description": "reason",
                     "evidence": "description", "review": "evidence"}
         if step not in previous:
             raise HTTPException(status_code=409, detail="There is no previous step.")
-        intake["step"] = ("refund_timing" if step == "description"
-                           and intake.get("resolution_type") == "refund" else previous[step])
+        intake["step"] = previous[step]
     elif action == "cancel":
         staged = list_staged_evidence(current_user.id, conversation.thread_id)
         matching = [item for item in staged if item.get("submission_key") == intake["return_submission_key"]]
@@ -298,8 +298,6 @@ def return_intake_action(
             raise HTTPException(status_code=409, detail="Complete the return details and upload evidence before confirming.")
         if not (intake.get("resolution_type") and intake.get("reason_code")):
             raise HTTPException(status_code=422, detail="Complete all required return details before confirming.")
-        if intake.get("resolution_type") == "refund" and intake.get("refund_timing") not in {"immediate", "after_collection"}:
-            raise HTTPException(status_code=422, detail="A valid refund timing must be selected for refund requests.")
         # Release the request-scoped conversation lock before the existing submission
         # tool acquires its own lock. The unique submission key handles concurrent retries.
         db.commit()
@@ -313,7 +311,6 @@ def return_intake_action(
             "order_item_id": intake["order_item_id"],
             "quantity": intake["quantity"],
             "resolution_type": intake["resolution_type"],
-            "refund_timing": intake.get("refund_timing"),
             "reason_code": intake["reason_code"],
             "description": intake.get("description"),
         })
@@ -660,7 +657,6 @@ def ask_chatbot(
                 "max_quantity": purchased_item.quantity,
                 "resolution_type": None,
                 "reason_code": None,
-                "refund_timing": None,
                 "description": None,
                 "evidence_count": 0,
                 "return_submission_key": return_submission_key,

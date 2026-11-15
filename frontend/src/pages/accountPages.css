@@ -788,6 +788,13 @@
   color: #6b7280;
 }
 
+.fk-timeline-history-note {
+  margin: 8px 0 0 34px;
+  color: #68726E;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .fk-timeline-updates-btn {
   margin-top: 6px;
   background: transparent;

@@ -967,14 +967,6 @@ export function MyConversations({ onNavigate }) {
                           </div>
                           <button type="button" className="fk-return-intake-back" disabled={isSending} onClick={() => handleReturnIntakeAction('go_back')}>Back</button>
                         </>}
-                        {returnIntake.step === 'refund_timing' && <>
-                          <strong>When should the refund be issued?</strong>
-                          <div className="fk-return-intake-options">
-                            <button type="button" disabled={isSending} onClick={() => handleReturnIntakeAction('select_refund_timing', 'immediate')}>Refund immediately</button>
-                            <button type="button" disabled={isSending} onClick={() => handleReturnIntakeAction('select_refund_timing', 'after_collection')}>After the item is collected</button>
-                          </div>
-                          <button type="button" className="fk-return-intake-back" disabled={isSending} onClick={() => handleReturnIntakeAction('go_back')}>Back</button>
-                        </>}
                         {returnIntake.step === 'description' && <>
                           <label htmlFor="fk-return-description"><strong>Would you like to add a short description?</strong></label>
                           <textarea id="fk-return-description" maxLength={2000} value={returnDescriptionDraft}
@@ -999,7 +991,6 @@ export function MyConversations({ onNavigate }) {
                             <div><dt>Product</dt><dd>{[returnIntake.product_name, returnIntake.variant_name].filter(Boolean).join(' · ')}</dd></div>
                             <div><dt>Resolution</dt><dd>{returnIntake.resolution_type === 'replacement' ? 'Return & Replacement' : 'Return & Refund'}</dd></div>
                             <div><dt>Reason</dt><dd>{returnIntake.reason_code?.replace(/_/g, ' ')}</dd></div>
-                            {returnIntake.resolution_type === 'refund' && <div><dt>Refund timing</dt><dd>{returnIntake.refund_timing === 'immediate' ? 'Immediately' : 'After collection'}</dd></div>}
                             <div><dt>Quantity</dt><dd><select aria-label="Quantity" value={returnIntake.quantity} disabled={isSending} onChange={(event) => handleReturnIntakeAction('set_quantity', event.target.value)}>{Array.from({ length: returnIntake.max_quantity }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></dd></div>
                             <div><dt>Evidence</dt><dd>{returnIntake.evidence_count} {returnIntake.evidence_count === 1 ? 'image' : 'images'}</dd></div>
                             {returnIntake.description && <div><dt>Description</dt><dd>{returnIntake.description}</dd></div>}

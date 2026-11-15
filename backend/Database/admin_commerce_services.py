@@ -1600,7 +1600,8 @@ def update_return_status(
 ) -> dict:
     """
     Update return request status.
-    On inspected->completed with restock=True: restock inventory.
+    Generic administration cannot resolve a return request; use the Returns
+    workflow after its department work has been verified.
     """
     rr = db.scalar(
         select(ReturnRequest).where(ReturnRequest.id == return_id).with_for_update()
@@ -1608,24 +1609,17 @@ def update_return_status(
     if rr is None:
         raise ValueError("Return request not found")
 
+    if new_status == "completed":
+        raise ValueError("Return requests must be resolved through the authorized Returns workflow after downstream work is verified.")
+    if rr.workflow_status is not None or rr.resolution_type in {"refund", "replacement"}:
+        raise ValueError("Structured return requests must be changed through the authorized Returns workflow.")
+
     allowed = VALID_RETURN_TRANSITIONS.get(rr.status, [])
     if new_status not in allowed:
         raise ValueError(
             f"Cannot transition from '{rr.status}' to '{new_status}'. "
             f"Allowed: {allowed or 'none (terminal state)'}"
         )
-
-    if rr.status == "inspected" and new_status == "completed" and restock:
-        inv = db.scalar(
-            select(Inventory)
-            .join(CommerceOrderItem, CommerceOrderItem.variant_id == Inventory.variant_id)
-            .where(CommerceOrderItem.id == rr.order_item_id)
-            .with_for_update()
-        )
-        if inv:
-            inv.available_stock += rr.quantity
-            inv.total_stock += rr.quantity
-            inv.stock_status = "in_stock" if inv.available_stock > 0 else "out_of_stock"
 
     previous_legacy_status = rr.status
     previous_workflow_status = rr.workflow_status
