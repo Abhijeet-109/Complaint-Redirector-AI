@@ -106,6 +106,12 @@ export function HandlerSidebar({
       activeMatch: (p) => p.startsWith('/handler/shipments'),
     },
     {
+      label: 'Complaints',
+      path: '/handler/complaints',
+      icon: MessageCircle,
+      activeMatch: (p) => p.startsWith('/handler/complaints'),
+    },
+    {
       label: 'Returns & Replacement',
       path: '/handler/returns-handoffs',
       icon: RotateCcw,
@@ -153,6 +159,12 @@ export function HandlerSidebar({
       icon: RotateCcw,
       badge: queueCount > 0 ? queueCount : null,
       activeMatch: (p) => p.startsWith('/handler/refunds'),
+    },
+    {
+      label: 'Complaints',
+      path: '/handler/complaints',
+      icon: MessageCircle,
+      activeMatch: (p) => p.startsWith('/handler/complaints'),
     },
   ];
 

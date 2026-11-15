@@ -1173,33 +1173,39 @@ body:has(.hd-layout)::-webkit-scrollbar {
 }
 
 .hd-recent-requests-table {
-  min-width: 0;
+  min-width: 680px;
   width: 100%;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 .hd-recent-requests-table .hd-col-request-id {
-  width: 12%;
+  min-width: 95px;
+  width: 14%;
 }
 
 .hd-recent-requests-table .hd-col-order-id {
-  width: 16%;
+  min-width: 175px;
+  width: 24%;
 }
 
 .hd-recent-requests-table .hd-col-customer {
-  width: 13%;
+  min-width: 110px;
+  width: 16%;
 }
 
 .hd-recent-requests-table .hd-col-type {
-  width: 13%;
+  min-width: 85px;
+  width: 12%;
 }
 
 .hd-recent-requests-table .hd-col-status {
-  width: 18%;
+  min-width: 110px;
+  width: 16%;
 }
 
 .hd-recent-requests-table .hd-col-requested {
-  width: 28%;
+  min-width: 105px;
+  width: 18%;
 }
 
 .hd-recent-requests-table th,
@@ -1228,7 +1234,9 @@ body:has(.hd-layout)::-webkit-scrollbar {
 }
 
 .hd-order-id-cell {
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  font-family: monospace;
+  letter-spacing: -0.01em;
 }
 
 .hd-table thead {
@@ -2860,4 +2868,130 @@ body:has(.hd-layout)::-webkit-scrollbar {
   .hd-history-page .hd-table-wrapper {
     max-height: min(55vh, 390px);
   }
+}
+
+/* ============================================================
+   PERSISTENT ROW HIGHLIGHT & MODAL ENHANCEMENTS
+   ============================================================ */
+
+.hd-row-highlighted,
+tr.hd-row-highlighted td {
+  background-color: #F0F6F4 !important;
+  color: #122D29 !important;
+}
+
+tr.hd-row-highlighted {
+  outline: 2px solid #183A34 !important;
+  outline-offset: -2px;
+  animation: hdHighlightFade 2.4s ease-out;
+}
+
+@keyframes hdHighlightFade {
+  0% {
+    background-color: #E2EFEA !important;
+  }
+  100% {
+    background-color: #F0F6F4 !important;
+  }
+}
+
+.hd-detail-fullwidth-section {
+  margin-top: 24px;
+  width: 100%;
+}
+
+.hd-evidence-unavailable-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 12px;
+  background-color: #FAF8F4;
+  border: 1px dashed #D5CEBD;
+  border-radius: 6px;
+  text-align: center;
+  gap: 8px;
+  min-height: 140px;
+}
+
+.hd-evidence-retry-btn {
+  background: #FFFFFF;
+  border: 1px solid #D5CEBD;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #183A34;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.hd-evidence-retry-btn:hover {
+  background: #FAF7F0;
+  border-color: #183A34;
+}
+
+/* Payments Centered 2-Column Modal */
+.pay-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(18, 45, 41, 0.52);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  animation: payModalFadeIn 0.2s ease-out;
+}
+
+.pay-modal-container {
+  background: #FFFFFF;
+  border-radius: 12px;
+  box-shadow: 0 20px 48px -8px rgba(18, 45, 41, 0.28), 0 0 0 1px rgba(18, 45, 41, 0.08);
+  width: min(1120px, calc(100vw - 48px));
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: payModalScaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pay-modal-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #ECE7DC;
+  background: #FAF8F4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.pay-modal-body {
+  padding: 22px 24px;
+  overflow-y: auto;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 22px;
+  background: #FDFCF9;
+}
+
+@media (max-width: 960px) {
+  .pay-modal-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes payModalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes payModalScaleIn {
+  from { opacity: 0; transform: scale(0.97) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }

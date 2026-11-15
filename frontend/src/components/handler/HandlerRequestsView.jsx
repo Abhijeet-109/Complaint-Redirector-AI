@@ -20,6 +20,7 @@ export function HandlerRequestsView({
   stats,
   loading = false,
   onNavigate,
+  highlightId,
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState('all');
@@ -228,10 +229,21 @@ export function HandlerRequestsView({
                       })
                     : '—';
 
+                  const isHighlighted = highlightId && (
+                    String(r.id) === String(highlightId) ||
+                    String(r.claim_id) === String(highlightId) ||
+                    String(reqId) === String(highlightId)
+                  );
+
                   return (
                     <tr
                       key={reqId}
-                      className="hd-table-row-clickable"
+                      ref={(el) => {
+                        if (el && isHighlighted) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }}
+                      className={`hd-table-row-clickable ${isHighlighted ? 'hd-row-highlighted' : ''}`}
                       onClick={() => handleRowClick(reqId)}
                     >
                       <td className="hd-cell-id">{displayId}</td>

@@ -181,7 +181,7 @@ export function HandlerComplaintDetailView({ complaintId, onBack, onNavigate, on
               </div>
               <div className="hd-info-field">
                 <span className="hd-info-label">Current Department</span>
-                <span className="hd-info-value">{complaint.current_department || 'Returns & Replacement'}</span>
+                <span className="hd-info-value">{complaint.current_department || '—'}</span>
               </div>
             </div>
           </div>
@@ -204,12 +204,15 @@ export function HandlerComplaintDetailView({ complaintId, onBack, onNavigate, on
             <div className="hd-info-fields-grid">
               <div className="hd-info-field">
                 <span className="hd-info-label">Predicted Department</span>
-                <span className="hd-info-value">{complaint.predicted_department || 'Returns & Replacement'}</span>
+                <span className="hd-info-value">{complaint.predicted_department || '—'}</span>
               </div>
               <div className="hd-info-field">
                 <span className="hd-info-label">Model Confidence</span>
                 <span className="hd-info-value">
-                  {complaint.confidence ? `${Math.round(complaint.confidence * 100)}%` : 'Direct Assigned'}
+                  {(() => {
+                    const cVal = parseFloat(complaint.confidence);
+                    return !isNaN(cVal) ? `${Math.round(cVal * 100)}%` : (complaint.confidence || 'Direct Assigned');
+                  })()}
                 </span>
               </div>
             </div>
@@ -266,14 +269,14 @@ export function HandlerComplaintDetailView({ complaintId, onBack, onNavigate, on
               </select>
 
               <label className="hd-form-label" style={{ marginTop: '10px' }}>Redirection Reason</label>
-              <input
-                type="text"
-                className="hd-search-input"
-                style={{ border: '1px solid var(--hd-border-strong)', padding: '8px 12px', borderRadius: '8px', background: '#fff' }}
-                placeholder="Reason for redirecting this complaint..."
+              <select
+                className="hd-select"
                 value={redirectReason}
                 onChange={(e) => setRedirectReason(e.target.value)}
-              />
+              >
+                <option value="further_processing">Further Department Processing Required</option>
+                <option value="model_fault">Model Classification Fault</option>
+              </select>
 
               <button
                 type="button"
@@ -294,20 +297,35 @@ export function HandlerComplaintDetailView({ complaintId, onBack, onNavigate, on
             </h3>
             {historyList && historyList.length > 0 ? (
               <div className="hd-timeline">
-                {historyList.map((h, idx) => (
-                  <div key={idx} className="hd-timeline-item">
-                    <div className="hd-timeline-marker" />
-                    <div className="hd-timeline-content">
-                      <span className="hd-timeline-type">
-                        {h.from_department_name} → {h.to_department_name}
-                      </span>
-                      <p className="hd-timeline-notes">{h.reason}</p>
-                      <span className="hd-timeline-time">
-                        {h.redirected_at ? new Date(h.redirected_at).toLocaleString() : ''}
-                      </span>
+                {historyList.map((h, idx) => {
+                  const fromDept = h.from_department || h.from_department_name || 'Unknown';
+                  const toDept = h.to_department || h.to_department_name || 'Unknown';
+                  const timeVal = h.created_at || h.redirected_at;
+                  const reasonLabel = h.reason === 'model_fault'
+                    ? 'Model Classification Fault'
+                    : h.reason === 'further_processing'
+                    ? 'Further Department Processing Required'
+                    : (h.reason || 'No reason provided');
+                  return (
+                    <div key={idx} className="hd-timeline-item">
+                      <div className="hd-timeline-marker" />
+                      <div className="hd-timeline-content">
+                        <span className="hd-timeline-type">
+                          {fromDept} → {toDept}
+                        </span>
+                        <p className="hd-timeline-notes">{reasonLabel}</p>
+                        {h.redirected_by_name && (
+                          <span style={{ fontSize: '11.5px', color: '#6B7280', display: 'block' }}>
+                            Redirected by: {h.redirected_by_name}
+                          </span>
+                        )}
+                        <span className="hd-timeline-time">
+                          {timeVal ? new Date(timeVal).toLocaleString() : ''}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="hd-empty-text">No prior redirections for this complaint.</p>

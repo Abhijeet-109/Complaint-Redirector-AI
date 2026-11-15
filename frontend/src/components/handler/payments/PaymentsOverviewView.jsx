@@ -493,7 +493,17 @@ export function PaymentsOverviewView({ onNavigate }) {
                   </tr>
                 ) : (
                   recentPayments.map((p) => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid #F7F5F0' }}>
+                    <tr
+                      key={p.id}
+                      onClick={() => onNavigate && onNavigate('handler-dashboard', `/handler/transactions?highlight=${p.id || p.order_id}`)}
+                      style={{
+                        borderBottom: '1px solid #F7F5F0',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#FAF7F2')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
                       <td style={{ padding: '8px 4px', fontWeight: 600, color: '#122D29' }}>
                         {p.order_number || p.provider_payment_id}
                       </td>
@@ -544,7 +554,17 @@ export function PaymentsOverviewView({ onNavigate }) {
                   </tr>
                 ) : (
                   refundRequests.map((r) => (
-                    <tr key={r.handoff_id} style={{ borderBottom: '1px solid #F7F5F0' }}>
+                    <tr
+                      key={r.handoff_id}
+                      onClick={() => onNavigate && onNavigate('handler-dashboard', `/handler/refunds?highlight=${r.handoff_id || r.id}`)}
+                      style={{
+                        borderBottom: '1px solid #F7F5F0',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#FAF7F2')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
                       <td style={{ padding: '8px 4px', fontWeight: 600, color: '#122D29' }}>{r.refund_id}</td>
                       <td style={{ padding: '8px 4px', color: '#5A6460' }}>{r.order_number}</td>
                       <td style={{ padding: '8px 4px', color: '#5A6460' }}>{r.customer_name}</td>
@@ -593,7 +613,17 @@ export function PaymentsOverviewView({ onNavigate }) {
                   </tr>
                 ) : (
                   recentRefunds.map((ref) => (
-                    <tr key={ref.id} style={{ borderBottom: '1px solid #F7F5F0' }}>
+                    <tr
+                      key={ref.id}
+                      onClick={() => onNavigate && onNavigate('handler-dashboard', `/handler/refunds?highlight=${ref.handoff_id || ref.id}`)}
+                      style={{
+                        borderBottom: '1px solid #F7F5F0',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#FAF7F2')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
                       <td style={{ padding: '8px 4px', fontWeight: 600, color: '#122D29' }}>{ref.refund_id}</td>
                       <td style={{ padding: '8px 4px', color: '#5A6460' }}>{ref.method}</td>
                       <td style={{ padding: '8px 4px', fontWeight: 600, color: '#122D29' }}>{formatINR(ref.amount)}</td>

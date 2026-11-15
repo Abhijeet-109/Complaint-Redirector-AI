@@ -147,3 +147,70 @@ class PaymentsHandlerUnitTests(unittest.TestCase):
 
         hist = list_payments_history_audit(None, None, 20, 0, self.db, self.payments_handler)
         self.assertGreaterEqual(hist["total"], 1)
+
+    def test_payment_transaction_masked_fields_and_order_data(self):
+        self.customer.mobile_number = "9876543210"
+        self.db.commit()
+
+        detail = get_payment_transaction_details(self.attempt.id, self.db, self.payments_handler)
+        self.assertEqual(detail["order_number"], "FK-2048")
+        self.assertEqual(detail["order_id"], self.order.id)
+        self.assertEqual(detail["payment_method"], "upi")
+        self.assertEqual(detail["provider_reference"], "pay_ABC123")
+        self.assertIn("customer", detail)
+        self.assertIn("***@", detail["customer"]["email_masked"])
+        self.assertEqual(detail["customer"]["phone_masked"], "******3210")
+
+    def test_legacy_claim_missing_refund_timing_is_ineligible_and_rejected(self):
+        from backend.Database.models import ReturnRequest, ReturnHandoff
+        from backend.api.routes.department import process_return_refund_handoff, ReturnRefundExecutionInput
+
+        legacy_claim = ReturnRequest(
+            order_id=self.order.id,
+            order_item_id=self.order.items[0].id,
+            quantity=1,
+            reason="Legacy defect without timing",
+            status="approved",
+            workflow_status="approved",
+            resolution_type="refund",
+            refund_timing=None,
+            submission_key="sub-key-legacy",
+        )
+        self.db.add(legacy_claim)
+        self.db.flush()
+
+        legacy_handoff = ReturnHandoff(
+            return_request_id=legacy_claim.id,
+            source_department_id=self.returns_dept.id,
+            destination_department_id=self.payments_dept.id,
+            handoff_type="refund_processing",
+            status="pending",
+            idempotency_key="legacy-handoff-1",
+        )
+        self.db.add(legacy_handoff)
+        self.db.commit()
+
+        detail = get_payment_refund_details(legacy_handoff.id, self.db, self.payments_handler)
+        self.assertFalse(detail["is_eligible_for_refund"])
+        self.assertIsNone(detail["refund_timing"])
+        self.assertIn("Refund timing is unavailable", detail["ineligible_reason"])
+
+        # Attempting to process refund on legacy claim without timing must fail with 409
+        payload = ReturnRefundExecutionInput(external_reference=None)
+        with self.assertRaises(HTTPException) as ctx:
+            process_return_refund_handoff(legacy_handoff.id, payload, self.db, self.payments_handler)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("Refund timing is unavailable for this request", ctx.exception.detail)
+
+        # Even after accepting the handoff, it is still rejected safely without invoking payment provider
+        legacy_handoff.status = "accepted"
+        self.db.commit()
+
+        with self.assertRaises(HTTPException) as ctx:
+            process_return_refund_handoff(legacy_handoff.id, payload, self.db, self.payments_handler)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertIn("Refund timing is unavailable for this request", ctx.exception.detail)
+
+        # Assert no Refund record was created
+        refund_count = self.db.query(Refund).filter(Refund.return_request_id == legacy_claim.id).count()
+        self.assertEqual(refund_count, 0)

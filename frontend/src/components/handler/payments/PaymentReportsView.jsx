@@ -82,11 +82,11 @@ export function PaymentReportsView({ onNavigate }) {
   };
 
   const maxChartValue = useMemo(() => {
-    if (!trendData || trendData.length === 0) return 100000;
+    if (!trendData || trendData.length === 0) return 10000;
     const maxCol = Math.max(...trendData.map((t) => t.collections || 0), 0);
     const maxRef = Math.max(...trendData.map((t) => t.refunds || 0), 0);
     const highest = Math.max(maxCol, maxRef);
-    return highest > 0 ? highest * 1.15 : 100000;
+    return highest > 0 ? highest * 1.15 : 10000;
   }, [trendData]);
 
   const kpis = reportData?.kpis || {
@@ -481,7 +481,9 @@ export function PaymentReportsView({ onNavigate }) {
           >
             <span style={{ color: '#78827E' }}>Refund Completion Rate</span>
             <span style={{ fontWeight: 700, color: '#15803D' }}>
-              {reportData?.refund_overview?.success_rate || 94.2}%
+              {reportData?.refund_overview?.success_rate != null
+                ? `${reportData.refund_overview.success_rate}%`
+                : '—'}
             </span>
           </div>
         </div>

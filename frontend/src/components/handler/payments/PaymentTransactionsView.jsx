@@ -59,7 +59,7 @@ function StatusBadge({ status }) {
   );
 }
 
-export function PaymentTransactionsView({ onNavigate }) {
+export function PaymentTransactionsView({ onNavigate, highlightId }) {
   const [transactions, setTransactions] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
   const [summary, setSummary] = useState({
@@ -454,74 +454,92 @@ export function PaymentTransactionsView({ onNavigate }) {
                   </td>
                 </tr>
               ) : (
-                transactions.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    onClick={() => handleOpenDetail(tx.id)}
-                    style={{
-                      borderBottom: '1px solid #F1ECE1',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#FCFBF8')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <td style={{ padding: '10px 14px', fontWeight: 600, color: '#183A34', fontFamily: 'monospace' }}>
-                      {tx.attempt_id ? tx.attempt_id.slice(0, 14) : `ATT-${tx.id}`}
-                    </td>
-                    <td style={{ padding: '10px 14px', color: '#122D29', fontWeight: 500 }}>
-                      {tx.order_number || (tx.order_id ? `#${tx.order_id}` : '—')}
-                    </td>
-                    <td style={{ padding: '10px 14px', color: '#2C3A36' }}>
-                      {tx.customer_name || 'Customer'}
-                    </td>
-                    <td style={{ padding: '10px 14px', fontWeight: 700, color: '#122D29' }}>
-                      {formatINR(tx.amount)}
-                    </td>
-                    <td style={{ padding: '10px 14px', color: '#5A6561' }}>
-                      {tx.payment_method ? tx.payment_method.toUpperCase() : '—'}
-                    </td>
-                    <td style={{ padding: '10px 14px', color: '#68726E', fontSize: 11.5 }}>
-                      <div style={{ fontWeight: 500, color: '#183A34' }}>{tx.provider || 'Gateway'}</div>
-                      <div style={{ fontFamily: 'monospace', color: '#8E9894' }}>
-                        {tx.provider_reference ? tx.provider_reference.slice(0, 16) : '—'}
-                      </div>
-                    </td>
-                    <td style={{ padding: '10px 14px' }}>
-                      <StatusBadge status={tx.status} />
-                    </td>
-                    <td style={{ padding: '10px 14px', color: '#68726E', fontSize: 11.5 }}>
-                      {tx.created_at
-                        ? new Date(tx.created_at).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                          })
-                        : '—'}
-                    </td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenDetail(tx.id);
-                        }}
-                        style={{
-                          background: '#FAF8F4',
-                          border: '1px solid #ECE7DC',
-                          borderRadius: 4,
-                          padding: '4px 8px',
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: '#183A34',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        View Details
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                transactions.map((tx) => {
+                  const isHighlighted = highlightId && (
+                    String(tx.id) === String(highlightId) ||
+                    String(tx.attempt_id) === String(highlightId) ||
+                    String(tx.order_id) === String(highlightId)
+                  );
+
+                  return (
+                    <tr
+                      key={tx.id}
+                      ref={(el) => {
+                        if (el && isHighlighted) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }}
+                      onClick={() => handleOpenDetail(tx.id)}
+                      className={isHighlighted ? 'hd-row-highlighted' : ''}
+                      style={{
+                        borderBottom: '1px solid #F1ECE1',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isHighlighted) e.currentTarget.style.backgroundColor = '#FCFBF8';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isHighlighted) e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: '#183A34', fontFamily: 'monospace' }}>
+                        {tx.attempt_id ? tx.attempt_id.slice(0, 14) : `ATT-${tx.id}`}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#122D29', fontWeight: 500 }}>
+                        {tx.order_number || (tx.order_id ? `#${tx.order_id}` : '—')}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#2C3A36' }}>
+                        {tx.customer_name || 'Customer'}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: '#122D29' }}>
+                        {formatINR(tx.amount)}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#5A6561' }}>
+                        {tx.payment_method ? tx.payment_method.toUpperCase() : '—'}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#68726E', fontSize: 11.5 }}>
+                        <div style={{ fontWeight: 500, color: '#183A34' }}>{tx.provider || 'Gateway'}</div>
+                        <div style={{ fontFamily: 'monospace', color: '#8E9894' }}>
+                          {tx.provider_reference ? tx.provider_reference.slice(0, 16) : '—'}
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <StatusBadge status={tx.status} />
+                      </td>
+                      <td style={{ padding: '10px 14px', color: '#68726E', fontSize: 11.5 }}>
+                        {tx.created_at
+                          ? new Date(tx.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })
+                          : '—'}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDetail(tx.id);
+                          }}
+                          style={{
+                            background: '#FAF8F4',
+                            border: '1px solid #ECE7DC',
+                            borderRadius: 4,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: '#183A34',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -541,51 +559,23 @@ export function PaymentTransactionsView({ onNavigate }) {
         />
       </div>
 
-      {/* Detail Drawer */}
+      {/* Centered 2-Column Detail Modal */}
       {selectedAttemptId && (
         <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(18, 45, 41, 0.4)',
-            zIndex: 100,
-            display: 'flex',
-            justifyContent: 'flex-end',
-          }}
+          className="pay-modal-backdrop"
           onClick={handleCloseDetail}
         >
           <div
-            style={{
-              width: '100%',
-              maxWidth: 500,
-              height: '100%',
-              backgroundColor: '#FFFFFF',
-              boxShadow: '-4px 0 24px rgba(0,0,0,0.15)',
-              display: 'flex',
-              flexDirection: 'column',
-              overflowY: 'auto',
-            }}
+            className="pay-modal-container"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Drawer Header */}
-            <div
-              style={{
-                padding: '18px 20px',
-                borderBottom: '1px solid #ECE7DC',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                background: '#FAF8F4',
-              }}
-            >
+            {/* Modal Header */}
+            <div className="pay-modal-header">
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#78827E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Transaction Details
+                  Transaction Overview
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#183A34', fontFamily: 'monospace', marginTop: 2 }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: '#183A34', fontFamily: 'monospace', marginTop: 2 }}>
                   {detailData?.attempt_id || `ATT-${selectedAttemptId}`}
                 </div>
               </div>
@@ -597,74 +587,56 @@ export function PaymentTransactionsView({ onNavigate }) {
                   border: 'none',
                   color: '#68726E',
                   cursor: 'pointer',
-                  padding: 4,
-                  borderRadius: 4,
+                  padding: 6,
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
+                aria-label="Close details"
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
-            {/* Drawer Body */}
-            <div style={{ padding: 20, flex: 1 }}>
-              {detailLoading ? (
-                <div style={{ padding: '60px 0', textAlign: 'center', color: '#68726E' }}>
-                  <RefreshCw size={22} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
-                  <div>Loading details...</div>
-                </div>
-              ) : detailError ? (
-                <div style={{ padding: '20px', backgroundColor: '#FEE2E2', borderRadius: 6, color: '#991B1B' }}>
-                  <AlertTriangle size={18} style={{ marginBottom: 6 }} />
-                  <div>{detailError}</div>
-                </div>
-              ) : detailData ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                  {/* Status & Amount Card */}
-                  <div
-                    style={{
-                      background: '#FAF8F4',
-                      border: '1px solid #ECE7DC',
-                      borderRadius: 8,
-                      padding: 16,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#78827E', textTransform: 'uppercase' }}>
-                        Captured Amount
-                      </div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: '#122D29', marginTop: 2 }}>
-                        {formatINR(detailData.amount)}
-                      </div>
-                    </div>
-                    <StatusBadge status={detailData.status} />
-                  </div>
-
+            {/* Modal Body: 2 Columns */}
+            {detailLoading ? (
+              <div style={{ padding: '80px 0', textAlign: 'center', color: '#68726E' }}>
+                <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginBottom: 10 }} />
+                <div style={{ fontSize: 13, fontWeight: 500 }}>Loading transaction details...</div>
+              </div>
+            ) : detailError ? (
+              <div style={{ padding: 24, margin: 24, backgroundColor: '#FEE2E2', borderRadius: 8, color: '#991B1B' }}>
+                <AlertTriangle size={20} style={{ marginBottom: 8 }} />
+                <div style={{ fontWeight: 600 }}>{detailError}</div>
+              </div>
+            ) : detailData ? (
+              <div className="pay-modal-body">
+                {/* Left Column: Context, Customer, Order, Instrument, Siblings */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {/* Customer Information (Masked) */}
                   <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <User size={14} />
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <User size={15} />
                       Customer Information
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, fontSize: 12 }}>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Customer Name</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
                           {detailData.customer?.name || 'Customer'}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Phone (Masked)</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
                           {detailData.customer?.phone_masked || '—'}
                         </div>
                       </div>
                       <div style={{ gridColumn: 'span 2' }}>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Email (Masked)</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
-                          {detailData.customer?.email_masked || '—'}
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
+                          {detailData.customer?.email_masked || detailData.customer?.masked_email || '—'}
                         </div>
                       </div>
                     </div>
@@ -672,65 +644,99 @@ export function PaymentTransactionsView({ onNavigate }) {
 
                   {/* Linked Order */}
                   <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Receipt size={14} />
-                      Linked Order
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Receipt size={15} />
+                      Linked Order Context
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, fontSize: 12 }}>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Order Number</div>
-                        <div style={{ fontWeight: 700, color: '#183A34', marginTop: 2 }}>
-                          {detailData.order_number || (detailData.order_id ? `#${detailData.order_id}` : '—')}
+                        <div style={{ fontWeight: 700, color: '#183A34', marginTop: 3 }}>
+                          {detailData.order_number || detailData.order?.order_number || (detailData.order_id ? `#${detailData.order_id}` : '—')}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Order Status</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3, textTransform: 'capitalize' }}>
                           {detailData.order?.status || '—'}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Items Count</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
-                          {detailData.order?.item_count || 1}
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
+                          {detailData.order?.items?.length || detailData.order?.item_count || 1}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Order Total</div>
-                        <div style={{ fontWeight: 700, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 700, color: '#122D29', marginTop: 3 }}>
                           {formatINR(detailData.order?.total_amount || detailData.amount)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {detailData.order?.items && detailData.order.items.length > 0 && (
+                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #F1ECE1' }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#78827E', marginBottom: 6 }}>Items in Order:</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {detailData.order.items.map((item, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: '#122D29' }}>
+                              <span>{item.quantity}x {item.product_name} ({item.variant_name || 'Standard'})</span>
+                              <span style={{ fontWeight: 600 }}>{formatINR(item.total_price)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment Gateway & Instrument */}
+                  <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CreditCard size={15} />
+                      Gateway Provider & Instrument
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, fontSize: 12 }}>
+                      <div>
+                        <div style={{ color: '#78827E', fontSize: 11 }}>Payment Method</div>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
+                          {(detailData.payment_method || detailData.order?.payment_method || 'online').toUpperCase()}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: '#78827E', fontSize: 11 }}>Gateway Provider</div>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
+                          {detailData.provider || 'Razorpay'}
+                        </div>
+                      </div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <div style={{ color: '#78827E', fontSize: 11 }}>Provider Reference ID</div>
+                        <div style={{ fontWeight: 600, color: '#183A34', fontFamily: 'monospace', marginTop: 3, wordBreak: 'break-all' }}>
+                          {detailData.provider_reference || detailData.provider_payment_id || detailData.provider_order_id || '—'}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Payment Instrument & Gateway */}
-                  <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <CreditCard size={14} />
-                      Gateway Provider & Instrument
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
-                      <div>
-                        <div style={{ color: '#78827E', fontSize: 11 }}>Payment Method</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
-                          {detailData.payment_method ? detailData.payment_method.toUpperCase() : '—'}
-                        </div>
+                  {/* Sibling Attempts */}
+                  {detailData.related_attempts && detailData.related_attempts.length > 0 && (
+                    <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 10 }}>
+                        Other Attempts on this Order ({detailData.related_attempts.length})
                       </div>
-                      <div>
-                        <div style={{ color: '#78827E', fontSize: 11 }}>Gateway Provider</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
-                          {detailData.provider || 'Gateway'}
-                        </div>
-                      </div>
-                      <div style={{ gridColumn: 'span 2' }}>
-                        <div style={{ color: '#78827E', fontSize: 11 }}>Provider Reference ID</div>
-                        <div style={{ fontWeight: 600, color: '#183A34', fontFamily: 'monospace', marginTop: 2, wordBreak: 'break-all' }}>
-                          {detailData.provider_reference || '—'}
-                        </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {detailData.related_attempts.map((sib, sIdx) => (
+                          <div key={sIdx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11.5, padding: '6px 10px', background: '#FAF8F4', borderRadius: 4 }}>
+                            <span>Attempt #{sib.id} · {sib.provider}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontWeight: 600 }}>{formatINR(sib.amount)}</span>
+                              <StatusBadge status={sib.status} />
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Related Refunds */}
                   {detailData.related_refunds && detailData.related_refunds.length > 0 && (
@@ -754,8 +760,8 @@ export function PaymentTransactionsView({ onNavigate }) {
                             }}
                           >
                             <div>
-                              <div style={{ fontWeight: 600, color: '#183A34' }}>{ref.refund_id || `REF-${ref.id}`}</div>
-                              <div style={{ fontSize: 11, color: '#78827E' }}>{ref.processed_at || ref.created_at}</div>
+                              <div style={{ fontWeight: 600, color: '#183A34' }}>{ref.provider_refund_id || `REF-${ref.id}`}</div>
+                              <div style={{ fontSize: 11, color: '#78827E' }}>{ref.created_at ? new Date(ref.created_at).toLocaleDateString() : '—'}</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
                               <div style={{ fontWeight: 700, color: '#991B1B' }}>-{formatINR(ref.amount)}</div>
@@ -766,17 +772,66 @@ export function PaymentTransactionsView({ onNavigate }) {
                       </div>
                     </div>
                   )}
+                </div>
 
-                  {/* Timestamps */}
-                  <div style={{ fontSize: 11, color: '#8E9894', padding: '0 4px' }}>
-                    <div>Created: {detailData.created_at ? new Date(detailData.created_at).toLocaleString() : '—'}</div>
-                    {detailData.updated_at && (
-                      <div>Last Updated: {new Date(detailData.updated_at).toLocaleString()}</div>
+                {/* Right Column: Sticky Summary & Status Card */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid #ECE7DC',
+                      borderRadius: 8,
+                      padding: 18,
+                      position: 'sticky',
+                      top: 0,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#78827E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Captured Amount
+                    </div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: '#122D29', marginTop: 4, marginBottom: 12 }}>
+                      {formatINR(detailData.amount)}
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      <StatusBadge status={detailData.status} />
+                    </div>
+
+                    {detailData.failure_reason && (
+                      <div style={{ padding: '10px 12px', background: '#FEE2E2', borderRadius: 6, color: '#991B1B', fontSize: 12, marginBottom: 16 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 2 }}>Failure Reason:</div>
+                        <div>{detailData.failure_reason}</div>
+                      </div>
                     )}
+
+                    <div style={{ borderTop: '1px solid #ECE7DC', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11.5, color: '#68726E' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Created:</span>
+                        <span style={{ fontWeight: 500, color: '#122D29' }}>
+                          {detailData.created_at ? new Date(detailData.created_at).toLocaleString() : '—'}
+                        </span>
+                      </div>
+                      {detailData.paid_at && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Paid At:</span>
+                          <span style={{ fontWeight: 500, color: '#122D29' }}>
+                            {new Date(detailData.paid_at).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                      {detailData.updated_at && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Updated:</span>
+                          <span style={{ fontWeight: 500, color: '#122D29' }}>
+                            {new Date(detailData.updated_at).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

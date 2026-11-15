@@ -17,6 +17,8 @@ export function HandlerComplaintsView({
   complaints = [],
   loading = false,
   onNavigate,
+  departmentName = 'Returns & Replacement',
+  departmentSubtitle,
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
@@ -24,6 +26,15 @@ export function HandlerComplaintsView({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
   const [activeMenuId, setActiveMenuId] = useState(null);
+
+  const isReturnsDept = departmentName === 'Returns & Replacement';
+  const resolvedSubtitle = departmentSubtitle || (
+    departmentName === 'Order & Delivery'
+      ? 'Customer complaints related to orders, shipments and deliveries.'
+      : departmentName === 'Payments & Refunds'
+      ? 'Customer complaints related to payments and refund enquiries.'
+      : 'Customer complaints related to return and replacement requests.'
+  );
 
   // Real KPI calculations from genuine data
   const totalComplaints = complaints.length;
@@ -73,6 +84,19 @@ export function HandlerComplaintsView({
           return false;
       }
 
+      if (selectedTimeframe !== 'all') {
+        const itemDateStr = item.create_at || item.created_at;
+        if (itemDateStr) {
+          const itemDate = new Date(itemDateStr).getTime();
+          const now = Date.now();
+          const days = selectedTimeframe === '7days' ? 7 : selectedTimeframe === '90days' ? 90 : 30;
+          const maxAgeMs = days * 24 * 60 * 60 * 1000;
+          if (now - itemDate > maxAgeMs) {
+            return false;
+          }
+        }
+      }
+
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const idStr = String(item.id || item.complaint_id || '');
@@ -90,7 +114,7 @@ export function HandlerComplaintsView({
       }
       return true;
     });
-  }, [complaints, selectedStatus, searchTerm]);
+  }, [complaints, selectedStatus, selectedTimeframe, searchTerm]);
 
   const displayed = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
@@ -100,7 +124,7 @@ export function HandlerComplaintsView({
       <div className="hd-page-header">
         <h2 className="hd-page-title">Complaints</h2>
         <span className="hd-page-subtitle">
-          Customer complaints related to return and replacement requests.
+          {resolvedSubtitle}
         </span>
       </div>
 
@@ -134,7 +158,7 @@ export function HandlerComplaintsView({
           <Search size={16} className="hd-search-icon" />
           <input
             type="text"
-            placeholder="Search by complaint ID, request ID, order ID, or customer..."
+            placeholder={isReturnsDept ? "Search by complaint ID, request ID, order ID, or customer..." : "Search by complaint ID, customer, or subject..."}
             value={searchTerm}
             onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             className="hd-search-input"
@@ -161,6 +185,7 @@ export function HandlerComplaintsView({
             <option value="30days">Last 30 Days</option>
             <option value="7days">Last 7 Days</option>
             <option value="90days">Last 90 Days</option>
+            <option value="all">All Time</option>
           </select>
 
           <button
@@ -180,26 +205,26 @@ export function HandlerComplaintsView({
           <table className="hd-table">
             <thead>
               <tr>
-                <th style={{ width: '110px' }}>COMPLAINT ID</th>
-                <th style={{ width: '110px' }}>REQUEST ID</th>
-                <th style={{ width: '120px' }}>ORDER ID</th>
-                <th style={{ width: '120px' }}>CUSTOMER</th>
+                <th style={{ width: isReturnsDept ? '110px' : '120px' }}>COMPLAINT ID</th>
+                {isReturnsDept && <th style={{ width: '110px' }}>REQUEST ID</th>}
+                {isReturnsDept && <th style={{ width: '120px' }}>ORDER ID</th>}
+                <th style={{ width: isReturnsDept ? '120px' : '160px' }}>CUSTOMER</th>
                 <th>SUBJECT</th>
                 <th style={{ width: '120px' }}>STATUS</th>
-                <th style={{ width: '160px' }}>RAISED ON</th>
+                <th style={{ width: isReturnsDept ? '160px' : '180px' }}>RAISED ON</th>
                 <th style={{ width: '70px', textAlign: 'right' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="8" className="hd-table-empty">
+                  <td colSpan={isReturnsDept ? 8 : 6} className="hd-table-empty">
                     Loading complaints...
                   </td>
                 </tr>
               ) : displayed.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="hd-table-empty">
+                  <td colSpan={isReturnsDept ? 8 : 6} className="hd-table-empty">
                     No complaints found matching the current criteria.
                   </td>
                 </tr>
@@ -211,8 +236,8 @@ export function HandlerComplaintsView({
                   const orderId = c.order_number || '—';
                   const customer = c.user_name || c.customer_name || '—';
                   const subject = c.subject || c.complaint_text || 'Customer complaint';
-                  const raisedOn = c.create_at
-                    ? new Date(c.create_at).toLocaleString('en-US', {
+                  const raisedOn = c.create_at || c.created_at
+                    ? new Date(c.create_at || c.created_at).toLocaleString('en-US', {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric',
@@ -228,8 +253,8 @@ export function HandlerComplaintsView({
                       onClick={() => handleRowClick(cmpId)}
                     >
                       <td className="hd-cell-id">{displayId}</td>
-                      <td className="hd-cell-subtle">{reqId}</td>
-                      <td className="hd-cell-subtle">{orderId}</td>
+                      {isReturnsDept && <td className="hd-cell-subtle">{reqId}</td>}
+                      {isReturnsDept && <td className="hd-cell-subtle">{orderId}</td>}
                       <td className="hd-cell-bold">{customer}</td>
                       <td className="hd-cell-subject" title={subject}>
                         {subject}

@@ -415,6 +415,11 @@ def submit_return_claim(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    if payload.resolution_type == "refund" and payload.refund_timing not in {"immediate", "after_collection"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A valid refund timing (immediate or after_collection) is required for refund requests.",
+        )
     try:
         claim = create_return_claim(
             db,

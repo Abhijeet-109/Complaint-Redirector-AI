@@ -29,6 +29,7 @@ ALLOWED_EVIDENCE = {
 def evidence_root() -> Path:
     configured = os.getenv("RETURN_EVIDENCE_DIR")
     root = Path(configured).expanduser() if configured else Path(__file__).resolve().parents[1] / "private_return_evidence"
+    root.mkdir(parents=True, exist_ok=True)
     return root.resolve()
 
 

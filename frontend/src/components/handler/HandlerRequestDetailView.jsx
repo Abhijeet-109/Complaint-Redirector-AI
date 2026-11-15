@@ -73,6 +73,16 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
     };
   }, [selectedEvidence]);
 
+  const handleRetryEvidence = async (evidenceId) => {
+    try {
+      const blob = await handlerService.getReturnEvidenceBlob(resolvedId, evidenceId);
+      const url = URL.createObjectURL(blob);
+      setEvidencePreviews((prev) => ({ ...prev, [evidenceId]: url }));
+    } catch (err) {
+      console.warn('Evidence retry failed:', err);
+    }
+  };
+
   const handleBack = () => {
     if (onBack) onBack();
     else if (onNavigate) onNavigate('handler-dashboard', '/handler/requests');
@@ -275,18 +285,28 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
                     {evidencePreviews[ev.id] ? (
                       <button type="button" className="hd-evidence-preview-button"
                         onClick={() => setSelectedEvidence({ ...ev, url: evidencePreviews[ev.id] })}
-                        aria-label={`View evidence image: ${ev.filename}`}>
-                        <img className="hd-evidence-preview" src={evidencePreviews[ev.id]} alt={`Evidence: ${ev.filename}`} />
+                        aria-label={`View evidence image: ${ev.filename || ev.original_filename}`}>
+                        <img className="hd-evidence-preview" src={evidencePreviews[ev.id]} alt={`Evidence: ${ev.filename || ev.original_filename}`} />
                       </button>
                     ) : (
-                      <div className="hd-evidence-preview hd-evidence-unavailable" role="status">
-                        {evidenceLoading ? 'Loading image…' : 'Image unavailable'}
+                      <div className="hd-evidence-unavailable-card" role="status">
+                        <ShieldAlert size={22} style={{ color: '#A89F91' }} />
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#B45309', background: '#FEF3C7', padding: '2px 8px', borderRadius: 4 }}>
+                          Evidence file unavailable in storage
+                        </div>
+                        <button
+                          type="button"
+                          className="hd-evidence-retry-btn"
+                          onClick={() => handleRetryEvidence(ev.id)}
+                        >
+                          <Clock size={12} /> Retry
+                        </button>
                       </div>
                     )}
                     <div className="hd-evidence-info">
-                      <span className="hd-evidence-filename">{ev.filename}</span>
+                      <span className="hd-evidence-filename">{ev.filename || ev.original_filename || 'Evidence File'}</span>
                       <span className="hd-evidence-size">
-                        {Math.round(ev.size_bytes / 1024)} KB • {ev.content_type}
+                        {ev.size_bytes ? `${Math.round(ev.size_bytes / 1024)} KB` : 'Unknown size'} • {ev.content_type || ev.mime_type || 'image'}
                       </span>
                     </div>
                   </div>
@@ -296,9 +316,34 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
               <p className="hd-empty-text">No photographic evidence attached to this claim.</p>
             )}
           </div>
+
+          {/* Inspection History (Placed in left column to balance layout) */}
+          <div className="hd-card hd-detail-section-card">
+            <h3 className="hd-detail-section-title">
+              <Clock size={17} /> Inspection History
+            </h3>
+            {claim.inspection_history && claim.inspection_history.length > 0 ? (
+              <div className="hd-timeline">
+                {claim.inspection_history.map((ins) => (
+                  <div key={ins.id} className="hd-timeline-item">
+                    <div className="hd-timeline-marker" />
+                    <div className="hd-timeline-content">
+                      <span className="hd-timeline-type hd-capitalize">{ins.type?.replace('_', ' ')}: {ins.outcome}</span>
+                      <p className="hd-timeline-notes">{ins.notes}</p>
+                      <span className="hd-timeline-time">
+                        {ins.inspected_at ? new Date(ins.inspected_at).toLocaleString() : ''}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="hd-empty-text">No physical inspections recorded yet.</p>
+            )}
+          </div>
         </div>
 
-        {/* Right Column: Actions, Inspections, Handoffs, Audit Trail */}
+        {/* Right Column: Actions and Routing */}
         <div className="hd-detail-right-col">
           {/* Action Decision Form */}
           <div className="hd-card hd-actions-card">
@@ -377,60 +422,37 @@ export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBa
               <p className="hd-empty-text">No downstream department handoffs initiated yet.</p>
             )}
           </div>
+        </div>
+      </div>
 
-          {/* Inspection History */}
-          <div className="hd-card hd-detail-section-card">
-            <h3 className="hd-detail-section-title">
-              <Clock size={17} /> Inspection History
-            </h3>
-            {claim.inspection_history && claim.inspection_history.length > 0 ? (
-              <div className="hd-timeline">
-                {claim.inspection_history.map((ins) => (
-                  <div key={ins.id} className="hd-timeline-item">
-                    <div className="hd-timeline-marker" />
-                    <div className="hd-timeline-content">
-                      <span className="hd-timeline-type hd-capitalize">{ins.type?.replace('_', ' ')}: {ins.outcome}</span>
-                      <p className="hd-timeline-notes">{ins.notes}</p>
-                      <span className="hd-timeline-time">
-                        {ins.inspected_at ? new Date(ins.inspected_at).toLocaleString() : ''}
-                      </span>
-                    </div>
+      {/* Full-Width Audit Trail Section BELOW the Main 2-Column Grid */}
+      <div className="hd-detail-fullwidth-section">
+        <div className="hd-card hd-detail-section-card">
+          <h3 className="hd-detail-section-title">
+            <FileText size={17} /> Complete Audit Trail
+          </h3>
+          {claim.audit_history && claim.audit_history.length > 0 ? (
+            <div className="hd-timeline">
+              {claim.audit_history.map((ev) => (
+                <div key={ev.id} className="hd-timeline-item">
+                  <div className="hd-timeline-marker" />
+                  <div className="hd-timeline-content">
+                    <span className="hd-timeline-type">{ev.type?.replace(/_/g, ' ').toUpperCase()}</span>
+                    {(ev.previous_status || ev.new_status) && (
+                      <p className="hd-timeline-notes">{ev.previous_status ? `${ev.previous_status} → ` : ''}{ev.new_status || ''}</p>
+                    )}
+                    {ev.note && <p className="hd-timeline-notes">{ev.note}</p>}
+                    <span className="hd-timeline-time">{ev.actor_name || (ev.actor_user_id ? `User ${ev.actor_user_id}` : 'System')}</span>
+                    <span className="hd-timeline-time">
+                      {ev.created_at ? new Date(ev.created_at).toLocaleString() : ''}
+                    </span>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="hd-empty-text">No physical inspections recorded yet.</p>
-            )}
-          </div>
-
-          {/* Audit Trail */}
-          <div className="hd-card hd-detail-section-card">
-            <h3 className="hd-detail-section-title">
-              <FileText size={17} /> Audit Trail
-            </h3>
-            {claim.audit_history && claim.audit_history.length > 0 ? (
-              <div className="hd-timeline">
-                {claim.audit_history.map((ev) => (
-                  <div key={ev.id} className="hd-timeline-item">
-                    <div className="hd-timeline-marker" />
-                    <div className="hd-timeline-content">
-                      <span className="hd-timeline-type">{ev.type?.replace(/_/g, ' ').toUpperCase()}</span>
-                      {(ev.previous_status || ev.new_status) && (
-                        <p className="hd-timeline-notes">{ev.previous_status ? `${ev.previous_status} → ` : ''}{ev.new_status || ''}</p>
-                      )}
-                      {ev.note && <p className="hd-timeline-notes">{ev.note}</p>}
-                      <span className="hd-timeline-time">{ev.actor_name || (ev.actor_user_id ? `User ${ev.actor_user_id}` : 'System')}</span>
-                      <span className="hd-timeline-time">
-                        {ev.created_at ? new Date(ev.created_at).toLocaleString() : ''}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="hd-empty-text">No audit history available.</p>
-            )}
-          </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="hd-empty-text">No audit history available.</p>
+          )}
         </div>
       </div>
       {selectedEvidence && (

@@ -298,6 +298,8 @@ def return_intake_action(
             raise HTTPException(status_code=409, detail="Complete the return details and upload evidence before confirming.")
         if not (intake.get("resolution_type") and intake.get("reason_code")):
             raise HTTPException(status_code=422, detail="Complete all required return details before confirming.")
+        if intake.get("resolution_type") == "refund" and intake.get("refund_timing") not in {"immediate", "after_collection"}:
+            raise HTTPException(status_code=422, detail="A valid refund timing must be selected for refund requests.")
         # Release the request-scoped conversation lock before the existing submission
         # tool acquires its own lock. The unique submission key handles concurrent retries.
         db.commit()

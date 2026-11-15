@@ -1862,6 +1862,11 @@ def get_payment_transaction_details(
         else:
             masked_email = "***"
 
+    phone_masked = None
+    cust_phone = getattr(customer, "mobile_number", None) or getattr(customer, "phone", None)
+    if cust_phone:
+        phone_masked = f"******{cust_phone[-4:]}" if len(cust_phone) >= 4 else "******"
+
     sibling_attempts = []
     if order:
         siblings = db.scalars(
@@ -1912,6 +1917,10 @@ def get_payment_transaction_details(
         "provider": att.provider,
         "provider_payment_id": att.provider_payment_id or "—",
         "provider_order_id": att.provider_order_id or "—",
+        "provider_reference": att.provider_payment_id or att.provider_order_id or "—",
+        "order_id": order.id if order else None,
+        "order_number": order.order_number if order else "—",
+        "payment_method": (order.payment_method or "online") if order else "online",
         "amount": float(att.amount),
         "currency": att.currency,
         "status": att.status,
@@ -1930,6 +1939,8 @@ def get_payment_transaction_details(
         "customer": {
             "name": customer.name if customer else "Customer",
             "masked_email": masked_email,
+            "email_masked": masked_email,
+            "phone_masked": phone_masked or "—",
         },
         "related_attempts": sibling_attempts,
         "related_refunds": related_refunds,
@@ -2027,10 +2038,12 @@ def list_payments_refunds(
         # Eligibility check
         is_eligible = False
         if h.status in ("pending", "accepted"):
-            if claim and (claim.refund_timing == "immediate" or claim.refund_timing is None):
+            if claim and claim.refund_timing == "immediate":
                 is_eligible = True
             elif claim and claim.refund_timing == "after_collection":
-                is_eligible = pickup_status == "completed"
+                is_eligible = (pickup_status == "completed")
+            elif claim and claim.refund_timing is None:
+                is_eligible = False
 
         if existing_refund and existing_refund.status == "processed":
             current_status = "completed"
@@ -2048,7 +2061,7 @@ def list_payments_refunds(
             current_status = h.status
 
         claim_num = f"TRN-{claim.id}" if claim else "—"
-        timing_label = claim.refund_timing if (claim and claim.refund_timing) else "after_collection"
+        timing_label = claim.refund_timing if (claim and claim.refund_timing) else "unspecified"
 
         combined_items.append({
             "id": h.id,
@@ -2253,6 +2266,10 @@ def get_payment_refund_details(
         elif claim and claim.resolution_type == "replacement":
             status_label = "ineligible"
             ineligible_reason = "Replacement workflows are not eligible for financial refund."
+        elif claim and claim.refund_timing is None:
+            status_label = "ineligible"
+            is_eligible = False
+            ineligible_reason = "Refund timing is unavailable for this request. Authorized review is required before refund execution."
         elif claim and claim.refund_timing == "after_collection" and pickup_status != "completed":
             status_label = "pending"
             ineligible_reason = f"Awaiting physical item collection (current pickup status: {pickup_status})."
@@ -2291,6 +2308,7 @@ def get_payment_refund_details(
         return {
             "id": h.id,
             "handoff_id": h.id,
+            "handoff_status": h.status,
             "status": status_label,
             "claim_number": f"TRN-{claim.id}" if claim else "—",
             "return_request_id": claim.id if claim else None,
@@ -2299,7 +2317,8 @@ def get_payment_refund_details(
             "resolution_type": claim.resolution_type if claim else "refund",
             "claim_status": claim.status if claim else "approved",
             "reason": claim.reason if claim else "Damaged during delivery / transit",
-            "refund_timing": claim.refund_timing or "after_collection",
+            "refund_timing": claim.refund_timing if claim else None,
+            "pickup_status": pickup_status,
             "payment_method": order.payment_method if order else "online",
             "amount": requested_amount,
             "eligible_amount": min(requested_amount, remaining_balance) if remaining_balance > 0 else requested_amount,
@@ -2452,7 +2471,9 @@ def get_payments_reports_stats(
             Shipment.status == "delivered",
         )
     ) or 0
-    total_collected = float(Decimal(str(online_collected)) + Decimal(str(cod_collected)))
+    online_collected_val = float(online_collected)
+    cod_collected_val = float(cod_collected)
+    total_collected = online_collected_val + cod_collected_val
 
     total_refunded = float(db.scalar(
         select(func.coalesce(func.sum(Refund.amount), 0)).where(
@@ -2561,14 +2582,14 @@ def get_payments_reports_stats(
             Shipment.status == "delivered",
         )
     ) or 0
-    if cod_collected > 0 or cod_count > 0:
-        pct_cod = round((cod_collected / total_collected * 100), 1) if total_collected > 0 else 0.0
+    if cod_collected_val > 0 or cod_count > 0:
+        pct_cod = round((cod_collected_val / total_collected * 100), 1) if total_collected > 0 else 0.0
         if "cod" not in seen_methods:
             methods.append({
                 "method": "COD",
                 "label": "Cash on Delivery",
-                "volume": float(cod_collected),
-                "amount": float(cod_collected),
+                "volume": cod_collected_val,
+                "amount": cod_collected_val,
                 "count": cod_count,
                 "percentage": pct_cod,
             })
@@ -2586,8 +2607,8 @@ def get_payments_reports_stats(
         })
 
     completed_refunds_count = sum(r["count"] for r in refund_statuses if r["status"] == "processed")
-    total_refunds_count = max(sum(r["count"] for r in refund_statuses), 1)
-    refund_success_rate = round((completed_refunds_count / total_refunds_count * 100), 1) if refund_statuses else 100.0
+    total_refunds_count = sum(r["count"] for r in refund_statuses)
+    refund_success_rate = round((completed_refunds_count / total_refunds_count * 100), 1) if total_refunds_count > 0 else 0.0
 
     return {
         "kpis": {

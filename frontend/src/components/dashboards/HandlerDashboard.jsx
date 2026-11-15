@@ -32,16 +32,22 @@ export function HandlerDashboard({ onNavigate, routePath }) {
   const isOrderDelivery = user?.department_name === 'Order & Delivery';
   const isPaymentsRefunds = user?.department_name === 'Payments & Refunds';
 
-  // Normalize current path
-  const currentPath = useMemo(() => {
-    const raw = (routePath || (typeof window !== 'undefined' ? window.location.pathname : '')).toLowerCase();
-    if (raw === '/handler' || raw === '/handler/' || raw === '/handler-dashboard') {
-      return '/handler/dashboard';
+  // Normalize current path and query string parameters
+  const { currentPath, highlightId } = useMemo(() => {
+    const raw = (routePath || (typeof window !== 'undefined' ? (window.location.pathname + window.location.search) : '')).trim();
+    const [pathPart, queryPart] = raw.split('?');
+    const pathLower = (pathPart || '').toLowerCase();
+    let normalized = '/handler/dashboard';
+    if (pathLower === '/handler' || pathLower === '/handler/' || pathLower === '/handler-dashboard') {
+      normalized = '/handler/dashboard';
+    } else if (pathLower.startsWith('/handler/')) {
+      normalized = pathLower.replace(/\/$/, '');
     }
-    if (raw.startsWith('/handler/')) {
-      return raw.replace(/\/$/, '');
-    }
-    return '/handler/dashboard';
+    const params = new URLSearchParams(queryPart || (typeof window !== 'undefined' ? window.location.search : ''));
+    return {
+      currentPath: normalized,
+      highlightId: params.get('highlight'),
+    };
   }, [routePath]);
 
   // Sub-route matchers for dedicated detail views
@@ -81,8 +87,16 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     setError(null);
     try {
       if (isPaymentsRefunds) {
-        const pRes = await handlerService.getPaymentsDashboard();
-        setPaymentsData(pRes);
+        const [pRes, complaintsRes] = await Promise.allSettled([
+          handlerService.getPaymentsDashboard(),
+          handlerService.getAssignedComplaints(),
+        ]);
+        if (pRes.status === 'fulfilled' && pRes.value) {
+          setPaymentsData(pRes.value);
+        }
+        if (complaintsRes.status === 'fulfilled' && Array.isArray(complaintsRes.value)) {
+          setComplaints(complaintsRes.value);
+        }
         setLoading(false);
         return;
       }
@@ -97,7 +111,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
         deliveryOrdersRes,
         deliveryShipmentsRes,
       ] = await Promise.allSettled([
-        isOrderDelivery ? Promise.resolve(null) : handlerService.getAssignedComplaints(),
+        handlerService.getAssignedComplaints(),
         isOrderDelivery ? Promise.resolve(null) : handlerService.getReturns({ include_all: false, limit: 50 }),
         isOrderDelivery ? Promise.resolve(null) : handlerService.getReturns({ include_all: true, limit: 50 }),
         isOrderDelivery ? handlerService.getOrderDeliveryReturnHandoffs({ limit: 50 }) : handlerService.getTrackingHandoffs({ limit: 50 }),
@@ -216,7 +230,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
       );
     }
 
-    if (!isOrderDelivery && !isPaymentsRefunds && complaintDetailMatch) {
+    if (complaintDetailMatch) {
       const complaintId = complaintDetailMatch[1];
       return (
         <HandlerComplaintDetailView
@@ -242,10 +256,20 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     if (isPaymentsRefunds) {
       switch (currentPath) {
         case '/handler/transactions':
-          return <PaymentTransactionsView onNavigate={onNavigate} />;
+          return <PaymentTransactionsView onNavigate={onNavigate} highlightId={highlightId} />;
         case '/handler/refunds':
         case '/handler/refund-requests':
-          return <PaymentRefundManagementView onNavigate={onNavigate} initialTab="all" />;
+          return <PaymentRefundManagementView onNavigate={onNavigate} initialTab="all" highlightId={highlightId} />;
+        case '/handler/complaints':
+          return (
+            <HandlerComplaintsView
+              complaints={complaints}
+              loading={loading}
+              onNavigate={onNavigate}
+              departmentName="Payments & Refunds"
+              departmentSubtitle="Customer complaints related to payments and refund enquiries."
+            />
+          );
         case '/handler/reports':
           return <PaymentReportsView onNavigate={onNavigate} />;
         case '/handler/history':
@@ -263,6 +287,16 @@ export function HandlerDashboard({ onNavigate, routePath }) {
           return <ODOrderManagementView onNavigate={onNavigate} />;
         case '/handler/shipments':
           return <ODShipmentManagementView onNavigate={onNavigate} />;
+        case '/handler/complaints':
+          return (
+            <HandlerComplaintsView
+              complaints={complaints}
+              loading={loading}
+              onNavigate={onNavigate}
+              departmentName="Order & Delivery"
+              departmentSubtitle="Customer complaints related to orders, shipments and deliveries."
+            />
+          );
         case '/handler/returns-handoffs':
         case '/handler/tracking':
           return <ODReturnsHandoffView onNavigate={onNavigate} />;
@@ -300,6 +334,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
             loading={loading}
             onNavigate={onNavigate}
             onRefresh={loadData}
+            highlightId={highlightId}
           />
         );
       case '/handler/complaints':
@@ -308,6 +343,8 @@ export function HandlerDashboard({ onNavigate, routePath }) {
             complaints={complaints}
             loading={loading}
             onNavigate={onNavigate}
+            departmentName="Returns & Replacement"
+            departmentSubtitle="Customer complaints related to return and replacement requests."
           />
         );
       case '/handler/tracking':

@@ -61,7 +61,7 @@ function StatusBadge({ status }) {
   );
 }
 
-export function PaymentRefundManagementView({ onNavigate, initialTab }) {
+export function PaymentRefundManagementView({ onNavigate, initialTab, highlightId }) {
   const [activeTab, setActiveTab] = useState(initialTab || 'all');
   const [refunds, setRefunds] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
@@ -93,6 +93,7 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [externalReference, setExternalReference] = useState('');
   const [actionProcessing, setActionProcessing] = useState(false);
+  const [acceptingHandoff, setAcceptingHandoff] = useState(false);
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
 
@@ -180,6 +181,29 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
     setShowConfirmModal(false);
     setActionError('');
     setActionSuccess('');
+  };
+
+  const handleAcceptHandoff = async () => {
+    if (!selectedHandoffId) return;
+    setAcceptingHandoff(true);
+    setActionError('');
+    setActionSuccess('');
+    try {
+      await handlerService.updateHandoffStatus(
+        selectedHandoffId,
+        'accepted',
+        'Payments handler accepted refund handoff'
+      );
+      setActionSuccess('Handoff accepted. You can now initiate the refund.');
+      const updated = await handlerService.getPaymentRefundDetails(selectedHandoffId);
+      setDetailData(updated);
+      fetchRefunds();
+    } catch (err) {
+      console.error('Accept handoff error:', err);
+      setActionError(err.message || 'Failed to accept handoff.');
+    } finally {
+      setAcceptingHandoff(false);
+    }
   };
 
   const handleExecuteRefund = async () => {
@@ -510,18 +534,35 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
                 </tr>
               ) : (
                 refunds.map((ref) => {
-                  const isEligible = ref.status === 'awaiting_processing' || ref.status === 'pending';
+                  const isEligible = (ref.status === 'awaiting_processing' || ref.status === 'pending') && ref.is_eligible !== false;
+                  const isHighlighted = highlightId && (
+                    String(ref.id) === String(highlightId) ||
+                    String(ref.handoff_id) === String(highlightId) ||
+                    String(ref.return_request_id) === String(highlightId) ||
+                    String(ref.claim_number).includes(String(highlightId))
+                  );
+
                   return (
                     <tr
                       key={ref.id}
+                      ref={(el) => {
+                        if (el && isHighlighted) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }}
                       onClick={() => handleOpenDetail(ref.id)}
+                      className={isHighlighted ? 'hd-row-highlighted' : ''}
                       style={{
                         borderBottom: '1px solid #F1ECE1',
                         cursor: 'pointer',
                         transition: 'background-color 0.15s ease',
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#FCFBF8')}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      onMouseEnter={(e) => {
+                        if (!isHighlighted) e.currentTarget.style.backgroundColor = '#FCFBF8';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isHighlighted) e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
                     >
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#183A34', fontFamily: 'monospace' }}>
                         {ref.handoff_id || `HND-${ref.id}`}
@@ -546,7 +587,7 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
                             fontWeight: 600,
                           }}
                         >
-                          {ref.refund_timing === 'immediate' ? 'Immediate' : 'After Collection'}
+                          {ref.refund_timing === 'immediate' ? 'Immediate' : ref.refund_timing === 'after_collection' ? 'After Collection' : (ref.refund_timing || 'Unspecified')}
                         </span>
                       </td>
                       <td style={{ padding: '10px 14px', color: '#5A6561' }}>
@@ -610,52 +651,31 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
         />
       </div>
 
-      {/* Detail Drawer */}
+      {/* Centered 2-Column Refund Detail Modal */}
       {selectedHandoffId && (
         <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(18, 45, 41, 0.4)',
-            zIndex: 100,
-            display: 'flex',
-            justifyContent: 'flex-end',
-          }}
+          className="pay-modal-backdrop"
           onClick={handleCloseDetail}
         >
           <div
-            style={{
-              width: '100%',
-              maxWidth: 540,
-              height: '100%',
-              backgroundColor: '#FFFFFF',
-              boxShadow: '-4px 0 24px rgba(0,0,0,0.15)',
-              display: 'flex',
-              flexDirection: 'column',
-              overflowY: 'auto',
-            }}
+            className="pay-modal-container"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div
-              style={{
-                padding: '18px 20px',
-                borderBottom: '1px solid #ECE7DC',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                background: '#FAF8F4',
-              }}
-            >
+            {/* Modal Header */}
+            <div className="pay-modal-header">
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#78827E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Refund Handoff Inspection
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#183A34', fontFamily: 'monospace', marginTop: 2 }}>
-                  {detailData?.handoff_id || `HND-${selectedHandoffId}`}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 2 }}>
+                  <span style={{ fontSize: 17, fontWeight: 800, color: '#183A34', fontFamily: 'monospace' }}>
+                    {detailData?.handoff_id || `HND-${selectedHandoffId}`}
+                  </span>
+                  {detailData?.claim_number && (
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#5A6460' }}>
+                      ({detailData.claim_number})
+                    </span>
+                  )}
                 </div>
               </div>
               <button
@@ -666,29 +686,34 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
                   border: 'none',
                   color: '#68726E',
                   cursor: 'pointer',
-                  padding: 4,
-                  borderRadius: 4,
+                  padding: 6,
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
+                aria-label="Close details"
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
-            {/* Body */}
-            <div style={{ padding: 20, flex: 1, display: 'flex', flexDirection: 'column', gap: 18 }}>
-              {detailLoading ? (
-                <div style={{ padding: '60px 0', textAlign: 'center', color: '#68726E' }}>
-                  <RefreshCw size={22} style={{ animation: 'spin 1s linear infinite', marginBottom: 8 }} />
-                  <div>Loading refund details...</div>
-                </div>
-              ) : detailError ? (
-                <div style={{ padding: '16px', backgroundColor: '#FEE2E2', borderRadius: 6, color: '#991B1B' }}>
-                  <AlertTriangle size={18} style={{ marginBottom: 6 }} />
-                  <div>{detailError}</div>
-                </div>
-              ) : detailData ? (
-                <>
-                  {/* Action Banner or Feedback */}
+            {/* Modal Body: 2 Columns */}
+            {detailLoading ? (
+              <div style={{ padding: '80px 0', textAlign: 'center', color: '#68726E' }}>
+                <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginBottom: 10 }} />
+                <div style={{ fontSize: 13, fontWeight: 500 }}>Loading refund details...</div>
+              </div>
+            ) : detailError ? (
+              <div style={{ padding: 24, margin: 24, backgroundColor: '#FEE2E2', borderRadius: 8, color: '#991B1B' }}>
+                <AlertTriangle size={20} style={{ marginBottom: 8 }} />
+                <div style={{ fontWeight: 600 }}>{detailError}</div>
+              </div>
+            ) : detailData ? (
+              <div className="pay-modal-body">
+                {/* Left Column: Dossier, Customer, Original Payment, O&D Prerequisite, Timeline */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Action Banner / Notification */}
                   {actionSuccess && (
                     <div
                       style={{
@@ -729,67 +754,41 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
                     </div>
                   )}
 
-                  {/* Summary Card */}
-                  <div
-                    style={{
-                      background: '#FAF8F4',
-                      border: '1px solid #ECE7DC',
-                      borderRadius: 8,
-                      padding: 16,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#78827E', textTransform: 'uppercase' }}>
-                        Eligible Refund Amount
-                      </div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: '#122D29', marginTop: 2 }}>
-                        {formatINR(detailData.eligible_amount || detailData.amount)}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#5A6561', marginTop: 3 }}>
-                        Timing: <strong>{detailData.refund_timing === 'immediate' ? 'Immediate Refund' : 'After Collection'}</strong>
-                      </div>
-                    </div>
-                    <StatusBadge status={detailData.status} />
-                  </div>
-
-                  {/* Return Claim Context */}
+                  {/* Return Approval Context */}
                   <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <FileText size={14} />
-                      Return Approval Context (Read-Only)
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <FileText size={15} />
+                      Return Claim Context (Read-Only)
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, fontSize: 12 }}>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Return Claim #</div>
-                        <div style={{ fontWeight: 700, color: '#183A34', marginTop: 2 }}>
+                        <div style={{ fontWeight: 700, color: '#183A34', marginTop: 3 }}>
                           {detailData.claim_number || `RET-${detailData.return_request_id}`}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Resolution</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3, textTransform: 'capitalize' }}>
                           {detailData.resolution_type || 'Refund'}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Claim Status</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3, textTransform: 'capitalize' }}>
                           {detailData.claim_status || 'Approved'}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Linked Order</div>
-                        <div style={{ fontWeight: 600, color: '#183A34', marginTop: 2 }}>
-                          {detailData.order_number || `#${detailData.order_id}`}
+                        <div style={{ fontWeight: 700, color: '#183A34', marginTop: 3 }}>
+                          {detailData.order_number || (detailData.order_id ? `#${detailData.order_id}` : '—')}
                         </div>
                       </div>
                       <div style={{ gridColumn: 'span 2' }}>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Return Reason</div>
-                        <div style={{ color: '#122D29', marginTop: 2 }}>
-                          {detailData.reason || 'Customer requested return'}
+                        <div style={{ color: '#122D29', marginTop: 3, background: '#FAF8F4', padding: '8px 10px', borderRadius: 4 }}>
+                          {detailData.reason || 'Customer requested return / transit defect'}
                         </div>
                       </div>
                     </div>
@@ -797,237 +796,106 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
 
                   {/* Customer Information (Masked) */}
                   <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <User size={14} />
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <User size={15} />
                       Customer Information
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, fontSize: 12 }}>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Customer Name</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
                           {detailData.customer?.name || 'Customer'}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Phone (Masked)</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
                           {detailData.customer?.phone_masked || '—'}
                         </div>
                       </div>
                       <div style={{ gridColumn: 'span 2' }}>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Email (Masked)</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
-                          {detailData.customer?.email_masked || '—'}
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
+                          {detailData.customer?.email_masked || detailData.customer?.masked_email || '—'}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Original Payment Information */}
+                  {/* Original Payment Information & Balances */}
                   <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <CreditCard size={14} />
-                      Original Payment Instrument
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <CreditCard size={15} />
+                      Original Payment Instrument & Refund Balance
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, fontSize: 12 }}>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Original Method</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
-                          {detailData.payment_method ? detailData.payment_method.toUpperCase() : 'UPI'}
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
+                          {(detailData.payment_method || 'online').toUpperCase()}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Captured Amount</div>
-                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#122D29', marginTop: 3 }}>
                           {formatINR(detailData.original_payment?.captured_amount || detailData.amount)}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Prior Refunds</div>
-                        <div style={{ fontWeight: 600, color: '#991B1B', marginTop: 2 }}>
+                        <div style={{ fontWeight: 600, color: '#991B1B', marginTop: 3 }}>
                           {formatINR(detailData.original_payment?.previously_refunded || 0)}
                         </div>
                       </div>
                       <div>
                         <div style={{ color: '#78827E', fontSize: 11 }}>Remaining Refundable</div>
-                        <div style={{ fontWeight: 700, color: '#15803D', marginTop: 2 }}>
+                        <div style={{ fontWeight: 700, color: '#15803D', marginTop: 3 }}>
                           {formatINR(detailData.original_payment?.remaining_refundable || detailData.eligible_amount || detailData.amount)}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Execution Panel */}
-                  <div
-                    style={{
-                      background: '#FAF8F4',
-                      border: '1px solid #ECE7DC',
-                      borderRadius: 8,
-                      padding: 16,
-                    }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <RotateCcw size={14} />
-                      Refund Execution
+                  {/* Order & Delivery Prerequisite Status */}
+                  <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Truck size={15} />
+                      Order &amp; Delivery Reverse-Pickup Status
                     </div>
-
-                    {String(detailData.status || '').toLowerCase() === 'processed' ||
-                    String(detailData.status || '').toLowerCase() === 'completed' ? (
-                      <div style={{ padding: '12px 14px', background: '#DCFCE7', borderRadius: 6, color: '#15803D', fontSize: 12 }}>
-                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <CheckCircle2 size={16} /> Refund Completed
-                        </div>
-                        <div style={{ marginTop: 4, color: '#166534' }}>
-                          This refund has been completed and persisted to financial ledgers.
-                        </div>
-                        {detailData.refund_transaction_id && (
-                          <div style={{ marginTop: 4, fontFamily: 'monospace', fontSize: 11 }}>
-                            Refund ID: {detailData.refund_transaction_id}
-                          </div>
-                        )}
-                      </div>
-                    ) : detailData.is_eligible_for_refund === false ? (
-                      <div style={{ padding: '12px 14px', background: '#FEF3C7', borderRadius: 6, color: '#B45309', fontSize: 12 }}>
-                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Clock size={16} /> Prerequisite Pending
-                        </div>
-                        <div style={{ marginTop: 4 }}>
-                          This is an <strong>After Collection</strong> return. Physical item collection and warehouse inspection by Order & Delivery must be confirmed before refund execution.
-                        </div>
-                      </div>
-                    ) : isEligibleToProcess ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#FAF8F4', borderRadius: 6, fontSize: 12 }}>
                       <div>
-                        <p style={{ margin: '0 0 12px', fontSize: 12, color: '#4A5552' }}>
-                          This refund is approved and eligible for immediate disbursement to the customer's original payment method ({detailData.payment_method?.toUpperCase() || 'UPI'}).
-                        </p>
-
-                        {!showConfirmModal ? (
-                          <button
-                            type="button"
-                            onClick={() => setShowConfirmModal(true)}
-                            style={{
-                              width: '100%',
-                              padding: '10px 16px',
-                              backgroundColor: '#183A34',
-                              color: '#FFFFFF',
-                              borderRadius: 6,
-                              border: 'none',
-                              fontWeight: 700,
-                              fontSize: 13,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 8,
-                            }}
-                          >
-                            <RotateCcw size={15} />
-                            Initiate Refund of {formatINR(detailData.eligible_amount || detailData.amount)}
-                          </button>
-                        ) : (
-                          <div
-                            style={{
-                              background: '#FFFFFF',
-                              border: '1px solid #ECE7DC',
-                              borderRadius: 6,
-                              padding: 14,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 12,
-                            }}
-                          >
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34' }}>
-                              Confirm Refund Disbursement
-                            </div>
-                            <div style={{ fontSize: 12, color: '#5A6561' }}>
-                              Please verify that you want to release <strong>{formatINR(detailData.eligible_amount || detailData.amount)}</strong> to {detailData.customer?.name || 'the customer'}. This action communicates with the payment provider and is immutable.
-                            </div>
-
-                            <div>
-                              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#78827E', marginBottom: 4 }}>
-                                External Reference / Note (Optional)
-                              </label>
-                              <input
-                                type="text"
-                                placeholder="Bank UTR or approval ref..."
-                                value={externalReference}
-                                onChange={(e) => setExternalReference(e.target.value)}
-                                style={{
-                                  width: '100%',
-                                  padding: '7px 10px',
-                                  fontSize: 12,
-                                  borderRadius: 4,
-                                  border: '1px solid #E8E4D8',
-                                  outline: 'none',
-                                }}
-                              />
-                            </div>
-
-                            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-                              <button
-                                type="button"
-                                onClick={() => setShowConfirmModal(false)}
-                                disabled={actionProcessing}
-                                style={{
-                                  padding: '7px 12px',
-                                  background: '#FAF8F4',
-                                  border: '1px solid #E8E4D8',
-                                  borderRadius: 4,
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  color: '#5A6561',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleExecuteRefund}
-                                disabled={actionProcessing}
-                                style={{
-                                  padding: '7px 14px',
-                                  background: '#15803D',
-                                  border: 'none',
-                                  borderRadius: 4,
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  color: '#FFFFFF',
-                                  cursor: actionProcessing ? 'not-allowed' : 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 6,
-                                }}
-                              >
-                                {actionProcessing ? (
-                                  <>
-                                    <RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
-                                    Processing...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Check size={14} />
-                                    Confirm & Process
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        <div style={{ fontWeight: 600, color: '#183A34' }}>
+                          Physical Collection: {detailData.pickup_status === 'completed' ? 'Completed' : 'Pending'}
+                        </div>
+                        <div style={{ color: '#68726E', fontSize: 11, marginTop: 2 }}>
+                          {detailData.pickup_status === 'completed'
+                            ? 'The reverse pickup was verified and marked completed by Order & Delivery.'
+                            : 'Awaiting courier collection and inbound return confirmation.'}
+                        </div>
                       </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: '#78827E' }}>
-                        Refund cannot be processed in its current status ({detailData.status}).
-                      </div>
-                    )}
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '3px 9px',
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          backgroundColor: detailData.pickup_status === 'completed' ? '#DCFCE7' : '#FEF3C7',
+                          color: detailData.pickup_status === 'completed' ? '#15803D' : '#B45309',
+                        }}
+                      >
+                        {detailData.pickup_status === 'completed' ? 'Completed' : 'Pending'}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Audit Timeline */}
+                  {/* Lifecycle Audit Events */}
                   {detailData.events && detailData.events.length > 0 && (
                     <div style={{ background: '#FFFFFF', border: '1px solid #ECE7DC', borderRadius: 8, padding: 16 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Clock size={14} />
-                        Lifecycle Events ({detailData.events.length})
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#183A34', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Clock size={15} />
+                        Audit Events ({detailData.events.length})
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {detailData.events.map((evt, idx) => (
@@ -1058,9 +926,287 @@ export function PaymentRefundManagementView({ onNavigate, initialTab }) {
                       </div>
                     </div>
                   )}
-                </>
-              ) : null}
-            </div>
+                </div>
+
+                {/* Right Column: Sticky Action & Authorization Panel */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div
+                    style={{
+                      background: '#FFFFFF',
+                      border: '1px solid #ECE7DC',
+                      borderRadius: 8,
+                      padding: 18,
+                      position: 'sticky',
+                      top: 0,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#78827E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Refund Amount Due
+                    </div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: '#122D29', marginTop: 4, marginBottom: 12 }}>
+                      {formatINR(detailData.eligible_amount || detailData.amount)}
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: '3px 8px',
+                          borderRadius: 4,
+                          backgroundColor: detailData.refund_timing === 'immediate' ? '#E0F2FE' : '#F5F5F4',
+                          color: detailData.refund_timing === 'immediate' ? '#0369A1' : '#5A6561',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {detailData.refund_timing === 'immediate' ? 'Immediate' : detailData.refund_timing === 'after_collection' ? 'After Collection' : (detailData.refund_timing || 'Unspecified')}
+                      </span>
+
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: '3px 8px',
+                          borderRadius: 4,
+                          backgroundColor: detailData.is_eligible_for_refund !== false ? '#DCFCE7' : '#FEE2E2',
+                          color: detailData.is_eligible_for_refund !== false ? '#15803D' : '#991B1B',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {detailData.is_eligible_for_refund !== false ? 'Eligible' : 'Precondition Ineligible'}
+                      </span>
+                    </div>
+
+                    {/* Prominent Ineligibility Reason Banner */}
+                    {detailData.is_eligible_for_refund === false && (
+                      <div
+                        style={{
+                          padding: '12px 14px',
+                          background: '#FFFBEB',
+                          border: '1px solid #FDE68A',
+                          borderRadius: 6,
+                          color: '#B45309',
+                          fontSize: 12,
+                          marginBottom: 16,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                          <ShieldAlert size={15} /> Precondition Notice
+                        </div>
+                        <div>
+                          {detailData.ineligible_reason ||
+                            (detailData.refund_timing === null
+                              ? 'Refund timing is unavailable for this request. Authorized review is required before refund execution.'
+                              : 'Prerequisites for refund execution are not satisfied.')}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action Controls */}
+                    <div style={{ borderTop: '1px solid #ECE7DC', paddingTop: 14 }}>
+                      {String(detailData.status || '').toLowerCase() === 'processed' ||
+                      String(detailData.status || '').toLowerCase() === 'completed' ? (
+                        <div style={{ padding: '12px 14px', background: '#DCFCE7', borderRadius: 6, color: '#15803D', fontSize: 12 }}>
+                          <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <CheckCircle2 size={16} /> Refund Completed
+                          </div>
+                          <div style={{ marginTop: 4, color: '#166534' }}>
+                            This refund has been completed and persisted to financial ledgers.
+                          </div>
+                          {detailData.refund_transaction_id && (
+                            <div style={{ marginTop: 4, fontFamily: 'monospace', fontSize: 11 }}>
+                              Reference ID: {detailData.refund_transaction_id}
+                            </div>
+                          )}
+                        </div>
+                      ) : detailData.handoff_status === 'pending' ? (
+                        <div>
+                          <p style={{ margin: '0 0 10px', fontSize: 12, color: '#5A6561' }}>
+                            A Payments handler must accept this handoff before executing refund.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleAcceptHandoff}
+                            disabled={acceptingHandoff}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              backgroundColor: '#183A34',
+                              color: '#FFFFFF',
+                              borderRadius: 6,
+                              border: 'none',
+                              fontWeight: 700,
+                              fontSize: 13,
+                              cursor: acceptingHandoff ? 'not-allowed' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                            }}
+                          >
+                            {acceptingHandoff ? (
+                              <>
+                                <RefreshCw size={14} style={{ animation: 'spin 0.8s linear infinite' }} />
+                                Accepting Handoff...
+                              </>
+                            ) : (
+                              <>
+                                <Check size={15} />
+                                Accept Handoff
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      ) : detailData.is_eligible_for_refund === false ? (
+                        <div>
+                          <button
+                            type="button"
+                            disabled
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              backgroundColor: '#F3EFE7',
+                              color: '#8A8275',
+                              borderRadius: 6,
+                              border: '1px solid #ECE7DC',
+                              fontWeight: 600,
+                              fontSize: 12.5,
+                              cursor: 'not-allowed',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                            }}
+                          >
+                            <ShieldAlert size={14} />
+                            Prerequisites Not Met
+                          </button>
+                          <div style={{ fontSize: 11, color: '#88928E', marginTop: 6, textAlign: 'center' }}>
+                            See precondition notice above
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          {!showConfirmModal ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowConfirmModal(true)}
+                              style={{
+                                width: '100%',
+                                padding: '10px 16px',
+                                backgroundColor: '#183A34',
+                                color: '#FFFFFF',
+                                borderRadius: 6,
+                                border: 'none',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 8,
+                              }}
+                            >
+                              <RotateCcw size={15} />
+                              Initiate Refund
+                            </button>
+                          ) : (
+                            <div
+                              style={{
+                                background: '#FFFFFF',
+                                border: '1px solid #ECE7DC',
+                                borderRadius: 6,
+                                padding: 14,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 12,
+                              }}
+                            >
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34' }}>
+                                Confirm Refund Disbursement
+                              </div>
+                              <div style={{ fontSize: 12, color: '#5A6561' }}>
+                                Please verify that you want to release <strong>{formatINR(detailData.eligible_amount || detailData.amount)}</strong> to {detailData.customer?.name || 'the customer'}. This action communicates with the payment provider and is immutable.
+                              </div>
+
+                              <div>
+                                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#78827E', marginBottom: 4 }}>
+                                  External Reference / Note (Optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Bank UTR or approval ref..."
+                                  value={externalReference}
+                                  onChange={(e) => setExternalReference(e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '7px 10px',
+                                    fontSize: 12,
+                                    borderRadius: 4,
+                                    border: '1px solid #E8E4D8',
+                                    outline: 'none',
+                                    boxSizing: 'border-box',
+                                  }}
+                                />
+                              </div>
+
+                              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowConfirmModal(false)}
+                                  disabled={actionProcessing}
+                                  style={{
+                                    padding: '7px 12px',
+                                    background: '#FAF8F4',
+                                    border: '1px solid #E8E4D8',
+                                    borderRadius: 4,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color: '#5A6561',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleExecuteRefund}
+                                  disabled={actionProcessing}
+                                  style={{
+                                    padding: '7px 14px',
+                                    background: '#15803D',
+                                    border: 'none',
+                                    borderRadius: 4,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: '#FFFFFF',
+                                    cursor: actionProcessing ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                  }}
+                                >
+                                  {actionProcessing ? (
+                                    <>
+                                      <RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
+                                      Processing...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check size={14} />
+                                      Confirm & Process
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       )}
