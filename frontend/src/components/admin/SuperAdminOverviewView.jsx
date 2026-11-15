@@ -3,6 +3,7 @@ import {
   FileText,
   Clock,
   CheckCircle2,
+  TrendingUp,
   Users,
   Building2,
   UserCheck,
@@ -12,13 +13,13 @@ import {
   Search,
   RefreshCw,
   ArrowRight,
-  ArrowUpRight,
   Eye,
   EyeOff,
 } from 'lucide-react';
 import { MetricCard } from './MetricCard';
 import { DepartmentComplaintChart } from './DepartmentComplaintChart';
 import { DepartmentRedirections } from './DepartmentRedirections';
+import { DepartmentTransferInsights } from './DepartmentTransferInsights';
 import { ComplaintStatusBadge } from '../complaints/ComplaintStatusBadge';
 import { formatConfidence } from '../../utils/formatConfidence';
 import { HandlerPagination } from '../handler/HandlerPagination';
@@ -66,6 +67,13 @@ export function SuperAdminOverviewView({
     }).length;
   }, [complaints]);
 
+  const followedUpCount = useMemo(() => {
+    return complaints.filter((c) => {
+      const s = (c.status || '').toLowerCase();
+      return s === 'followed_up' || s === 'in_progress';
+    }).length;
+  }, [complaints]);
+
   // Handle Refresh
   const handleRefreshClick = async () => {
     if (!onRefresh) return;
@@ -77,7 +85,7 @@ export function SuperAdminOverviewView({
     }
   };
 
-  // Recent complaints sorted by creation timestamp descending
+  // Recent complaints sorted chronologically descending
   const sortedComplaints = useMemo(() => {
     return [...complaints].sort((a, b) => {
       const dateA = new Date(a.create_at || 0).getTime();
@@ -152,6 +160,16 @@ export function SuperAdminOverviewView({
     setCurrentPage(1);
   };
 
+  // Up to 6 Quick Actions (all navigate to existing destinations)
+  const quickActions = [
+    { label: 'View Complaints', icon: FileText, view: 'complaints' },
+    { label: 'Redirection Analytics', icon: GitCompare, view: 'analytics' },
+    { label: 'Manage Users', icon: Users, view: 'users' },
+    { label: 'Manage Departments', icon: Building2, view: 'departments' },
+    { label: 'Manage Dept. Handlers', icon: UserCheck, view: 'handlers' },
+    { label: 'Chatbot & Pipeline', icon: Bot, view: 'pipeline' },
+  ];
+
   const formatDate = (isoString) => {
     if (!isoString) return '—';
     try {
@@ -166,19 +184,9 @@ export function SuperAdminOverviewView({
     }
   };
 
-  // Up to 6 Quick Actions (all navigate to existing destinations)
-  const quickActions = [
-    { label: 'View Complaints', icon: FileText, view: 'complaints' },
-    { label: 'Redirection Analytics', icon: GitCompare, view: 'analytics' },
-    { label: 'Manage Users', icon: Users, view: 'users' },
-    { label: 'Manage Departments', icon: Building2, view: 'departments' },
-    { label: 'Manage Dept. Handlers', icon: UserCheck, view: 'handlers' },
-    { label: 'Chatbot & Pipeline', icon: Bot, view: 'pipeline' },
-  ];
-
   return (
     <div className="ad-overview-container">
-      {/* 1. Header Row */}
+      {/* 0. Header Row */}
       <div className="ad-header-row">
         <div>
           <h1 className="ad-page-heading">Overview</h1>
@@ -204,82 +212,82 @@ export function SuperAdminOverviewView({
         </div>
       </div>
 
-      {/* 2. Upper Dashboard Grid: Left Hero Card + Right (KPIs + Analytics) */}
-      <div className="ad-overview-grid">
+      {/* ================================================================
+          LAYER 1: Left (Big KPI + 3 Statuses) | Right (Admin KPIs + Redirections)
+          ================================================================ */}
+      <div className="ad-overview-layer-1">
         {/* Left Column: Primary Complaints KPI + Statuses + Quick Actions */}
-        <div className="ad-primary-kpi-card">
-          <div className="ad-primary-kpi-header">
-            <span className="ad-primary-kpi-label">TOTAL COMPLAINTS</span>
-            <button
-              type="button"
-              className="ad-eye-toggle-btn"
-              onClick={() => setShowCount(!showCount)}
-              title={showCount ? 'Hide count' : 'Show count'}
-              aria-label={showCount ? 'Hide count' : 'Show count'}
-            >
-              {showCount ? <Eye size={15} /> : <EyeOff size={15} />}
-            </button>
-          </div>
-
-          <div className="ad-primary-kpi-value">
-            {showCount ? complaints.length.toLocaleString() : '••••'}
-          </div>
-          <div className="ad-primary-kpi-sub">
-            All registered complaint records across departments
-          </div>
-
-          {/* Two Smaller KPI Cards inside the main card */}
-          <div className="ad-primary-mini-kpis">
-            <div className="ad-mini-kpi-box resolved">
-              <div className="ad-mini-kpi-top">
-                <span className="ad-mini-kpi-label">Resolved</span>
-                <CheckCircle2 size={15} className="ad-mini-kpi-icon" />
-              </div>
-              <div className="ad-mini-kpi-val">{resolvedCount}</div>
-              <div className="ad-mini-kpi-sub">Closed successfully</div>
-            </div>
-
-            <div className="ad-mini-kpi-box pending">
-              <div className="ad-mini-kpi-top">
-                <span className="ad-mini-kpi-label">Pending</span>
-                <Clock size={15} className="ad-mini-kpi-icon" />
-              </div>
-              <div className="ad-mini-kpi-val">{pendingCount}</div>
-              <div className="ad-mini-kpi-sub">Awaiting action</div>
-            </div>
-          </div>
-
-          {/* Quick Actions (Maximum 6) */}
-          <div className="ad-quick-actions-section">
-            <div className="ad-quick-actions-title">Quick Actions</div>
-            <div className="ad-quick-actions-grid">
-              {quickActions.map(({ label, icon: Icon, view }) => (
+        <div className="ad-layer1-left-col">
+          <div className="ad-primary-kpi-card">
+            <div>
+              <div className="ad-primary-kpi-header">
+                <span className="ad-primary-kpi-label">TOTAL COMPLAINTS</span>
                 <button
-                  key={view}
                   type="button"
-                  className="ad-quick-action-btn"
-                  onClick={() => onNavigate && onNavigate(view)}
+                  className="ad-eye-toggle-btn"
+                  onClick={() => setShowCount(!showCount)}
+                  title={showCount ? 'Hide count' : 'Show count'}
+                  aria-label={showCount ? 'Hide count' : 'Show count'}
                 >
-                  <div className="ad-quick-action-icon">
-                    <Icon size={18} strokeWidth={1.8} />
-                  </div>
-                  <span className="ad-quick-action-label">{label}</span>
+                  {showCount ? <Eye size={15} /> : <EyeOff size={15} />}
                 </button>
-              ))}
+              </div>
+
+              <div className="ad-primary-kpi-value">
+                {showCount ? complaints.length.toLocaleString() : '••••'}
+              </div>
+              <div className="ad-primary-kpi-sub">
+                All registered complaint records across departments
+              </div>
+
+              {/* Two Smaller KPI Cards inside the main card */}
+              <div className="ad-primary-mini-kpis">
+                <div className="ad-mini-kpi-box resolved">
+                  <div className="ad-mini-kpi-top">
+                    <span className="ad-mini-kpi-label">RESOLVED</span>
+                    <CheckCircle2 size={15} className="ad-mini-kpi-icon" />
+                  </div>
+                  <div className="ad-mini-kpi-val">{resolvedCount}</div>
+                  <div className="ad-mini-kpi-sub">Closed successfully</div>
+                </div>
+
+                <div className="ad-mini-kpi-box pending">
+                  <div className="ad-mini-kpi-top">
+                    <span className="ad-mini-kpi-label">PENDING</span>
+                    <Clock size={15} className="ad-mini-kpi-icon" />
+                  </div>
+                  <div className="ad-mini-kpi-val">{pendingCount}</div>
+                  <div className="ad-mini-kpi-sub">Awaiting action</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions (Maximum 6) */}
+            <div className="ad-quick-actions-section">
+              <div className="ad-quick-actions-title">Quick Actions</div>
+              <div className="ad-quick-actions-grid">
+                {quickActions.map(({ label, icon: Icon, view }) => (
+                  <button
+                    key={view}
+                    type="button"
+                    className="ad-quick-action-btn"
+                    onClick={() => onNavigate && onNavigate(view)}
+                  >
+                    <div className="ad-quick-action-icon">
+                      <Icon size={18} strokeWidth={1.8} />
+                    </div>
+                    <span className="ad-quick-action-label">{label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column: 3 Administration KPIs on Top + Chart & Redirections Below */}
-        <div className="ad-overview-right-col">
-          {/* Row of 3 Supporting Administration KPI Cards */}
+        {/* Right Column: 3 Administration KPIs at top + Department Redirections Below */}
+        <div className="ad-layer1-right-col">
+          {/* 1.3 Three Administration KPIs in required order: Total Users, Total Dept Handlers, Total Admins */}
           <div className="ad-overview-admin-kpis">
-            <MetricCard
-              label="Total Admins"
-              value={adminUsers.length}
-              sub="Super Admin View"
-              icon={ShieldAlert}
-            />
             <MetricCard
               label="Total Users"
               value={regularUsers.length}
@@ -292,28 +300,48 @@ export function SuperAdminOverviewView({
               sub="Staff Active"
               icon={UserCheck}
             />
+            <MetricCard
+              label="Total Admins"
+              value={adminUsers.length}
+              sub="Super Admin View"
+              icon={ShieldAlert}
+            />
           </div>
 
-          {/* Analytical Row: Complaints by Dept + Department Redirections */}
-          <div className="ad-overview-analytics-row">
-            <DepartmentComplaintChart
-              complaints={complaints}
-              departments={departments}
-            />
+          {/* 1.4 Department Redirections Table (occupies remaining height, max 4 preview rows) */}
+          <div className="ad-layer1-redirections-wrap">
             <DepartmentRedirections
               redirectionData={redirectionData}
+              maxRows={4}
+              onNavigate={onNavigate}
             />
           </div>
         </div>
       </div>
 
-      {/* 3. Recent Complaints: Full-Width Table Below Upper Section */}
-      <div className="ad-table-panel" style={{ marginTop: '22px' }}>
+      {/* ================================================================
+          LAYER 2: Two Equal-Sized Analytical / Operational Cards
+          Complaints by Department (Left) | Department Transfer Insights (Right)
+          ================================================================ */}
+      <div className="ad-overview-layer-2">
+        <DepartmentComplaintChart
+          complaints={complaints}
+          departments={departments}
+        />
+        <DepartmentTransferInsights
+          redirectionData={redirectionData}
+        />
+      </div>
+
+      {/* ================================================================
+          LAYER 3: Recent Complaints Table (Full-Width, Fixed Proportions)
+          ================================================================ */}
+      <div className="ad-table-panel ad-recent-complaints-panel">
         <div className="ad-table-panel-header-row">
           <div>
             <h2 className="ad-table-panel-title">Recent Complaints</h2>
             <p className="ad-table-panel-sub">
-              Real-time synchronized complaint records and department assignments.
+              Real-time synchronized complaint records and department assignments
             </p>
           </div>
           <button
@@ -321,7 +349,7 @@ export function SuperAdminOverviewView({
             className="ad-view-all-link"
             onClick={() => onNavigate && onNavigate('complaints')}
           >
-            <span>View all complaints</span>
+            <span>View All Complaints</span>
             <ArrowRight size={14} />
           </button>
         </div>
@@ -378,14 +406,23 @@ export function SuperAdminOverviewView({
           </button>
         </div>
 
-        {/* Complaints Table */}
+        {/* Complaints Table with explicit column proportions: 8%, 22%, 15%, 16%, 11%, 19%, 9% */}
         {filteredRecentComplaints.length === 0 ? (
           <div style={{ padding: '40px 20px', textAlign: 'center', color: '#637073', fontSize: '13.5px' }}>
             No recent complaints match the selected criteria.
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="ad-data-table">
+          <div className="ad-recent-table-scroll-wrap">
+            <table className="ad-data-table ad-recent-complaints-table">
+              <colgroup>
+                <col style={{ width: '8%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '19%' }} />
+                <col style={{ width: '9%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Complaint ID</th>
@@ -394,7 +431,7 @@ export function SuperAdminOverviewView({
                   <th>Current Department</th>
                   <th>Submitted</th>
                   <th>Status &amp; Confidence</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
+                  <th style={{ textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -403,16 +440,11 @@ export function SuperAdminOverviewView({
                     key={item.id}
                     className="ad-clickable-row"
                     onClick={() => onNavigate && onNavigate('complaints', item.id)}
-                    title="Click to view details in Complaints Oversight"
+                    title="Click to open complaint details"
                   >
                     <td style={{ fontFamily: 'monospace', fontWeight: '700' }}>#{item.id}</td>
                     <td
-                      style={{
-                        maxWidth: '260px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
+                      className="ad-cell-summary-truncate"
                       title={item.complaint_text}
                     >
                       {item.complaint_text}
@@ -430,7 +462,8 @@ export function SuperAdminOverviewView({
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{formatDate(item.create_at)}</td>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {/* Vertical stacked layout for status & confidence */}
+                      <div className="ad-status-confidence-stack">
                         <ComplaintStatusBadge status={item.status} />
                         {formatConfidence(item.confidence) && (
                           <span className="ad-confidence-pill">

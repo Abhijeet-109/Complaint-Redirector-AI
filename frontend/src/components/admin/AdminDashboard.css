@@ -2149,15 +2149,17 @@
 }
 
 /* ============================================================
-   SUPER ADMIN OVERVIEW REDESIGN (Master Prompt Implementation)
+   SUPER ADMIN OVERVIEW THREE-LAYER REFINEMENT (fixes.md)
    ============================================================ */
 
 .ad-overview-container {
   padding-bottom: 24px;
 }
 
-/* 2-Column Upper Dashboard Grid */
-.ad-overview-grid {
+/* ------------------------------------------------------------
+   LAYER 1: Left (Big KPI + 3 Statuses) | Right (Admin KPIs + Redirections)
+   ------------------------------------------------------------ */
+.ad-overview-layer-1 {
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(560px, 1.85fr);
   gap: 18px;
@@ -2166,21 +2168,28 @@
 }
 
 @media (max-width: 1200px) {
-  .ad-overview-grid {
+  .ad-overview-layer-1 {
     grid-template-columns: 1fr;
   }
 }
 
-/* Primary Complaints Hero KPI Card */
+/* Layer 1 - Left Column */
+.ad-layer1-left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .ad-primary-kpi-card {
   background-color: #FFFFFF;
   border: 1px solid #E8E4D8;
   border-radius: 10px;
   padding: 22px 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
 .ad-primary-kpi-header {
@@ -2216,7 +2225,7 @@
 }
 
 .ad-primary-kpi-value {
-  font-size: 44px;
+  font-size: 46px;
   font-weight: 800;
   color: #122D29;
   line-height: 1.05;
@@ -2227,8 +2236,8 @@
 .ad-primary-kpi-sub {
   font-size: 12.5px;
   color: #637073;
-  margin-bottom: 18px;
   line-height: 1.4;
+  margin-bottom: 18px;
 }
 
 /* Two Smaller Status KPIs inside the main card */
@@ -2269,8 +2278,8 @@
 .ad-mini-kpi-val {
   font-size: 22px;
   font-weight: 800;
-  line-height: 1.1;
-  margin-bottom: 2px;
+  line-height: 1.15;
+  margin: 2px 0;
 }
 
 .ad-mini-kpi-box.resolved .ad-mini-kpi-val,
@@ -2351,18 +2360,17 @@
   text-align: center;
 }
 
-/* Right Column */
-.ad-overview-right-col {
+/* Layer 1 - Right Column */
+.ad-layer1-right-col {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
-/* Administration KPI Row */
 .ad-overview-admin-kpis {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  gap: 12px;
 }
 
 @media (max-width: 768px) {
@@ -2371,24 +2379,194 @@
   }
 }
 
-/* Chart and Redirections Row */
-.ad-overview-analytics-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  align-items: stretch;
+.ad-layer1-redirections-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-@media (max-width: 900px) {
-  .ad-overview-analytics-row {
+/* ------------------------------------------------------------
+   LAYER 2: Two Equal-Sized Analytical / Operational Cards
+   ------------------------------------------------------------ */
+.ad-overview-layer-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 960px) {
+  .ad-overview-layer-2 {
     grid-template-columns: 1fr;
   }
+}
+
+/* Department Transfer Insights Panel */
+.ad-transfer-insights-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.ad-insights-content-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  justify-content: space-between;
+}
+
+.ad-insight-section {
+  background: #FAF8F4;
+  border: 1px solid #ECE7DC;
+  border-radius: 8px;
+  padding: 11px 14px;
+}
+
+.ad-insight-header-tag {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #748082;
+  margin-bottom: 6px;
+}
+
+.ad-insight-route-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ad-insight-route-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #122D29;
+}
+
+.ad-insight-dept-name.highlight {
+  color: #15803D;
+}
+
+.ad-insight-route-count {
+  font-size: 12px;
+  color: #5A6668;
+}
+
+.ad-insight-reasons-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ad-insight-reason-badge {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #FFFFFF;
+  border: 1px solid #ECE7DC;
+  color: #5A6668;
+}
+
+.ad-insight-reason-badge.dominant {
+  border-color: #9A8042;
+  background: #FEF7DC;
+  color: #7A5C1E;
+  font-weight: 700;
+}
+
+.ad-insight-dept-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ad-insight-dept-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+}
+
+.ad-insight-dept-name {
+  font-weight: 600;
+  color: #122D29;
+}
+
+.ad-insight-dept-count {
+  font-size: 11.5px;
+  color: #748082;
+}
+
+.ad-insight-observation-box {
+  background: #F4EFE3;
+  border: 1px solid #E5DEC9;
+  border-radius: 8px;
+  padding: 11px 14px;
+}
+
+.ad-insight-observation-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #7A5C1E;
+  margin-bottom: 4px;
+}
+
+.ad-insight-observation-text {
+  font-size: 12.5px;
+  color: #122D29;
+  line-height: 1.45;
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------
+   LAYER 3: Recent Complaints Table (Full-Width, Fixed Proportions)
+   ------------------------------------------------------------ */
+.ad-recent-complaints-panel {
+  margin-top: 20px;
+}
+
+.ad-recent-table-scroll-wrap {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.ad-recent-complaints-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 860px;
+}
+
+.ad-cell-summary-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0;
+}
+
+.ad-status-confidence-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 /* Mini Table adjustments for Redirections in Overview */
 .ad-redirection-mini-table {
   min-width: 0 !important;
   width: 100%;
+  table-layout: fixed;
 }
 
 .ad-redirection-mini-table th,
@@ -2399,9 +2577,16 @@
 
 .ad-redirection-mini-table .ad-redirection-route {
   font-size: 12px;
+  flex-wrap: nowrap;
 }
 
-/* Full-Width Recent Complaints Panel Header */
+.ad-redirection-mini-table .ad-redirection-route > span,
+.ad-redirection-mini-table .ad-redirection-route > strong {
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+
+/* Header & Controls */
 .ad-table-panel-header-row {
   display: flex;
   align-items: center;

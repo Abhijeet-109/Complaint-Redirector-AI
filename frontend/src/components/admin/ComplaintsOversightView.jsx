@@ -20,34 +20,6 @@ export function ComplaintsOversightView({
   const [selectedComplaint, setSelectedComplaint] = useState(null);
   const [highlightedComplaintId, setHighlightedComplaintId] = useState(null);
 
-  // Handle focused complaint navigation from overview (highlight row for 3-4s and open details)
-  useEffect(() => {
-    if (focusedComplaintId && complaints.length > 0) {
-      const target = complaints.find((c) => String(c.id) === String(focusedComplaintId));
-      if (target) {
-        setSelectedComplaint(target);
-        setHighlightedComplaintId(target.id);
-
-        const indexInFiltered = filteredComplaints.findIndex((c) => String(c.id) === String(target.id));
-        if (indexInFiltered !== -1) {
-          const targetPage = Math.floor(indexInFiltered / pageSize) + 1;
-          setCurrentPage(targetPage);
-        } else {
-          setSearchTerm('');
-          setStatusFilter('all');
-          setDeptFilter('all');
-        }
-
-        const timer = setTimeout(() => {
-          setHighlightedComplaintId(null);
-          if (onClearFocusedComplaint) onClearFocusedComplaint();
-        }, 3500);
-
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [focusedComplaintId, complaints, filteredComplaints, pageSize, onClearFocusedComplaint]);
-
   // Reset page when search or filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -127,6 +99,34 @@ export function ComplaintsOversightView({
       return true;
     });
   }, [complaints, statusFilter, deptFilter, searchTerm]);
+
+  // Handle focused complaint navigation from overview (highlight row for 3-4s and open details)
+  useEffect(() => {
+    if (focusedComplaintId && complaints.length > 0) {
+      const target = complaints.find((c) => String(c.id) === String(focusedComplaintId));
+      if (target) {
+        setSelectedComplaint(target);
+        setHighlightedComplaintId(target.id);
+
+        const indexInFiltered = filteredComplaints.findIndex((c) => String(c.id) === String(target.id));
+        if (indexInFiltered !== -1) {
+          const targetPage = Math.floor(indexInFiltered / pageSize) + 1;
+          setCurrentPage(targetPage);
+        } else {
+          setSearchTerm('');
+          setStatusFilter('all');
+          setDeptFilter('all');
+        }
+
+        const timer = setTimeout(() => {
+          setHighlightedComplaintId(null);
+          if (onClearFocusedComplaint) onClearFocusedComplaint();
+        }, 3500);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [focusedComplaintId, complaints, filteredComplaints, pageSize, onClearFocusedComplaint]);
 
   // Pagination calculations
   const totalPages = Math.max(1, Math.ceil(filteredComplaints.length / pageSize));

@@ -121,3 +121,58 @@ test('Super Admin Overview: Focused complaint navigation identifies target page 
   // targetIndex is 12 (100 - 88 = 12). Page should be Math.floor(12 / 5) + 1 = 3.
   assert.equal(targetPage, 3, 'Page for complaint #88 with pageSize 5 is page 3');
 });
+
+test('Super Admin Overview: Department Transfer Insights derives operational metrics without fabrication', () => {
+  const sampleRedirectionData = {
+    summary: {
+      total_transfer_events: 2,
+      total_complaints_forwarded: 1,
+      model_fault_transfers: 1,
+      further_processing_transfers: 1,
+    },
+    by_department_route: [
+      {
+        from_department: 'Product & Quality',
+        to_department: 'Returns & Replacement',
+        total_transfer_events: 1,
+        model_fault_transfers: 1,
+        further_processing_transfers: 0,
+      },
+      {
+        from_department: 'Returns & Replacement',
+        to_department: 'Product & Quality',
+        total_transfer_events: 1,
+        model_fault_transfers: 0,
+        further_processing_transfers: 1,
+      },
+    ],
+  };
+
+  const routes = sampleRedirectionData.by_department_route;
+  const summary = sampleRedirectionData.summary;
+
+  // Most frequent route
+  const mostFrequent = [...routes].sort((a, b) => b.total_transfer_events - a.total_transfer_events)[0];
+  assert.ok(mostFrequent);
+  assert.equal(mostFrequent.total_transfer_events, 1);
+
+  // Dominant reason comparison
+  const modelFaults = summary.model_fault_transfers || 0;
+  const furtherProcessing = summary.further_processing_transfers || 0;
+  assert.equal(modelFaults, 1);
+  assert.equal(furtherProcessing, 1);
+  const dominant = modelFaults === furtherProcessing ? 'Equal Split' : (modelFaults > furtherProcessing ? 'Model Fault' : 'Further Processing');
+  assert.equal(dominant, 'Equal Split');
+
+  // Department activity involvement
+  const counts = {};
+  routes.forEach((r) => {
+    const weight = r.total_transfer_events || 1;
+    counts[r.from_department] = (counts[r.from_department] || 0) + weight;
+    counts[r.to_department] = (counts[r.to_department] || 0) + weight;
+  });
+  const topDepts = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  assert.equal(topDepts.length, 2);
+  assert.equal(topDepts[0][1], 2, 'Top department involved in 2 transfer events');
+});
+
