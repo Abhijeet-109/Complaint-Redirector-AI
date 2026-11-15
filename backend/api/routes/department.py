@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select, func, and_, cast, String
+from sqlalchemy import select, func, and_, or_, cast, String
 
 from backend.Database.models import (
     Department,
@@ -18,6 +18,12 @@ from backend.Database.models import (
     ReturnHandoff,
     Refund,
     ReturnRequestEvent,
+    Shipment,
+    ShipmentEvent,
+    Inventory,
+    ProductVariant,
+    Product,
+    ProductCategory,
 )
 from backend.Database.return_services import (
     apply_claim_decision, claim_details, create_after_collection_refund_handoff,
@@ -27,6 +33,7 @@ from backend.Database.return_services import (
 from backend.Database.admin_commerce_services import (
     execute_return_refund, get_return_refund_tracking, list_return_refund_handoffs,
     list_order_delivery_orders, list_order_delivery_shipments, update_order_status, update_shipment,
+    list_inventory, get_category_stock_summary,
 )
 from backend.Database.return_evidence_storage import read_evidence, signed_evidence_url
 from backend.Database.schemas import (
@@ -937,6 +944,432 @@ def patch_order_delivery_shipment_status(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+
+@handler_router.get("/order-delivery/dashboard")
+def get_order_delivery_dashboard(
+    period: str = Query(default="month"),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+
+    actionable_orders = db.scalar(
+        select(func.count(CommerceOrder.id)).where(
+            CommerceOrder.status.in_(["placed", "accepted", "processing", "packed", "ready_to_ship"])
+        )
+    ) or 0
+    actionable_shipments = db.scalar(
+        select(func.count(Shipment.id)).where(
+            Shipment.status.in_(["ready_for_dispatch", "received", "scheduled", "shipped", "out_for_delivery"])
+        )
+    ) or 0
+    orders_requiring_action = actionable_orders + actionable_shipments
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    new_orders = db.scalar(
+        select(func.count(CommerceOrder.id)).where(
+            CommerceOrder.created_at >= start_of_today,
+            CommerceOrder.status.not_in(["cancelled", "payment_failed"]),
+        )
+    ) or 0
+    if new_orders == 0:
+        new_orders = db.scalar(
+            select(func.count(CommerceOrder.id)).where(CommerceOrder.status == "placed")
+        ) or 0
+
+    in_fulfilment = db.scalar(
+        select(func.count(CommerceOrder.id)).where(
+            CommerceOrder.status.in_(["accepted", "processing", "packed"])
+        )
+    ) or 0
+
+    ready_to_ship = db.scalar(
+        select(func.count(CommerceOrder.id)).where(
+            CommerceOrder.status == "ready_to_ship"
+        )
+    ) or 0
+
+    # Shipment overview counts
+    shipment_rows = db.execute(
+        select(Shipment.status, func.count(Shipment.id)).group_by(Shipment.status)
+    ).all()
+    shipment_counts = {r[0]: r[1] for r in shipment_rows}
+    shipment_overview = {
+        "ready_for_dispatch": shipment_counts.get("ready_for_dispatch", 0),
+        "scheduled": shipment_counts.get("scheduled", 0),
+        "shipped": shipment_counts.get("shipped", 0),
+        "out_for_delivery": shipment_counts.get("out_for_delivery", 0),
+        "delivered": shipment_counts.get("delivered", 0),
+    }
+
+    # Inventory Health
+    total_skus = db.scalar(select(func.count(Inventory.id))) or 0
+    low_stock = db.scalar(
+        select(func.count(Inventory.id)).where(
+            Inventory.available_stock > 0,
+            Inventory.available_stock <= 10,
+        )
+    ) or 0
+    out_of_stock = db.scalar(
+        select(func.count(Inventory.id)).where(Inventory.available_stock == 0)
+    ) or 0
+    health_score = int(round(((total_skus - out_of_stock) / total_skus) * 100)) if total_skus > 0 else 100
+
+    # Historical Activity Chart (Orders vs Shipments)
+    activity_chart = []
+    if period == "day":
+        for i in range(6, -1, -1):
+            dt = now - timedelta(days=i)
+            start_dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+            orders_cnt = db.scalar(
+                select(func.count(CommerceOrder.id)).where(
+                    CommerceOrder.created_at >= start_dt,
+                    CommerceOrder.created_at <= end_dt,
+                    CommerceOrder.status.not_in(["cancelled", "payment_failed"]),
+                )
+            ) or 0
+            shipments_cnt = db.scalar(
+                select(func.count(Shipment.id)).where(
+                    Shipment.created_at >= start_dt,
+                    Shipment.created_at <= end_dt,
+                )
+            ) or 0
+            activity_chart.append({
+                "label": dt.strftime("%a"),
+                "orders": orders_cnt,
+                "shipments": shipments_cnt,
+                "is_current": (i == 0),
+            })
+    elif period == "week":
+        for i in range(3, -1, -1):
+            start_dt = now - timedelta(days=(i + 1) * 7)
+            end_dt = now - timedelta(days=i * 7)
+            orders_cnt = db.scalar(
+                select(func.count(CommerceOrder.id)).where(
+                    CommerceOrder.created_at >= start_dt,
+                    CommerceOrder.created_at <= end_dt,
+                    CommerceOrder.status.not_in(["cancelled", "payment_failed"]),
+                )
+            ) or 0
+            shipments_cnt = db.scalar(
+                select(func.count(Shipment.id)).where(
+                    Shipment.created_at >= start_dt,
+                    Shipment.created_at <= end_dt,
+                )
+            ) or 0
+            activity_chart.append({
+                "label": f"Wk {4 - i}",
+                "orders": orders_cnt,
+                "shipments": shipments_cnt,
+                "is_current": (i == 0),
+            })
+    else:  # month
+        for i in range(5, -1, -1):
+            m = now.month - i
+            y = now.year
+            while m <= 0:
+                m += 12
+                y -= 1
+            month_start = datetime(y, m, 1)
+            next_month = datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)
+            orders_cnt = db.scalar(
+                select(func.count(CommerceOrder.id)).where(
+                    CommerceOrder.created_at >= month_start,
+                    CommerceOrder.created_at < next_month,
+                    CommerceOrder.status.not_in(["cancelled", "payment_failed"]),
+                )
+            ) or 0
+            shipments_cnt = db.scalar(
+                select(func.count(Shipment.id)).where(
+                    Shipment.created_at >= month_start,
+                    Shipment.created_at < next_month,
+                )
+            ) or 0
+            activity_chart.append({
+                "label": month_start.strftime("%b"),
+                "orders": orders_cnt,
+                "shipments": shipments_cnt,
+                "is_current": (i == 0),
+            })
+
+    # Recent Orders
+    recent_orders_db = db.scalars(
+        select(CommerceOrder)
+        .options(selectinload(CommerceOrder.user), selectinload(CommerceOrder.items))
+        .where(CommerceOrder.status.not_in(["cancelled", "payment_failed"]))
+        .order_by(CommerceOrder.created_at.desc(), CommerceOrder.id.desc())
+        .limit(5)
+    ).all()
+    recent_orders = [
+        {
+            "id": ord.id,
+            "order_number": ord.order_number,
+            "customer_name": ord.user.name if ord.user else "Customer",
+            "total_amount": float(ord.total_amount or 0),
+            "currency": ord.currency or "INR",
+            "status": ord.status,
+            "created_at": ord.created_at.isoformat() if ord.created_at else None,
+        }
+        for ord in recent_orders_db
+    ]
+
+    # Recent Shipments
+    recent_shipments_db = db.scalars(
+        select(Shipment)
+        .join(CommerceOrder, CommerceOrder.id == Shipment.order_id)
+        .options(selectinload(Shipment.order).selectinload(CommerceOrder.user))
+        .order_by(Shipment.created_at.desc(), Shipment.id.desc())
+        .limit(5)
+    ).all()
+    recent_shipments = []
+    for shp in recent_shipments_db:
+        addr = shp.order.delivery_address or {} if shp.order else {}
+        dest_parts = [addr.get("city"), addr.get("state")]
+        dest = ", ".join([p for p in dest_parts if p]) or "Standard Delivery"
+        recent_shipments.append({
+            "id": shp.id,
+            "shipment_id": f"SH-{shp.id:04d}",
+            "order_id": shp.order_id,
+            "order_number": shp.order.order_number if shp.order else f"#{shp.order_id}",
+            "destination": dest,
+            "eta": shp.estimated_delivery_date.strftime("%b %d, %H:%M") if shp.estimated_delivery_date else (
+                "Today 14:30" if shp.status in ["in_transit", "out_for_delivery"] else "Scheduled"
+            ),
+            "status": shp.status,
+            "carrier": shp.carrier or "Standard Carrier",
+        })
+
+    # Inventory Alerts (Low stock or out of stock)
+    alert_rows = db.execute(
+        select(Inventory, ProductVariant, Product)
+        .join(ProductVariant, ProductVariant.id == Inventory.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(Inventory.available_stock <= 15)
+        .order_by(Inventory.available_stock.asc())
+        .limit(5)
+    ).all()
+    inventory_alerts = [
+        {
+            "id": inv.id,
+            "product_name": prod.name,
+            "variant_name": var.name,
+            "sku": var.sku,
+            "available_stock": inv.available_stock,
+            "reorder_level": 20,
+            "stock_status": inv.stock_status,
+        }
+        for inv, var, prod in alert_rows
+    ]
+
+    return {
+        "orders_requiring_action": orders_requiring_action,
+        "new_orders": new_orders,
+        "in_fulfilment": in_fulfilment,
+        "ready_to_ship": ready_to_ship,
+        "shipment_overview": shipment_overview,
+        "inventory_health": {
+            "total_skus": total_skus,
+            "low_stock": low_stock,
+            "out_of_stock": out_of_stock,
+            "health_score": health_score,
+        },
+        "activity_chart": activity_chart,
+        "recent_orders": recent_orders,
+        "recent_shipments": recent_shipments,
+        "inventory_alerts": inventory_alerts,
+        "updated_at": now.isoformat(),
+    }
+
+
+@handler_router.get("/order-delivery/inventory")
+def list_order_delivery_inventory_for_handler(
+    search: str | None = Query(default=None),
+    stock_status: str | None = Query(default=None),
+    category_id: int | None = Query(default=None),
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    return list_inventory(
+        db,
+        search=search,
+        stock_status=stock_status,
+        category_id=category_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@handler_router.get("/order-delivery/inventory/categories")
+def get_order_delivery_inventory_categories(
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    return get_category_stock_summary(db)
+
+
+@handler_router.get("/order-delivery/exceptions")
+def list_order_delivery_exceptions(
+    search: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    stmt = (
+        select(Shipment)
+        .join(CommerceOrder, CommerceOrder.id == Shipment.order_id)
+        .options(
+            selectinload(Shipment.events),
+            selectinload(Shipment.order).selectinload(CommerceOrder.items),
+            selectinload(Shipment.order).selectinload(CommerceOrder.user),
+        )
+        .where(
+            or_(
+                Shipment.status == "failed",
+                and_(
+                    Shipment.estimated_delivery_date.is_not(None),
+                    Shipment.estimated_delivery_date < now,
+                    Shipment.status.not_in(["delivered", "cancelled"]),
+                ),
+            )
+        )
+    )
+
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                CommerceOrder.order_number.ilike(term),
+                Shipment.carrier.ilike(term),
+                Shipment.tracking_reference.ilike(term),
+            )
+        )
+
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    shipments = db.scalars(stmt.order_by(Shipment.id.desc()).offset(offset).limit(limit)).all()
+
+    items = []
+    for shp in shipments:
+        order_data = shp.order
+        addr = order_data.delivery_address or {}
+        dest_parts = [addr.get("city"), addr.get("state")]
+        dest = ", ".join([p for p in dest_parts if p]) or "Address on file"
+        reason = "Delivery attempt failed" if shp.status == "failed" else "Overdue delivery date"
+        items.append({
+            "id": shp.id,
+            "shipment_id": f"SH-{shp.id:04d}",
+            "order_id": shp.order_id,
+            "order_number": order_data.order_number,
+            "customer_name": order_data.user.name if order_data.user else "Customer",
+            "destination": dest,
+            "exception_reason": reason,
+            "status": shp.status,
+            "estimated_delivery_date": shp.estimated_delivery_date.isoformat() if shp.estimated_delivery_date else None,
+            "carrier": shp.carrier or "Not assigned",
+            "tracking_reference": shp.tracking_reference or "Not provided",
+            "notes": shp.notes,
+            "created_at": shp.created_at.isoformat() if shp.created_at else None,
+        })
+
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@handler_router.get("/order-delivery/history-audit")
+def list_order_delivery_history_audit(
+    search: str | None = Query(default=None),
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+
+    stmt = (
+        select(ShipmentEvent)
+        .options(
+            selectinload(ShipmentEvent.changed_by),
+            selectinload(ShipmentEvent.shipment).selectinload(Shipment.order),
+            selectinload(ShipmentEvent.order),
+        )
+        .order_by(ShipmentEvent.created_at.desc(), ShipmentEvent.id.desc())
+    )
+
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                ShipmentEvent.note.ilike(term),
+                ShipmentEvent.new_status.ilike(term),
+                ShipmentEvent.previous_status.ilike(term),
+            )
+        )
+
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    events = db.scalars(stmt.offset(offset).limit(limit)).all()
+
+    items = []
+    for ev in events:
+        ref_id = f"EVT-{ev.id}"
+        order_num = None
+        if ev.order:
+            order_num = ev.order.order_number
+        elif ev.shipment and ev.shipment.order:
+            order_num = ev.shipment.order.order_number
+
+        items.append({
+            "id": ev.id,
+            "timestamp": ev.created_at.isoformat() if ev.created_at else None,
+            "event_type": ev.event_type,
+            "reference_id": order_num or ref_id,
+            "previous_status": ev.previous_status,
+            "new_status": ev.new_status,
+            "performed_by": ev.changed_by.name if ev.changed_by else "System / Handler",
+            "note": ev.note or f"Updated status to {ev.new_status}",
+        })
+
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@handler_router.get("/order-delivery/reports-stats")
+def get_order_delivery_reports_stats(
+    period: str = Query(default="month"),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Order & Delivery")
+
+    total_orders = db.scalar(select(func.count(CommerceOrder.id))) or 0
+    delivered_orders = db.scalar(
+        select(func.count(CommerceOrder.id)).where(CommerceOrder.status == "delivered")
+    ) or 0
+    shipped_orders = db.scalar(
+        select(func.count(Shipment.id)).where(Shipment.status.in_(["shipped", "out_for_delivery", "delivered"]))
+    ) or 0
+    completed_handoffs = db.scalar(
+        select(func.count(ReturnHandoff.id)).where(
+            ReturnHandoff.current_owner == "Order & Delivery",
+            ReturnHandoff.status == "completed",
+        )
+    ) or 0
+
+    return {
+        "total_orders": total_orders,
+        "delivered_orders": delivered_orders,
+        "shipped_orders": shipped_orders,
+        "completed_handoffs": completed_handoffs,
+        "period": period,
+    }
 
 
 @handler_router.post("/returns/{claim_id}/resolve")

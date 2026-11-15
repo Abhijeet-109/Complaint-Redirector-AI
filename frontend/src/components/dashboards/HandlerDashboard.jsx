@@ -13,6 +13,13 @@ import { HandlerRequestDetailView } from '../handler/HandlerRequestDetailView';
 import { HandlerComplaintDetailView } from '../handler/HandlerComplaintDetailView';
 import { HandlerHandoffDetailView } from '../handler/HandlerHandoffDetailView';
 import { HandlerOrderDeliveryView } from '../handler/HandlerOrderDeliveryView';
+import { ODOverviewView } from '../handler/order_delivery/ODOverviewView';
+import { ODOrderManagementView } from '../handler/order_delivery/ODOrderManagementView';
+import { ODShipmentManagementView } from '../handler/order_delivery/ODShipmentManagementView';
+import { ODReturnsHandoffView } from '../handler/order_delivery/ODReturnsHandoffView';
+import { ODInventoryView } from '../handler/order_delivery/ODInventoryView';
+import { ODExceptionsView } from '../handler/order_delivery/ODExceptionsView';
+import { ODHistoryReportsView } from '../handler/order_delivery/ODHistoryReportsView';
 import '../handler/HandlerDashboard.css';
 
 export function HandlerDashboard({ onNavigate, routePath }) {
@@ -219,14 +226,23 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     if (isOrderDelivery) {
       switch (currentPath) {
         case '/handler/orders':
-          return <HandlerOrderDeliveryView kind="orders" orders={deliveryOrders} loading={loading} error={error} onRefresh={loadData} />;
+          return <ODOrderManagementView onNavigate={onNavigate} />;
         case '/handler/shipments':
-          return <HandlerOrderDeliveryView kind="shipments" shipments={deliveryShipments} loading={loading} error={error} onRefresh={loadData} />;
+          return <ODShipmentManagementView onNavigate={onNavigate} />;
+        case '/handler/returns-handoffs':
         case '/handler/tracking':
-          return <HandlerTrackingView handoffs={trackingHandoffs} kpiCounts={trackingKpi} loading={loading} onNavigate={onNavigate} onRefresh={loadData} />;
+          return <ODReturnsHandoffView onNavigate={onNavigate} />;
+        case '/handler/inventory':
+          return <ODInventoryView onNavigate={onNavigate} />;
+        case '/handler/exceptions':
+          return <ODExceptionsView onNavigate={onNavigate} />;
+        case '/handler/history-reports':
+        case '/handler/history':
+        case '/handler/reports':
+          return <ODHistoryReportsView onNavigate={onNavigate} />;
         case '/handler/dashboard':
         default:
-          return <HandlerOrderDeliveryView kind="dashboard" orders={deliveryOrders} shipments={deliveryShipments} loading={loading} onNavigate={onNavigate} />;
+          return <ODOverviewView onNavigate={onNavigate} />;
       }
     }
 

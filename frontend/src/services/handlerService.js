@@ -51,6 +51,41 @@ export const handlerService = {
       method: 'PATCH', body: JSON.stringify({ milestone, note }),
     });
   },
+  getOrderDeliveryDashboard(period = 'month') {
+    return apiRequest(`/api/v1/departments/order-delivery/dashboard?period=${period}`, { method: 'GET' });
+  },
+  getOrderDeliveryInventory(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.stock_status) query.append('stock_status', params.stock_status);
+    if (params.category_id !== undefined) query.append('category_id', String(params.category_id));
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/inventory${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryInventoryCategories() {
+    return apiRequest('/api/v1/departments/order-delivery/inventory/categories', { method: 'GET' });
+  },
+  getOrderDeliveryExceptions(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/exceptions${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryHistoryAudit(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/history-audit${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryReportsStats(period = 'month') {
+    return apiRequest(`/api/v1/departments/order-delivery/reports-stats?period=${period}`, { method: 'GET' });
+  },
   /**
    * Get complaints assigned to the current handler's department.
    * GET /api/v1/handler/complaints

@@ -11,6 +11,9 @@ import {
   ShoppingCart,
   PackageCheck,
   Truck,
+  RotateCcw,
+  Boxes,
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -25,6 +28,7 @@ export function HandlerSidebar({
   departmentName = 'Returns & Replacement',
 }) {
   const { logout } = useAuth();
+  const isOrderDelivery = departmentName === 'Order & Delivery';
 
   const handleSignOut = () => {
     logout();
@@ -78,13 +82,55 @@ export function HandlerSidebar({
       activeMatch: (p) => p.startsWith('/handler/reports'),
     },
   ];
-  const orderDeliveryNavItems = [
-    returnsNavItems[0],
-    { label: 'Order Management', path: '/handler/orders', icon: PackageCheck, activeMatch: (p) => p.startsWith('/handler/orders') },
-    { label: 'Shipment Management', path: '/handler/shipments', icon: Truck, activeMatch: (p) => p.startsWith('/handler/shipments') },
-    { label: 'Returns & Replacement', path: '/handler/tracking', icon: ArrowLeftRight, activeMatch: (p) => p.startsWith('/handler/tracking') },
+
+  const orderDeliveryWorkspaceItems = [
+    {
+      label: 'Overview',
+      path: '/handler/dashboard',
+      icon: LayoutDashboard,
+      activeMatch: (p) => p === '/handler/dashboard' || p === '/handler' || p === '/handler-dashboard',
+    },
+    {
+      label: 'Order Management',
+      path: '/handler/orders',
+      icon: PackageCheck,
+      badge: queueCount > 0 ? queueCount : null,
+      activeMatch: (p) => p.startsWith('/handler/orders'),
+    },
+    {
+      label: 'Shipment Management',
+      path: '/handler/shipments',
+      icon: Truck,
+      activeMatch: (p) => p.startsWith('/handler/shipments'),
+    },
+    {
+      label: 'Returns & Replacement',
+      path: '/handler/returns-handoffs',
+      icon: RotateCcw,
+      activeMatch: (p) => p.startsWith('/handler/returns-handoffs') || p.startsWith('/handler/tracking'),
+    },
   ];
-  const navItems = departmentName === 'Order & Delivery' ? orderDeliveryNavItems : returnsNavItems;
+
+  const orderDeliveryOperationsItems = [
+    {
+      label: 'Inventory',
+      path: '/handler/inventory',
+      icon: Boxes,
+      activeMatch: (p) => p.startsWith('/handler/inventory'),
+    },
+    {
+      label: 'Delivery Exceptions',
+      path: '/handler/exceptions',
+      icon: AlertTriangle,
+      activeMatch: (p) => p.startsWith('/handler/exceptions'),
+    },
+    {
+      label: 'History & Reports',
+      path: '/handler/history-reports',
+      icon: History,
+      activeMatch: (p) => p.startsWith('/handler/history-reports'),
+    },
+  ];
 
   const handleItemClick = (path) => {
     if (onNavigate) {
@@ -92,9 +138,30 @@ export function HandlerSidebar({
     }
   };
 
+  const renderNavButton = (item) => {
+    const Icon = item.icon;
+    const isActive = item.activeMatch(currentPath);
+
+    return (
+      <button
+        key={item.path}
+        type="button"
+        className={`hd-sidebar-item ${isActive ? 'active' : ''} ${collapsed ? 'collapsed' : ''}`}
+        onClick={() => handleItemClick(item.path)}
+        title={collapsed ? item.label : undefined}
+      >
+        <Icon size={18} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+        {!collapsed && <span className="hd-sidebar-label">{item.label}</span>}
+        {!collapsed && item.badge !== null && item.badge !== undefined && item.badge > 0 && (
+          <span className="hd-sidebar-badge">{item.badge}</span>
+        )}
+      </button>
+    );
+  };
+
   return (
     <aside className={`hd-sidebar ${collapsed ? 'hd-sidebar-collapsed' : ''}`}>
-      {/* Brand & Toggle Header Row — Exactly matching Admin Dashboard layout */}
+      {/* Brand & Toggle Header Row — Matching Admin Dashboard / Screenshot */}
       <div className={`ad-sidebar-header-row ${collapsed ? 'collapsed' : ''}`}>
         <div
           className="ad-sidebar-brand"
@@ -107,12 +174,14 @@ export function HandlerSidebar({
           {!collapsed && (
             <div className="ad-sidebar-brand-info">
               <span className="ad-sidebar-brand-name">FLATKART</span>
-              <span className="ad-sidebar-brand-badge">DEPT HANDLER</span>
+              <span className="ad-sidebar-brand-badge">
+                {isOrderDelivery ? 'ORDER & DELIVERY' : 'DEPT HANDLER'}
+              </span>
             </div>
           )}
         </div>
 
-        {/* Toggle Button — placed below logo when collapsed */}
+        {/* Toggle Button */}
         <button
           type="button"
           className={`ad-sidebar-toggle ${collapsed ? 'collapsed' : 'expanded'}`}
@@ -124,38 +193,37 @@ export function HandlerSidebar({
         </button>
       </div>
 
-      {/* Section Title */}
-      {!collapsed && (
-        <div className="hd-sidebar-section-title">
-          {departmentName.toUpperCase()}
-        </div>
-      )}
-
-      {/* Navigation Links */}
+      {/* Navigation Sections */}
       <nav className="hd-sidebar-nav">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = item.activeMatch(currentPath);
+        {isOrderDelivery ? (
+          <>
+            {!collapsed && (
+              <div className="hd-sidebar-section-title">
+                WORKSPACE
+              </div>
+            )}
+            {orderDeliveryWorkspaceItems.map(renderNavButton)}
 
-          return (
-            <button
-              key={item.path}
-              type="button"
-              className={`hd-sidebar-item ${isActive ? 'active' : ''} ${collapsed ? 'collapsed' : ''}`}
-              onClick={() => handleItemClick(item.path)}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon size={18} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-              {!collapsed && <span className="hd-sidebar-label">{item.label}</span>}
-              {!collapsed && item.badge !== null && item.badge !== undefined && item.badge > 0 && (
-                <span className="hd-sidebar-badge">{item.badge}</span>
-              )}
-            </button>
-          );
-        })}
+            {!collapsed && (
+              <div className="hd-sidebar-section-title" style={{ marginTop: 14 }}>
+                OPERATIONS
+              </div>
+            )}
+            {orderDeliveryOperationsItems.map(renderNavButton)}
+          </>
+        ) : (
+          <>
+            {!collapsed && (
+              <div className="hd-sidebar-section-title">
+                {departmentName.toUpperCase()}
+              </div>
+            )}
+            {returnsNavItems.map(renderNavButton)}
+          </>
+        )}
       </nav>
 
-      {/* Reusing Admin Dashboard Signout / Logout Structure & Styling */}
+      {/* Sidebar Signout Footer */}
       <div className="ad-sidebar-footer">
         <button
           type="button"
