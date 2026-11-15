@@ -16,6 +16,10 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
+  Receipt,
+  Landmark,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -29,6 +33,7 @@ export function HandlerSidebar({
 }) {
   const { logout } = useAuth();
   const isOrderDelivery = departmentName === 'Order & Delivery';
+  const isPaymentsRefunds = departmentName === 'Payments & Refunds';
 
   const handleSignOut = () => {
     logout();
@@ -132,6 +137,61 @@ export function HandlerSidebar({
     },
   ];
 
+  const paymentsWorkspaceItems = [
+    {
+      label: 'Overview',
+      path: '/handler/dashboard',
+      icon: LayoutDashboard,
+      activeMatch: (p) => p === '/handler/dashboard' || p === '/handler' || p === '/handler-dashboard',
+    },
+    {
+      label: 'Payment Transactions',
+      path: '/handler/transactions',
+      icon: CreditCard,
+      activeMatch: (p) => p.startsWith('/handler/transactions'),
+    },
+    {
+      label: 'Refund Management',
+      path: '/handler/refunds',
+      icon: RotateCcw,
+      badge: queueCount > 0 ? queueCount : null,
+      activeMatch: (p) => p.startsWith('/handler/refunds'),
+    },
+    {
+      label: 'Refund Requests',
+      path: '/handler/refund-requests',
+      icon: Receipt,
+      activeMatch: (p) => p.startsWith('/handler/refund-requests'),
+    },
+    {
+      label: 'Settlements & Reconciliation',
+      path: '/handler/settlements',
+      icon: Landmark,
+      activeMatch: (p) => p.startsWith('/handler/settlements'),
+    },
+    {
+      label: 'Disputes',
+      path: '/handler/disputes',
+      icon: ShieldAlert,
+      activeMatch: (p) => p.startsWith('/handler/disputes'),
+    },
+  ];
+
+  const paymentsOperationsItems = [
+    {
+      label: 'Payment Reports',
+      path: '/handler/reports',
+      icon: ChartNoAxesColumn,
+      activeMatch: (p) => p.startsWith('/handler/reports'),
+    },
+    {
+      label: 'Audit History',
+      path: '/handler/history',
+      icon: History,
+      activeMatch: (p) => p.startsWith('/handler/history'),
+    },
+  ];
+
   const handleItemClick = (path) => {
     if (onNavigate) {
       onNavigate('handler-dashboard', path);
@@ -175,7 +235,7 @@ export function HandlerSidebar({
             <div className="ad-sidebar-brand-info">
               <span className="ad-sidebar-brand-name">FLATKART</span>
               <span className="ad-sidebar-brand-badge">
-                {isOrderDelivery ? 'ORDER & DELIVERY' : 'DEPT HANDLER'}
+                {isOrderDelivery ? 'ORDER & DELIVERY' : isPaymentsRefunds ? 'PAYMENTS & REFUNDS' : 'DEPT HANDLER'}
               </span>
             </div>
           )}
@@ -210,6 +270,22 @@ export function HandlerSidebar({
               </div>
             )}
             {orderDeliveryOperationsItems.map(renderNavButton)}
+          </>
+        ) : isPaymentsRefunds ? (
+          <>
+            {!collapsed && (
+              <div className="hd-sidebar-section-title">
+                WORKSPACE
+              </div>
+            )}
+            {paymentsWorkspaceItems.map(renderNavButton)}
+
+            {!collapsed && (
+              <div className="hd-sidebar-section-title" style={{ marginTop: 14 }}>
+                OPERATIONS
+              </div>
+            )}
+            {paymentsOperationsItems.map(renderNavButton)}
           </>
         ) : (
           <>

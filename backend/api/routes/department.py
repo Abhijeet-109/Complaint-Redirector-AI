@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import os
 from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -13,6 +14,7 @@ from backend.Database.models import (
     Complaint,
     ComplaintRedirection,
     CommerceOrder,
+    PaymentAttempt,
     ReturnRequest,
     ReturnEvidence,
     ReturnHandoff,
@@ -1426,6 +1428,1121 @@ def process_return_refund_handoff(
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail="Refund processing could not be completed safely.") from exc
+
+
+@handler_router.get("/payments/dashboard")
+def get_payments_dashboard(
+    period: str = Query(default="month"),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+
+    # 1. Total Online Collections (captured attempts)
+    online_collected = db.scalar(
+        select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+            PaymentAttempt.status == "captured"
+        )
+    ) or 0
+
+    # 2. Total COD Collections (delivered COD orders with delivered shipments)
+    cod_collected = db.scalar(
+        select(func.coalesce(func.sum(CommerceOrder.total_amount), 0))
+        .join(Shipment, Shipment.order_id == CommerceOrder.id)
+        .where(
+            CommerceOrder.payment_method == "cod",
+            CommerceOrder.status == "delivered",
+            Shipment.status == "delivered",
+        )
+    ) or 0
+
+    total_collected = float(Decimal(str(online_collected)) + Decimal(str(cod_collected)))
+
+    # 3. Total Refunded (completed/processed refunds)
+    total_refunded = float(db.scalar(
+        select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.status == "processed"
+        )
+    ) or 0)
+
+    # 4. Net Collections
+    net_collections = total_collected - total_refunded
+
+    # 5. Refunds Pending (approved refund handoffs awaiting processing)
+    payments_dept = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+    refunds_pending_amount = 0.0
+    pending_handoffs_count = 0
+    if payments_dept:
+        pending_handoffs = db.scalars(
+            select(ReturnHandoff)
+            .options(
+                selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item)
+            )
+            .where(
+                ReturnHandoff.destination_department_id == payments_dept.id,
+                ReturnHandoff.handoff_type == "refund_processing",
+                ReturnHandoff.status.in_(["pending", "in_progress", "accepted"]),
+            )
+        ).all()
+        pending_handoffs_count = len(pending_handoffs)
+        for h in pending_handoffs:
+            if h.return_request and h.return_request.order_item:
+                refunds_pending_amount += float(h.return_request.order_item.unit_price * h.return_request.quantity)
+
+    # 6. Collections & Refunds Activity Chart (Day / Week / Month)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    activity_chart = []
+    selected_period_net = 0.0
+
+    if period == "day":
+        for i in range(6, -1, -1):
+            day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            label = day_start.strftime("%d %b")
+
+            col = float(db.scalar(
+                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+                    PaymentAttempt.status == "captured",
+                    PaymentAttempt.created_at >= day_start,
+                    PaymentAttempt.created_at < day_end,
+                )
+            ) or 0)
+            ref = float(db.scalar(
+                select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                    Refund.status == "processed",
+                    Refund.created_at >= day_start,
+                    Refund.created_at < day_end,
+                )
+            ) or 0)
+            net = col - ref
+            activity_chart.append({"label": label, "collections": col, "refunds": ref, "net": net})
+        if activity_chart:
+            selected_period_net = activity_chart[-1]["net"]
+
+    elif period == "week":
+        for i in range(7, -1, -1):
+            w_start = (now - timedelta(weeks=i+1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            w_end = (now - timedelta(weeks=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+            label = f"Wk {w_start.strftime('%W')}"
+
+            col = float(db.scalar(
+                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+                    PaymentAttempt.status == "captured",
+                    PaymentAttempt.created_at >= w_start,
+                    PaymentAttempt.created_at < w_end,
+                )
+            ) or 0)
+            ref = float(db.scalar(
+                select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                    Refund.status == "processed",
+                    Refund.created_at >= w_start,
+                    Refund.created_at < w_end,
+                )
+            ) or 0)
+            net = col - ref
+            activity_chart.append({"label": label, "collections": col, "refunds": ref, "net": net})
+        if activity_chart:
+            selected_period_net = activity_chart[-1]["net"]
+
+    else:
+        current_year = now.year
+        current_month = now.month
+        for m in range(1, 13):
+            m_start = datetime(current_year, m, 1)
+            if m == 12:
+                m_end = datetime(current_year + 1, 1, 1)
+            else:
+                m_end = datetime(current_year, m + 1, 1)
+            label = m_start.strftime("%b")
+
+            col = float(db.scalar(
+                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+                    PaymentAttempt.status == "captured",
+                    PaymentAttempt.created_at >= m_start,
+                    PaymentAttempt.created_at < m_end,
+                )
+            ) or 0)
+            ref = float(db.scalar(
+                select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                    Refund.status == "processed",
+                    Refund.created_at >= m_start,
+                    Refund.created_at < m_end,
+                )
+            ) or 0)
+            net = col - ref
+            activity_chart.append({"label": label, "collections": col, "refunds": ref, "net": net})
+            if m == current_month:
+                selected_period_net = net
+
+    # 7. Payment Overview (breakdown by payment method from captured attempts and delivered COD)
+    method_rows = db.execute(
+        select(CommerceOrder.payment_method, func.sum(PaymentAttempt.amount), func.count(PaymentAttempt.id))
+        .join(PaymentAttempt, PaymentAttempt.order_id == CommerceOrder.id)
+        .where(PaymentAttempt.status == "captured")
+        .group_by(CommerceOrder.payment_method)
+    ).all()
+    method_dict = {row[0].lower(): {"amount": float(row[1] or 0), "count": int(row[2] or 0)} for row in method_rows if row[0]}
+
+    cod_count = db.scalar(
+        select(func.count(CommerceOrder.id))
+        .join(Shipment, Shipment.order_id == CommerceOrder.id)
+        .where(
+            CommerceOrder.payment_method == "cod",
+            CommerceOrder.status == "delivered",
+            Shipment.status == "delivered",
+        )
+    ) or 0
+    if cod_collected > 0 or cod_count > 0:
+        if "cod" in method_dict:
+            method_dict["cod"]["amount"] += float(cod_collected)
+            method_dict["cod"]["count"] += cod_count
+        else:
+            method_dict["cod"] = {"amount": float(cod_collected), "count": cod_count}
+
+    total_successful_txns = sum(v["count"] for v in method_dict.values())
+    payment_overview = {
+        "upi": method_dict.get("upi", {"amount": 0.0, "count": 0})["amount"],
+        "cards": method_dict.get("card", method_dict.get("cards", {"amount": 0.0, "count": 0}))["amount"],
+        "net_banking": method_dict.get("netbanking", method_dict.get("net_banking", {"amount": 0.0, "count": 0}))["amount"],
+        "wallets": method_dict.get("wallet", method_dict.get("wallets", {"amount": 0.0, "count": 0}))["amount"],
+        "cash_on_delivery": method_dict.get("cod", {"amount": 0.0, "count": 0})["amount"],
+        "successful_transactions": total_successful_txns,
+    }
+
+    # 8. Refund Overview
+    refund_counts_raw = db.execute(
+        select(Refund.status, func.count(Refund.id)).group_by(Refund.status)
+    ).all()
+    refund_counts = {r[0]: r[1] for r in refund_counts_raw}
+    processing_count = refund_counts.get("processing", 0)
+    completed_count = refund_counts.get("processed", 0)
+    failed_count = refund_counts.get("failed", 0)
+
+    total_completed_and_failed = completed_count + failed_count
+    success_rate = round((completed_count / total_completed_and_failed * 100), 1) if total_completed_and_failed > 0 else 100.0
+
+    refund_overview = {
+        "awaiting_review": pending_handoffs_count,
+        "processing": processing_count,
+        "completed": completed_count,
+        "failed": failed_count,
+        "success_rate": success_rate,
+    }
+
+    # 9. Recent Payments (5)
+    recent_attempts = db.scalars(
+        select(PaymentAttempt)
+        .options(
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.user),
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.items),
+        )
+        .order_by(PaymentAttempt.created_at.desc(), PaymentAttempt.id.desc())
+        .limit(5)
+    ).all()
+
+    recent_payments = []
+    for att in recent_attempts:
+        order = att.order
+        customer = order.user if order else None
+        recent_payments.append({
+            "id": att.id,
+            "provider_payment_id": att.provider_payment_id or f"TXN-{att.id}",
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "customer_name": customer.name if customer else "Customer",
+            "method": (order.payment_method or "Online").upper() if order else "ONLINE",
+            "amount": float(att.amount),
+            "status": att.status,
+            "created_at": att.created_at.isoformat() if att.created_at else None,
+        })
+
+    # 10. Refund Requests (5)
+    recent_handoffs = []
+    if payments_dept:
+        h_rows = db.scalars(
+            select(ReturnHandoff)
+            .options(
+                selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+                selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
+            )
+            .where(
+                ReturnHandoff.destination_department_id == payments_dept.id,
+                ReturnHandoff.handoff_type == "refund_processing",
+            )
+            .order_by(ReturnHandoff.created_at.desc(), ReturnHandoff.id.desc())
+            .limit(5)
+        ).all()
+        for h in h_rows:
+            claim = h.return_request
+            order = claim.order if claim else None
+            cust = order.user if order else None
+            item = claim.order_item if claim else None
+            amount = float(item.unit_price * claim.quantity) if item and claim else 0.0
+            recent_handoffs.append({
+                "handoff_id": h.id,
+                "refund_id": f"RF-{h.id}",
+                "claim_id": claim.id if claim else None,
+                "order_id": order.id if order else None,
+                "order_number": order.order_number if order else "—",
+                "customer_name": cust.name if cust else "Customer",
+                "amount": amount,
+                "status": h.status,
+                "created_at": h.created_at.isoformat() if h.created_at else None,
+            })
+
+    # 11. Recent Refunds (5)
+    recent_refund_rows = db.scalars(
+        select(Refund)
+        .options(
+            selectinload(Refund.order).selectinload(CommerceOrder.user),
+            selectinload(Refund.payment_attempt),
+        )
+        .order_by(Refund.created_at.desc(), Refund.id.desc())
+        .limit(5)
+    ).all()
+    recent_refunds = []
+    for r in recent_refund_rows:
+        order = r.order
+        method = "UPI / Razorpay" if r.refund_method == "razorpay" else (
+            "Cash on Delivery" if r.refund_method == "manual_cod" else (r.refund_method or "Bank Transfer")
+        )
+        recent_refunds.append({
+            "id": r.id,
+            "refund_id": f"RF-{r.id}",
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "method": method,
+            "amount": float(r.amount),
+            "processed_at": (r.updated_at or r.created_at).strftime("%d %b") if r.created_at else "—",
+            "status": r.status,
+        })
+
+    return {
+        "net_collections": net_collections,
+        "total_collected": total_collected,
+        "total_refunded": total_refunded,
+        "refunds_pending": refunds_pending_amount,
+        "selected_period_net": selected_period_net,
+        "activity_chart": activity_chart,
+        "payment_overview": payment_overview,
+        "refund_overview": refund_overview,
+        "recent_payments": recent_payments,
+        "refund_requests": recent_handoffs,
+        "recent_refunds": recent_refunds,
+        "period": period,
+    }
+
+
+@handler_router.get("/payments/transactions")
+def list_payments_transactions(
+    search: str | None = Query(default=None),
+    payment_status: str | None = Query(default=None),
+    payment_method: str | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    amount_min: Decimal | None = Query(default=None),
+    amount_max: Decimal | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+
+    query = select(PaymentAttempt).join(CommerceOrder, CommerceOrder.id == PaymentAttempt.order_id)
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        query = query.outerjoin(User, User.id == CommerceOrder.user_id).where(
+            or_(
+                cast(PaymentAttempt.id, String).ilike(s),
+                PaymentAttempt.provider_payment_id.ilike(s),
+                PaymentAttempt.provider_order_id.ilike(s),
+                CommerceOrder.order_number.ilike(s),
+                User.name.ilike(s),
+            )
+        )
+    if payment_status and payment_status != "all":
+        query = query.where(PaymentAttempt.status == payment_status)
+    if payment_method and payment_method != "all":
+        query = query.where(CommerceOrder.payment_method == payment_method)
+    if date_from:
+        query = query.where(PaymentAttempt.created_at >= date_from)
+    if date_to:
+        query = query.where(PaymentAttempt.created_at <= date_to)
+    if amount_min is not None:
+        query = query.where(PaymentAttempt.amount >= amount_min)
+    if amount_max is not None:
+        query = query.where(PaymentAttempt.amount <= amount_max)
+
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+    kpi_attempts = db.scalar(select(func.count(PaymentAttempt.id))) or 0
+    kpi_captured = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status == "captured")) or 0
+    kpi_pending = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status.in_(["pending", "created"]))) or 0
+    kpi_failed = db.scalar(select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status.in_(["failed", "cancelled", "expired"]))) or 0
+    kpi_refunded = db.scalar(select(func.count(func.distinct(Refund.order_id))).where(Refund.status == "processed")) or 0
+
+    attempts = db.scalars(
+        query.options(
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.user),
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.items),
+        )
+        .order_by(PaymentAttempt.created_at.desc(), PaymentAttempt.id.desc())
+        .offset(offset).limit(limit)
+    ).all()
+
+    items = []
+    for att in attempts:
+        order = att.order
+        cust = order.user if order else None
+        item_summary = ", ".join(i.product_name for i in (order.items or [])) if order and order.items else "—"
+        items.append({
+            "id": att.id,
+            "provider_payment_id": att.provider_payment_id or f"TXN-{att.id}",
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "customer_name": cust.name if cust else "Customer",
+            "item_summary": item_summary,
+            "amount": float(att.amount),
+            "currency": att.currency,
+            "payment_method": order.payment_method if order else "online",
+            "provider": att.provider,
+            "status": att.status,
+            "failure_reason": att.failure_reason,
+            "created_at": att.created_at.isoformat() if att.created_at else None,
+            "paid_at": att.paid_at.isoformat() if att.paid_at else None,
+        })
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "kpis": {
+            "total_attempts": kpi_attempts,
+            "captured": kpi_captured,
+            "pending": kpi_pending,
+            "failed": kpi_failed,
+            "refunded": kpi_refunded,
+        },
+    }
+
+
+@handler_router.get("/payments/transactions/{attempt_id}")
+def get_payment_transaction_details(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+
+    att = db.scalar(
+        select(PaymentAttempt)
+        .options(
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.user),
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.items),
+            selectinload(PaymentAttempt.order).selectinload(CommerceOrder.shipment),
+        )
+        .where(PaymentAttempt.id == attempt_id)
+    )
+    if not att:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+
+    order = att.order
+    customer = order.user if order else None
+
+    masked_email = "—"
+    if customer and customer.email:
+        parts = customer.email.split("@")
+        if len(parts) == 2:
+            masked_email = f"{parts[0][:2]}***@{parts[1]}"
+        else:
+            masked_email = "***"
+
+    sibling_attempts = []
+    if order:
+        siblings = db.scalars(
+            select(PaymentAttempt)
+            .where(PaymentAttempt.order_id == order.id, PaymentAttempt.id != att.id)
+            .order_by(PaymentAttempt.created_at.desc())
+        ).all()
+        for sib in siblings:
+            sibling_attempts.append({
+                "id": sib.id,
+                "amount": float(sib.amount),
+                "status": sib.status,
+                "provider": sib.provider,
+                "created_at": sib.created_at.isoformat() if sib.created_at else None,
+            })
+
+    related_refunds = []
+    if order:
+        r_list = db.scalars(
+            select(Refund)
+            .where(Refund.order_id == order.id)
+            .order_by(Refund.created_at.desc())
+        ).all()
+        for r in r_list:
+            related_refunds.append({
+                "id": r.id,
+                "amount": float(r.amount),
+                "refund_method": r.refund_method,
+                "status": r.status,
+                "provider_refund_id": r.provider_refund_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            })
+
+    order_items = []
+    if order and order.items:
+        for i in order.items:
+            order_items.append({
+                "id": i.id,
+                "product_name": i.product_name,
+                "variant_name": i.variant_name,
+                "quantity": i.quantity,
+                "unit_price": float(i.unit_price),
+                "total_price": float(i.unit_price * i.quantity),
+            })
+
+    return {
+        "id": att.id,
+        "provider": att.provider,
+        "provider_payment_id": att.provider_payment_id or "—",
+        "provider_order_id": att.provider_order_id or "—",
+        "amount": float(att.amount),
+        "currency": att.currency,
+        "status": att.status,
+        "failure_reason": att.failure_reason,
+        "created_at": att.created_at.isoformat() if att.created_at else None,
+        "updated_at": att.updated_at.isoformat() if att.updated_at else None,
+        "paid_at": att.paid_at.isoformat() if att.paid_at else None,
+        "order": {
+            "id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "status": order.status if order else "—",
+            "payment_method": order.payment_method if order else "online",
+            "total_amount": float(order.total_amount) if order else float(att.amount),
+            "items": order_items,
+        },
+        "customer": {
+            "name": customer.name if customer else "Customer",
+            "masked_email": masked_email,
+        },
+        "related_attempts": sibling_attempts,
+        "related_refunds": related_refunds,
+    }
+
+
+@handler_router.get("/payments/refunds")
+def list_payments_refunds(
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    refund_timing: str | None = Query(default=None),
+    payment_method: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+
+    payments_dept = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+    if not payments_dept:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset, "tab_counts": {}}
+
+    # Base query on ReturnHandoff where destination is Payments & Refunds
+    base_query = (
+        select(ReturnHandoff)
+        .where(
+            ReturnHandoff.destination_department_id == payments_dept.id,
+            ReturnHandoff.handoff_type == "refund_processing",
+        )
+    )
+
+    # Calculate Tab counts
+    # Awaiting: pending or accepted handoff
+    cnt_awaiting = db.scalar(
+        select(func.count(ReturnHandoff.id)).where(
+            ReturnHandoff.destination_department_id == payments_dept.id,
+            ReturnHandoff.handoff_type == "refund_processing",
+            ReturnHandoff.status.in_(["pending", "accepted"]),
+        )
+    ) or 0
+
+    # Processing: handoffs with in_progress OR refunds with processing
+    cnt_processing = db.scalar(
+        select(func.count(ReturnHandoff.id)).where(
+            ReturnHandoff.destination_department_id == payments_dept.id,
+            ReturnHandoff.handoff_type == "refund_processing",
+            ReturnHandoff.status == "in_progress",
+        )
+    ) or 0
+    cnt_processing += (db.scalar(
+        select(func.count(Refund.id)).where(Refund.status == "processing")
+    ) or 0)
+
+    # Completed: refunds processed
+    cnt_completed = db.scalar(
+        select(func.count(Refund.id)).where(Refund.status == "processed")
+    ) or 0
+
+    # Failed: refunds failed OR handoffs failed
+    cnt_failed = db.scalar(
+        select(func.count(Refund.id)).where(Refund.status == "failed")
+    ) or 0
+
+    tab_counts = {
+        "awaiting_processing": cnt_awaiting,
+        "processing": cnt_processing,
+        "completed": cnt_completed,
+        "failed": cnt_failed,
+    }
+
+    # Filter by status tab
+    query = base_query
+    if status == "awaiting_processing":
+        query = query.where(ReturnHandoff.status.in_(["pending", "accepted"]))
+    elif status == "processing":
+        query = query.where(ReturnHandoff.status == "in_progress")
+    elif status == "completed":
+        query = query.where(ReturnHandoff.status == "completed")
+    elif status == "failed":
+        query = query.where(ReturnHandoff.status == "failed")
+
+    # Filter by timing
+    if refund_timing and refund_timing != "all":
+        query = query.join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id).where(
+            ReturnRequest.refund_timing == refund_timing
+        )
+
+    # Search filter
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        query = (
+            query.join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id)
+            .join(CommerceOrder, CommerceOrder.id == ReturnRequest.order_id)
+            .outerjoin(User, User.id == CommerceOrder.user_id)
+            .where(
+                or_(
+                    cast(ReturnHandoff.id, String).ilike(s),
+                    cast(ReturnRequest.id, String).ilike(s),
+                    CommerceOrder.order_number.ilike(s),
+                    User.name.ilike(s),
+                )
+            )
+        )
+
+    # Payment method filter
+    if payment_method and payment_method != "all":
+        if "CommerceOrder" not in str(query):
+            query = query.join(ReturnRequest, ReturnRequest.id == ReturnHandoff.return_request_id).join(
+                CommerceOrder, CommerceOrder.id == ReturnRequest.order_id
+            )
+        query = query.where(CommerceOrder.payment_method == payment_method)
+
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+    handoffs = db.scalars(
+        query.options(
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
+        )
+        .order_by(ReturnHandoff.updated_at.desc(), ReturnHandoff.id.desc())
+        .offset(offset).limit(limit)
+    ).all()
+
+    items = []
+    for h in handoffs:
+        claim = h.return_request
+        order = claim.order if claim else None
+        cust = order.user if order else None
+        item = claim.order_item if claim else None
+        amount = float(item.unit_price * claim.quantity) if item and claim else 0.0
+
+        # Check pickup status from sibling pickup handoff if exists
+        pickup_status = "N/A"
+        if claim:
+            sib_pickup = db.scalar(
+                select(ReturnHandoff.status).where(
+                    ReturnHandoff.return_request_id == claim.id,
+                    ReturnHandoff.handoff_type.in_(("refund_pickup", "replacement_fulfillment")),
+                ).limit(1)
+            )
+            if sib_pickup:
+                pickup_status = sib_pickup
+
+        # Check existing refund record
+        existing_refund = None
+        if claim:
+            existing_refund = db.scalar(
+                select(Refund).where(Refund.return_request_id == claim.id)
+                .order_by(Refund.created_at.desc(), Refund.id.desc()).limit(1)
+            )
+
+        # Eligibility check
+        is_eligible = False
+        if h.status in ("pending", "accepted"):
+            if claim and claim.refund_timing == "immediate":
+                is_eligible = True
+            elif claim and claim.refund_timing == "after_collection":
+                is_eligible = pickup_status == "completed"
+
+        current_display_status = existing_refund.status if existing_refund else h.status
+
+        items.append({
+            "id": h.id,
+            "handoff_id": h.id,
+            "refund_id": f"RF-{existing_refund.id}" if existing_refund else f"RF-{h.id}",
+            "return_request_id": claim.id if claim else None,
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "customer_name": cust.name if cust else "Customer",
+            "refund_type": claim.resolution_type if claim else "refund",
+            "refund_timing": claim.refund_timing if claim else "immediate",
+            "original_payment_method": order.payment_method if order else "online",
+            "amount": amount,
+            "status": current_display_status,
+            "pickup_status": pickup_status,
+            "is_eligible": is_eligible,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+            "updated_at": h.updated_at.isoformat() if h.updated_at else None,
+        })
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "tab_counts": tab_counts,
+    }
+
+
+@handler_router.get("/payments/refunds/{handoff_id}")
+def get_payment_refund_details(
+    handoff_id: int,
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+
+    # Find handoff
+    h = db.scalar(
+        select(ReturnHandoff)
+        .options(
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
+        )
+        .where(ReturnHandoff.id == handoff_id)
+    )
+    if not h:
+        raise HTTPException(status_code=404, detail="Refund handoff not found.")
+
+    claim = h.return_request
+    order = claim.order if claim else None
+    cust = order.user if order else None
+    item = claim.order_item if claim else None
+
+    # Original payment attempt
+    orig_attempt = None
+    if order:
+        orig_attempt = db.scalar(
+            select(PaymentAttempt)
+            .where(PaymentAttempt.order_id == order.id, PaymentAttempt.status == "captured")
+            .order_by(PaymentAttempt.id.desc()).limit(1)
+        )
+        if not orig_attempt:
+            orig_attempt = db.scalar(
+                select(PaymentAttempt).where(PaymentAttempt.order_id == order.id)
+                .order_by(PaymentAttempt.id.desc()).limit(1)
+            )
+
+    # Prior refunds for order
+    prior_refunds_sum = 0.0
+    if order:
+        prior_refunds_sum = float(db.scalar(
+            select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.order_id == order.id, Refund.status == "processed"
+            )
+        ) or 0)
+
+    # Related pickup handoff status
+    pickup_status = "N/A"
+    if claim:
+        sib_pickup = db.scalar(
+            select(ReturnHandoff.status).where(
+                ReturnHandoff.return_request_id == claim.id,
+                ReturnHandoff.handoff_type.in_(("refund_pickup", "replacement_fulfillment")),
+            ).limit(1)
+        )
+        if sib_pickup:
+            pickup_status = sib_pickup
+
+    # Existing refund record for this claim
+    existing_refund = None
+    if claim:
+        existing_refund = db.scalar(
+            select(Refund).where(Refund.return_request_id == claim.id)
+            .order_by(Refund.created_at.desc(), Refund.id.desc()).limit(1)
+        )
+
+    requested_amount = float(item.unit_price * claim.quantity) if item and claim else 0.0
+    captured_amount = float(orig_attempt.amount) if orig_attempt else (float(order.total_amount) if order else requested_amount)
+    remaining_balance = max(captured_amount - prior_refunds_sum, 0.0)
+
+    # Eligibility validation
+    is_eligible = False
+    ineligible_reason = None
+
+    if h.status == "completed":
+        ineligible_reason = "This refund has already been completed."
+    elif h.status == "cancelled":
+        ineligible_reason = "This refund handoff was cancelled."
+    elif claim and claim.resolution_type == "replacement":
+        ineligible_reason = "Replacement workflows are not eligible for financial refund."
+    elif claim and claim.refund_timing == "after_collection" and pickup_status != "completed":
+        ineligible_reason = f"Awaiting physical item collection (current pickup status: {pickup_status})."
+    elif requested_amount > remaining_balance and remaining_balance <= 0:
+        ineligible_reason = "Original payment captured amount has already been fully refunded."
+    else:
+        is_eligible = True
+
+    # Audit timeline
+    timeline = []
+    if claim:
+        events = db.scalars(
+            select(ReturnRequestEvent).where(ReturnRequestEvent.return_request_id == claim.id)
+            .order_by(ReturnRequestEvent.created_at.asc())
+        ).all()
+        for ev in events:
+            timeline.append({
+                "id": ev.id,
+                "timestamp": ev.created_at.isoformat() if ev.created_at else None,
+                "event_type": ev.event_type,
+                "note": ev.notes or f"Status changed to {ev.to_status}",
+                "actor_id": ev.actor_id,
+            })
+
+    return {
+        "handoff_id": h.id,
+        "handoff_status": h.status,
+        "claim": {
+            "id": claim.id if claim else None,
+            "reason": claim.reason if claim else "—",
+            "resolution_type": claim.resolution_type if claim else "refund",
+            "refund_timing": claim.refund_timing if claim else "immediate",
+            "status": claim.status if claim else "—",
+            "workflow_status": claim.workflow_status if claim else "—",
+            "created_at": claim.requested_at.isoformat() if claim and claim.requested_at else None,
+            "pickup_status": pickup_status,
+        },
+        "order": {
+            "id": order.id if order else None,
+            "order_number": order.order_number if order else "—",
+            "status": order.status if order else "—",
+            "payment_method": order.payment_method if order else "online",
+            "total_amount": float(order.total_amount) if order else 0.0,
+            "item_name": item.product_name if item else "—",
+            "item_variant": item.variant_name if item else "—",
+            "quantity": claim.quantity if claim else 1,
+            "unit_price": float(item.unit_price) if item else 0.0,
+        },
+        "payment": {
+            "attempt_id": orig_attempt.id if orig_attempt else None,
+            "provider": orig_attempt.provider if orig_attempt else "razorpay",
+            "provider_payment_id": orig_attempt.provider_payment_id if orig_attempt else "—",
+            "captured_amount": captured_amount,
+            "prior_refunded_amount": prior_refunds_sum,
+            "remaining_refundable_balance": remaining_balance,
+            "currency": "INR",
+        },
+        "breakdown": {
+            "requested_amount": requested_amount,
+            "eligible_amount": min(requested_amount, remaining_balance) if remaining_balance > 0 else requested_amount,
+            "deductions": 0.0,
+            "currency": "INR",
+        },
+        "eligibility": {
+            "is_eligible": is_eligible,
+            "reason": ineligible_reason,
+        },
+        "existing_refund": {
+            "id": existing_refund.id,
+            "amount": float(existing_refund.amount),
+            "status": existing_refund.status,
+            "provider_refund_id": existing_refund.provider_refund_id,
+            "refund_method": existing_refund.refund_method,
+            "created_at": existing_refund.created_at.isoformat() if existing_refund.created_at else None,
+        } if existing_refund else None,
+        "timeline": timeline,
+    }
+
+
+@handler_router.get("/payments/settlements")
+def list_payments_settlements(
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+    return {
+        "items": [],
+        "total": 0,
+        "status": "unsupported",
+        "message": "Provider settlement ingestion and batch reconciliation are pending integration.",
+    }
+
+
+@handler_router.get("/payments/disputes")
+def list_payments_disputes(
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+    return {
+        "items": [],
+        "total": 0,
+        "status": "unsupported",
+        "message": "Provider dispute and chargeback webhook ingestion is pending integration.",
+    }
+
+
+@handler_router.get("/payments/reports/stats")
+def get_payments_reports_stats(
+    period: str = Query(default="month"),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # 1. Collections & Refunds totals
+    online_collected = db.scalar(
+        select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+            PaymentAttempt.status == "captured"
+        )
+    ) or 0
+    cod_collected = db.scalar(
+        select(func.coalesce(func.sum(CommerceOrder.total_amount), 0))
+        .join(Shipment, Shipment.order_id == CommerceOrder.id)
+        .where(
+            CommerceOrder.payment_method == "cod",
+            CommerceOrder.status == "delivered",
+            Shipment.status == "delivered",
+        )
+    ) or 0
+    total_collected = float(Decimal(str(online_collected)) + Decimal(str(cod_collected)))
+
+    total_refunded = float(db.scalar(
+        select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.status == "processed"
+        )
+    ) or 0)
+    net_collections = total_collected - total_refunded
+
+    total_attempts = db.scalar(select(func.count(PaymentAttempt.id))) or 0
+    failed_attempts = db.scalar(
+        select(func.count(PaymentAttempt.id)).where(PaymentAttempt.status.in_(["failed", "cancelled", "expired"]))
+    ) or 0
+    failure_rate = round((failed_attempts / total_attempts * 100), 1) if total_attempts > 0 else 0.0
+
+    # 2. Trends
+    trends = []
+    if period == "day":
+        for i in range(6, -1, -1):
+            d_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+            d_end = d_start + timedelta(days=1)
+            col = float(db.scalar(
+                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+                    PaymentAttempt.status == "captured",
+                    PaymentAttempt.created_at >= d_start,
+                    PaymentAttempt.created_at < d_end,
+                )
+            ) or 0)
+            ref = float(db.scalar(
+                select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                    Refund.status == "processed",
+                    Refund.created_at >= d_start,
+                    Refund.created_at < d_end,
+                )
+            ) or 0)
+            trends.append({"label": d_start.strftime("%d %b"), "collections": col, "refunds": ref, "net": col - ref})
+    elif period == "week":
+        for i in range(7, -1, -1):
+            w_start = (now - timedelta(weeks=i+1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            w_end = (now - timedelta(weeks=i)).replace(hour=0, minute=0, second=0, microsecond=0)
+            col = float(db.scalar(
+                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+                    PaymentAttempt.status == "captured",
+                    PaymentAttempt.created_at >= w_start,
+                    PaymentAttempt.created_at < w_end,
+                )
+            ) or 0)
+            ref = float(db.scalar(
+                select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                    Refund.status == "processed",
+                    Refund.created_at >= w_start,
+                    Refund.created_at < w_end,
+                )
+            ) or 0)
+            trends.append({"label": f"Wk {w_start.strftime('%W')}", "collections": col, "refunds": ref, "net": col - ref})
+    else:
+        for m in range(1, 13):
+            m_start = datetime(now.year, m, 1)
+            m_end = datetime(now.year + 1, 1, 1) if m == 12 else datetime(now.year, m + 1, 1)
+            col = float(db.scalar(
+                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+                    PaymentAttempt.status == "captured",
+                    PaymentAttempt.created_at >= m_start,
+                    PaymentAttempt.created_at < m_end,
+                )
+            ) or 0)
+            ref = float(db.scalar(
+                select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                    Refund.status == "processed",
+                    Refund.created_at >= m_start,
+                    Refund.created_at < m_end,
+                )
+            ) or 0)
+            trends.append({"label": m_start.strftime("%b"), "collections": col, "refunds": ref, "net": col - ref})
+
+    # 3. Method breakdown
+    method_rows = db.execute(
+        select(CommerceOrder.payment_method, func.sum(PaymentAttempt.amount), func.count(PaymentAttempt.id))
+        .join(PaymentAttempt, PaymentAttempt.order_id == CommerceOrder.id)
+        .where(PaymentAttempt.status == "captured")
+        .group_by(CommerceOrder.payment_method)
+    ).all()
+    methods = []
+    for r in method_rows:
+        if r[0]:
+            vol = float(r[1] or 0)
+            cnt = int(r[2] or 0)
+            pct = round((vol / total_collected * 100), 1) if total_collected > 0 else 0.0
+            methods.append({
+                "method": r[0].upper(),
+                "volume": vol,
+                "count": cnt,
+                "percentage": pct,
+            })
+
+    # 4. Refund status breakdown
+    refund_counts_raw = db.execute(
+        select(Refund.status, func.count(Refund.id), func.sum(Refund.amount)).group_by(Refund.status)
+    ).all()
+    refund_statuses = []
+    for r in refund_counts_raw:
+        refund_statuses.append({
+            "status": r[0],
+            "count": int(r[1] or 0),
+            "amount": float(r[2] or 0),
+        })
+
+    return {
+        "kpis": {
+            "total_collected": total_collected,
+            "total_refunded": total_refunded,
+            "net_collections": net_collections,
+            "total_attempts": total_attempts,
+            "failed_attempts": failed_attempts,
+            "failure_rate": failure_rate,
+        },
+        "trends": trends,
+        "payment_methods": methods,
+        "refund_statuses": refund_statuses,
+        "period": period,
+    }
+
+
+@handler_router.get("/payments/history-audit")
+def list_payments_history_audit(
+    search: str | None = Query(default=None),
+    event_type: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    actor=Depends(require_role("department_handler", "admin", "super_admin")),
+):
+    _require_department_handler(db, actor, "Payments & Refunds")
+
+    # Collect events from PaymentAttempts, Refunds, and ReturnHandoffs
+    events = []
+
+    attempts = db.scalars(
+        select(PaymentAttempt)
+        .options(selectinload(PaymentAttempt.order))
+        .order_by(PaymentAttempt.created_at.desc())
+        .limit(100)
+    ).all()
+    for att in attempts:
+        events.append({
+            "id": f"evt-att-{att.id}",
+            "timestamp": att.created_at.isoformat() if att.created_at else None,
+            "raw_time": att.created_at or datetime.min,
+            "reference": att.provider_payment_id or f"TXN-{att.id}",
+            "order_number": att.order.order_number if att.order else "—",
+            "action": f"Payment {att.status.capitalize()}",
+            "event_type": "payment",
+            "previous_state": "created" if att.status != "created" else "—",
+            "new_state": att.status,
+            "actor": "System / Provider" if att.provider else "System",
+            "provider": att.provider or "Razorpay",
+            "amount": float(att.amount),
+            "note": att.failure_reason or f"Payment attempt marked {att.status}",
+        })
+
+    refunds = db.scalars(
+        select(Refund)
+        .options(selectinload(Refund.order), selectinload(Refund.processed_by))
+        .order_by(Refund.created_at.desc())
+        .limit(100)
+    ).all()
+    for ref in refunds:
+        events.append({
+            "id": f"evt-ref-{ref.id}",
+            "timestamp": ref.created_at.isoformat() if ref.created_at else None,
+            "raw_time": ref.created_at or datetime.min,
+            "reference": ref.provider_refund_id or f"RF-{ref.id}",
+            "order_number": ref.order.order_number if ref.order else "—",
+            "action": f"Refund {ref.status.capitalize()}",
+            "event_type": "refund",
+            "previous_state": "pending" if ref.status != "pending" else "—",
+            "new_state": ref.status,
+            "actor": ref.processed_by.name if ref.processed_by else "Payments Handler",
+            "provider": ref.refund_method or "Razorpay",
+            "amount": float(ref.amount),
+            "note": ref.reason or f"Refund marked {ref.status}",
+        })
+
+    # Sort descending
+    events.sort(key=lambda x: x["raw_time"], reverse=True)
+
+    # Filter
+    if event_type and event_type != "all":
+        events = [e for e in events if e["event_type"] == event_type]
+    if search and search.strip():
+        s = search.strip().lower()
+        events = [
+            e for e in events if (
+                s in e["reference"].lower() or
+                s in e["order_number"].lower() or
+                s in e["action"].lower() or
+                s in e["note"].lower()
+            )
+        ]
+
+    total = len(events)
+    paged = events[offset : offset + limit]
+
+    # Clean out internal raw_time
+    for p in paged:
+        p.pop("raw_time", None)
+
+    return {
+        "items": paged,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 def _commit_claim_operation(db: Session, operation):

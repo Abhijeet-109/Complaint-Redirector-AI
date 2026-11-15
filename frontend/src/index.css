@@ -26,6 +26,28 @@
   padding: 0;
 }
 
+/* ==========================================================================
+   GLOBAL INVISIBLE-SCROLLBAR (FLATKART SYSTEM-WIDE)
+   Visually hides all scrollbar tracks and thumbs across all routes and elements
+   while preserving 100% native scrolling (wheel, touch, keyboard, programmatic).
+   ========================================================================== */
+html,
+body,
+#root,
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar,
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 #root {
   zoom: var(--fk-zoom, 1.1);
 }

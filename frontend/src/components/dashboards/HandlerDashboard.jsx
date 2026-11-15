@@ -20,11 +20,19 @@ import { ODReturnsHandoffView } from '../handler/order_delivery/ODReturnsHandoff
 import { ODInventoryView } from '../handler/order_delivery/ODInventoryView';
 import { ODExceptionsView } from '../handler/order_delivery/ODExceptionsView';
 import { ODHistoryReportsView } from '../handler/order_delivery/ODHistoryReportsView';
+import { PaymentsOverviewView } from '../handler/payments/PaymentsOverviewView';
+import { PaymentTransactionsView } from '../handler/payments/PaymentTransactionsView';
+import { PaymentRefundManagementView } from '../handler/payments/PaymentRefundManagementView';
+import { PaymentSettlementsView } from '../handler/payments/PaymentSettlementsView';
+import { PaymentDisputesView } from '../handler/payments/PaymentDisputesView';
+import { PaymentReportsView } from '../handler/payments/PaymentReportsView';
+import { PaymentAuditView } from '../handler/payments/PaymentAuditView';
 import '../handler/HandlerDashboard.css';
 
 export function HandlerDashboard({ onNavigate, routePath }) {
   const { user } = useAuth();
   const isOrderDelivery = user?.department_name === 'Order & Delivery';
+  const isPaymentsRefunds = user?.department_name === 'Payments & Refunds';
 
   // Normalize current path
   const currentPath = useMemo(() => {
@@ -68,11 +76,19 @@ export function HandlerDashboard({ onNavigate, routePath }) {
   const [reportsData, setReportsData] = useState(null);
   const [deliveryOrders, setDeliveryOrders] = useState([]);
   const [deliveryShipments, setDeliveryShipments] = useState([]);
+  const [paymentsData, setPaymentsData] = useState(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      if (isPaymentsRefunds) {
+        const pRes = await handlerService.getPaymentsDashboard();
+        setPaymentsData(pRes);
+        setLoading(false);
+        return;
+      }
+
       const [
         complaintsRes,
         queueRes,
@@ -131,14 +147,14 @@ export function HandlerDashboard({ onNavigate, routePath }) {
     } finally {
       setLoading(false);
     }
-  }, [isOrderDelivery]);
+  }, [isOrderDelivery, isPaymentsRefunds]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   useEffect(() => {
-    if (isOrderDelivery) return undefined;
+    if (isOrderDelivery || isPaymentsRefunds) return undefined;
     const requestId = ++activityRequestRef.current;
     handlerService.getOverviewStats(activityPeriod).then((stats) => {
       if (requestId === activityRequestRef.current) setOverviewStats(stats);
@@ -184,12 +200,14 @@ export function HandlerDashboard({ onNavigate, routePath }) {
 
   const queueBadgeCount = isOrderDelivery
     ? deliveryOrders.filter((order) => order.status === 'placed').length
+    : isPaymentsRefunds
+    ? (paymentsData?.refund_overview?.awaiting_review ?? paymentsData?.kpis?.refunds_pending_count ?? 0)
     : (reviewQueueClaims.length > 0 ? reviewQueueClaims.length : (overviewStats?.pending_review || 0));
 
   // Render the matching view based on route path
   const renderCurrentView = () => {
     // 1. Dedicated Detail Views (NOT modals)
-    if (!isOrderDelivery && requestDetailMatch) {
+    if (!isOrderDelivery && !isPaymentsRefunds && requestDetailMatch) {
       const requestId = requestDetailMatch[1];
       return (
         <HandlerRequestDetailView
@@ -200,7 +218,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
       );
     }
 
-    if (!isOrderDelivery && complaintDetailMatch) {
+    if (!isOrderDelivery && !isPaymentsRefunds && complaintDetailMatch) {
       const complaintId = complaintDetailMatch[1];
       return (
         <HandlerComplaintDetailView
@@ -211,7 +229,7 @@ export function HandlerDashboard({ onNavigate, routePath }) {
       );
     }
 
-    if (handoffDetailMatch) {
+    if (!isPaymentsRefunds && handoffDetailMatch) {
       const handoffId = handoffDetailMatch[1];
       return (
         <HandlerHandoffDetailView
@@ -221,6 +239,29 @@ export function HandlerDashboard({ onNavigate, routePath }) {
           isOrderDelivery={isOrderDelivery}
         />
       );
+    }
+
+    if (isPaymentsRefunds) {
+      switch (currentPath) {
+        case '/handler/transactions':
+          return <PaymentTransactionsView onNavigate={onNavigate} />;
+        case '/handler/refunds':
+          return <PaymentRefundManagementView onNavigate={onNavigate} initialTab="all" />;
+        case '/handler/refund-requests':
+          return <PaymentRefundManagementView onNavigate={onNavigate} initialTab="awaiting" />;
+        case '/handler/settlements':
+          return <PaymentSettlementsView onNavigate={onNavigate} />;
+        case '/handler/disputes':
+          return <PaymentDisputesView onNavigate={onNavigate} />;
+        case '/handler/reports':
+          return <PaymentReportsView onNavigate={onNavigate} />;
+        case '/handler/history':
+        case '/handler/history-reports':
+          return <PaymentAuditView onNavigate={onNavigate} />;
+        case '/handler/dashboard':
+        default:
+          return <PaymentsOverviewView onNavigate={onNavigate} />;
+      }
     }
 
     if (isOrderDelivery) {

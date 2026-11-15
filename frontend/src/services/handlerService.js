@@ -86,6 +86,65 @@ export const handlerService = {
   getOrderDeliveryReportsStats(period = 'month') {
     return apiRequest(`/api/v1/departments/order-delivery/reports-stats?period=${period}`, { method: 'GET' });
   },
+  // Payments & Refunds department handler API methods
+  getPaymentsDashboard(period = 'month') {
+    return apiRequest(`/api/v1/departments/payments/dashboard?period=${period}`, { method: 'GET' });
+  },
+  getPaymentTransactions(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.payment_status) query.append('payment_status', params.payment_status);
+    if (params.payment_method) query.append('payment_method', params.payment_method);
+    if (params.date_from) query.append('date_from', params.date_from);
+    if (params.date_to) query.append('date_to', params.date_to);
+    if (params.amount_min !== undefined && params.amount_min !== null && params.amount_min !== '') query.append('amount_min', String(params.amount_min));
+    if (params.amount_max !== undefined && params.amount_max !== null && params.amount_max !== '') query.append('amount_max', String(params.amount_max));
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/payments/transactions${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getPaymentTransactionDetails(attemptId) {
+    return apiRequest(`/api/v1/departments/payments/transactions/${attemptId}`, { method: 'GET' });
+  },
+  getPaymentsRefunds(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.search) query.append('search', params.search);
+    if (params.refund_timing) query.append('refund_timing', params.refund_timing);
+    if (params.payment_method) query.append('payment_method', params.payment_method);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/payments/refunds${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getPaymentRefundDetails(handoffId) {
+    return apiRequest(`/api/v1/departments/payments/refunds/${handoffId}`, { method: 'GET' });
+  },
+  processPaymentRefund(handoffId, externalReference) {
+    return apiRequest(`/api/v1/departments/return-handoffs/${handoffId}/process-refund`, {
+      method: 'POST',
+      body: JSON.stringify({ external_reference: externalReference || null }),
+    });
+  },
+  getPaymentsSettlements(params = {}) {
+    return apiRequest('/api/v1/departments/payments/settlements', { method: 'GET' });
+  },
+  getPaymentsDisputes(params = {}) {
+    return apiRequest('/api/v1/departments/payments/disputes', { method: 'GET' });
+  },
+  getPaymentsReportsStats(period = 'month') {
+    return apiRequest(`/api/v1/departments/payments/reports/stats?period=${period}`, { method: 'GET' });
+  },
+  getPaymentsHistoryAudit(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.event_type) query.append('event_type', params.event_type);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/payments/history-audit${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
   /**
    * Get complaints assigned to the current handler's department.
    * GET /api/v1/handler/complaints
