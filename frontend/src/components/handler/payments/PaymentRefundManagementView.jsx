@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { handlerService } from '../../../services/handlerService';
 import { HandlerPagination } from '../HandlerPagination';
+import { IssueRefundModal } from '../../common/IssueRefundModal';
 
 function formatINR(amount) {
   const num = parseFloat(amount) || 0;
@@ -91,12 +92,33 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
   const [detailError, setDetailError] = useState(null);
 
   // Refund Action State
+  const [isIssueRefundModalOpen, setIsIssueRefundModalOpen] = useState(false);
+  const [refundModalInitialValues, setRefundModalInitialValues] = useState(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [externalReference, setExternalReference] = useState('');
   const [actionProcessing, setActionProcessing] = useState(false);
   const [acceptingHandoff, setAcceptingHandoff] = useState(false);
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
+
+  const handleOpenProcessRefund = (ref) => {
+    if (!ref) return;
+    setRefundModalInitialValues({
+      id: ref.id,
+      handoff_id: ref.handoff_id || ref.id,
+      order_number: ref.order_number,
+      amount: ref.amount ?? ref.eligible_amount ?? 0,
+      reason: ref.reason || ref.claim_reason || (ref.claim_number ? `Return request ${ref.claim_number}` : 'Return refund'),
+      claim_number: ref.claim_number,
+      original_payment_method: ref.original_payment_method || ref.payment_method,
+      payment_method: ref.original_payment_method || ref.payment_method,
+      captured_payment_attempt_id: ref.captured_payment_attempt_id || ref.original_payment?.attempt_id,
+      provider_payment_id: ref.provider_payment_id || ref.captured_payment_id || ref.original_payment?.provider_payment_id,
+      original_payment: ref.original_payment,
+      external_reference: ref.external_reference || '',
+    });
+    setIsIssueRefundModalOpen(true);
+  };
 
   const fetchRefunds = useCallback(async () => {
     try {
@@ -614,7 +636,11 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleOpenDetail(ref.id);
+                            if (isEligible) {
+                              handleOpenProcessRefund(ref);
+                            } else {
+                              handleOpenDetail(ref.id);
+                            }
                           }}
                           style={{
                             background: isEligible ? '#183A34' : '#FAF8F4',
@@ -1116,120 +1142,28 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
                         </div>
                       ) : (
                         <div>
-                          {!showConfirmModal ? (
-                            <button
-                              type="button"
-                              onClick={() => setShowConfirmModal(true)}
-                              style={{
-                                width: '100%',
-                                padding: '10px 16px',
-                                backgroundColor: '#183A34',
-                                color: '#FFFFFF',
-                                borderRadius: 6,
-                                border: 'none',
-                                fontWeight: 700,
-                                fontSize: 13,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 8,
-                              }}
-                            >
-                              <RotateCcw size={15} />
-                              Initiate Refund
-                            </button>
-                          ) : (
-                            <div
-                              style={{
-                                background: '#FFFFFF',
-                                border: '1px solid #ECE7DC',
-                                borderRadius: 6,
-                                padding: 14,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: 12,
-                              }}
-                            >
-                              <div style={{ fontSize: 12, fontWeight: 700, color: '#183A34' }}>
-                                Confirm Refund Disbursement
-                              </div>
-                              <div style={{ fontSize: 12, color: '#5A6561' }}>
-                                Please verify that you want to release <strong>{formatINR(detailData.eligible_amount || detailData.amount)}</strong> to {detailData.customer?.name || 'the customer'}. This action communicates with the payment provider and is immutable.
-                              </div>
-
-                              <div>
-                                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#78827E', marginBottom: 4 }}>
-                                  External Reference / Note (Optional)
-                                </label>
-                                <input
-                                  type="text"
-                                  placeholder="Bank UTR or approval ref..."
-                                  value={externalReference}
-                                  onChange={(e) => setExternalReference(e.target.value)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '7px 10px',
-                                    fontSize: 12,
-                                    borderRadius: 4,
-                                    border: '1px solid #E8E4D8',
-                                    outline: 'none',
-                                    boxSizing: 'border-box',
-                                  }}
-                                />
-                              </div>
-
-                              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowConfirmModal(false)}
-                                  disabled={actionProcessing}
-                                  style={{
-                                    padding: '7px 12px',
-                                    background: '#FAF8F4',
-                                    border: '1px solid #E8E4D8',
-                                    borderRadius: 4,
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                    color: '#5A6561',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={handleExecuteRefund}
-                                  disabled={actionProcessing}
-                                  style={{
-                                    padding: '7px 14px',
-                                    background: '#15803D',
-                                    border: 'none',
-                                    borderRadius: 4,
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    color: '#FFFFFF',
-                                    cursor: actionProcessing ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 6,
-                                  }}
-                                >
-                                  {actionProcessing ? (
-                                    <>
-                                      <RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} />
-                                      Processing...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Check size={14} />
-                                      Confirm & Process
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenProcessRefund(detailData)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 16px',
+                              backgroundColor: '#183A34',
+                              color: '#FFFFFF',
+                              borderRadius: 6,
+                              border: 'none',
+                              fontWeight: 700,
+                              fontSize: 13,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                            }}
+                          >
+                            <RotateCcw size={15} />
+                            Issue Refund
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1240,6 +1174,23 @@ export function PaymentRefundManagementView({ onNavigate, initialTab, highlightI
           </div>
         </div>
       )}
+
+      {/* Shared Issue Refund Modal */}
+      <IssueRefundModal
+        open={isIssueRefundModalOpen}
+        source="return_handoff"
+        initialValues={refundModalInitialValues}
+        onClose={() => {
+          setIsIssueRefundModalOpen(false);
+          setRefundModalInitialValues(null);
+        }}
+        onSuccess={() => {
+          fetchRefunds();
+          if (selectedHandoffId) {
+            handleOpenDetail(selectedHandoffId);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -6,7 +6,8 @@ import {
   Package,
   AlertCircle,
   X,
-  Check
+  Check,
+  CreditCard,
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
 import './accountPages.css';
@@ -136,6 +137,12 @@ function OrderProductImage({ src, alt, imageClassName, placeholderClassName, siz
 }
 
 function customerOrderTrackingStatus(order) {
+  const refundStatus = order.refund_summary?.status;
+  if (refundStatus === 'refunded') return 'Refunded';
+  if (refundStatus === 'processing') return 'Refund Processing';
+  if (refundStatus === 'pending') return 'Refund Pending';
+  if (refundStatus === 'failed') return 'Refund Failed';
+
   if (order.status === 'cancelled') return order.cancellation_label || 'Cancelled';
   const completed = (order.tracking_milestones || []).filter((item) => item.created_at);
   if (completed.length) return completed[completed.length - 1].label;
@@ -217,9 +224,9 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
     return orders.filter((order) => {
       const status = String(order.status || '').toLowerCase();
       if (filter === 'all') return true;
-      if (filter === 'active') return !['delivered', 'cancelled', 'refunded'].includes(status);
+      if (filter === 'active') return !['delivered', 'cancelled', 'refunded'].includes(status) && order.refund_summary?.status !== 'refunded';
       if (filter === 'delivered') return status === 'delivered';
-      if (filter === 'cancelled') return ['cancelled', 'payment_failed'].includes(status);
+      if (filter === 'cancelled') return ['cancelled', 'payment_failed'].includes(status) || order.refund_summary?.status === 'refunded';
       return true;
     });
   }, [orders, filter]);
@@ -394,17 +401,21 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
 
                   {/* Zone 2 (Center): Color-coded status badge visually centered */}
                   <div className="fk-order-summary-center">
-                    <span className={`fk-status-pill is-${String(order.status || '').toLowerCase()}`}>
-                      {isDelivered && (
+                    <span className={`fk-status-pill ${order.refund_summary?.status ? `is-refund-${order.refund_summary.status}` : `is-${String(order.status || '').toLowerCase()}`}`}>
+                      {(isDelivered || order.refund_summary?.status === 'refunded') && (
                         <span className="fk-status-icon-check">
                           <Check size={11} strokeWidth={3} />
                         </span>
                       )}
                       <span>{customerOrderTrackingStatus(order)}</span>
                     </span>
-                    {order.status === 'cancelled' && order.cancellation_refund_status && (
+                    {order.refund_summary?.amount ? (
+                      <small className="fk-delivery-date-text">
+                        {order.refund_summary.status === 'refunded' ? 'Refunded' : 'Refund'}: {money(order.refund_summary.amount, order.refund_summary.currency || order.currency)}
+                      </small>
+                    ) : order.status === 'cancelled' && order.cancellation_refund_status ? (
                       <small className="fk-delivery-date-text">Payment refund: {humanize(order.cancellation_refund_status)}</small>
-                    )}
+                    ) : null}
                   </div>
 
                   {/* Zone 3 (Right): Supporting info & Chevron */}
@@ -480,6 +491,55 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                             <OrderLifecycleTimeline order={order} />
                           </section>
                         </div>
+
+                        {order.refund_summary && (
+                          <section
+                            style={{
+                              marginTop: 16,
+                              padding: '14px 18px',
+                              background: '#F8FAFC',
+                              borderRadius: 8,
+                              border: '1px solid #E2E8F0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: 12,
+                            }}
+                          >
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                <CreditCard size={16} color="#0F3024" />
+                                <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1E293B' }}>
+                                  Refund Status: {
+                                    order.refund_summary.status === 'refunded' ? 'Refund Processed' :
+                                    order.refund_summary.status === 'processing' ? 'Refund Processing' :
+                                    order.refund_summary.status === 'pending' ? 'Refund Pending' :
+                                    order.refund_summary.status === 'failed' ? 'Refund Failed' : humanize(order.refund_summary.status)
+                                  }
+                                </span>
+                              </div>
+                              <p style={{ margin: 0, fontSize: 12.5, color: '#64748B' }}>
+                                {order.refund_summary.status === 'refunded'
+                                  ? `${money(order.refund_summary.amount, order.refund_summary.currency || order.currency)} has been credited to your original payment method.`
+                                  : `${money(order.refund_summary.amount, order.refund_summary.currency || order.currency)} is currently pending disbursement.`}
+                                {order.refund_summary.processed_at && ` Verified on ${formatOrderDateTime(order.refund_summary.processed_at)}.`}
+                              </p>
+                            </div>
+                            <span className={`fk-status-pill is-refund-${order.refund_summary.status}`}>
+                              {order.refund_summary.status === 'refunded' && (
+                                <span className="fk-status-icon-check">
+                                  <Check size={11} strokeWidth={3} />
+                                </span>
+                              )}
+                              <span>
+                                {order.refund_summary.status === 'refunded' ? 'Refunded' :
+                                 order.refund_summary.status === 'processing' ? 'Processing' :
+                                 order.refund_summary.status === 'pending' ? 'Pending' : 'Failed'}
+                              </span>
+                            </span>
+                          </section>
+                        )}
 
                         {isDelivered && (
                           <section className="fk-return-chat-panel fk-return-panel-full-width" role="region" aria-label="Return or replacement options">

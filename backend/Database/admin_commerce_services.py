@@ -2116,7 +2116,29 @@ def execute_return_refund(
         .order_by(Refund.created_at, Refund.id).with_for_update()
     )
     if existing is not None:
-        if existing.status == "processed" and handoff.status in {"accepted", "in_progress"}:
+        if existing.status in {"processing", "pending"} and existing.provider_refund_id and existing.refund_method == "razorpay":
+            rzp_key = os.getenv("RAZORPAY_KEY_ID", "")
+            rzp_secret = os.getenv("RAZORPAY_KEY_SECRET", "")
+            if rzp_key and rzp_secret:
+                try:
+                    import razorpay
+                    client = razorpay.Client(auth=(rzp_key, rzp_secret))
+                    rzp_refund = client.refund.fetch(existing.provider_refund_id)
+                    provider_status = str(rzp_refund.get("status") or "").lower()
+                    if provider_status == "processed":
+                        existing.status = "processed"
+                        existing.updated_at = _utcnow()
+                        order = db.scalar(select(CommerceOrder).where(CommerceOrder.id == claim.order_id).with_for_update())
+                        if order:
+                            order.payment_status = "refunded"
+                    elif provider_status == "failed":
+                        existing.status = "failed"
+                        existing.failure_reason = str(rzp_refund.get("error_description") or "Provider reported refund failure")[:500]
+                        existing.updated_at = _utcnow()
+                except Exception:
+                    pass
+
+        if existing.status == "processed" and handoff.status in {"pending", "accepted", "in_progress"}:
             previous = handoff.status
             handoff.status = "completed"
             handoff.completed_at = _utcnow()
@@ -2142,9 +2164,9 @@ def execute_return_refund(
         db.commit()
         return _serialize_return_refund(existing, duplicate=True)
 
-    if handoff.status not in {"accepted", "in_progress"}:
+    if handoff.status not in {"pending", "accepted", "in_progress"}:
         raise ValueError("Accept the Payments handoff before processing its refund")
-    if handoff.status == "accepted":
+    if handoff.status in {"pending", "accepted"}:
         previous = handoff.status
         handoff.status = "in_progress"
         handoff.updated_at = _utcnow()

@@ -357,6 +357,30 @@
   color: #b91c1c;
 }
 
+.fk-status-pill.is-refund-refunded,
+.fk-status-pill.is-refunded {
+  background-color: #f3e8ff;
+  color: #6b21a8;
+}
+
+.fk-status-pill.is-refund-processing,
+.fk-status-pill.is-refund_processing {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+}
+
+.fk-status-pill.is-refund-pending,
+.fk-status-pill.is-refund_pending {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.fk-status-pill.is-refund-failed,
+.fk-status-pill.is-refund_failed {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
 .fk-delivery-date-text {
   font-size: 13px;
   color: #374151;

@@ -195,7 +195,10 @@ export function MyConversations({ onNavigate }) {
       if (selectThreadId) {
         setActiveThreadId(selectThreadId);
       } else if (sorted.length > 0 && !activeThreadIdRef.current) {
-        setActiveThreadId(sorted[0].thread_id);
+        const hasPendingHandoff = !handledReturnHandoffRef.current && Boolean(sessionStorage.getItem('flatkart_return_intake_handoff'));
+        if (!hasPendingHandoff) {
+          setActiveThreadId(sorted[0].thread_id);
+        }
       }
     } catch (err) {
       setConversationsError(err.message || 'Failed to load conversations');
@@ -230,12 +233,14 @@ export function MyConversations({ onNavigate }) {
 
     const startReturnConversation = async () => {
       setIsCreating(true);
+      setIsLoadingMessages(false);
       try {
         const conversation = await chatbotService.createConversation('Return or Replace');
         setConversations((previous) => [conversation, ...previous.filter((item) => item.thread_id !== conversation.thread_id)]);
         skipMessageLoadRef.current = conversation.thread_id;
         setActiveThreadId(conversation.thread_id);
         setMessages([]);
+        setIsLoadingMessages(false);
         const itemName = [handoff.productName, handoff.variantName].filter(Boolean).join(' - ');
         const quantity = handoff.quantity ? `, quantity ${handoff.quantity}` : '';
         const question = `I want to return or replace ${itemName || 'an item'} from order #${handoff.orderNumber || handoff.orderId}${quantity}.`;
@@ -249,6 +254,7 @@ export function MyConversations({ onNavigate }) {
         setMessageError(err.message || 'Could not start the return or replacement conversation.');
       } finally {
         setIsCreating(false);
+        setIsLoadingMessages(false);
       }
     };
     void startReturnConversation();
@@ -258,10 +264,12 @@ export function MyConversations({ onNavigate }) {
   useEffect(() => {
     if (!activeThreadId) {
       setMessages([]);
+      setIsLoadingMessages(false);
       return;
     }
     if (skipMessageLoadRef.current === activeThreadId) {
       skipMessageLoadRef.current = null;
+      setIsLoadingMessages(false);
       return;
     }
 
@@ -319,9 +327,7 @@ export function MyConversations({ onNavigate }) {
         }
       })
       .finally(() => {
-        if (isSubscribed) {
-          setIsLoadingMessages(false);
-        }
+        setIsLoadingMessages(false);
       });
 
     return () => {
@@ -882,6 +888,17 @@ export function MyConversations({ onNavigate }) {
                 ) : messages.length === 0 ? (
                   /* Welcome Screen matching exact reference UI */
                   <div className="fk-chat-welcome-container">
+                    {messageError && (
+                      <div className="fk-chat-msg-error" style={{ marginBottom: 16, maxWidth: 440, width: '100%' }}>
+                        <AlertCircle size={16} />
+                        <span>{messageError}</span>
+                        {lastFailedRequest && (
+                          <button className="fk-chat-retry-btn" onClick={handleRetry}>
+                            Retry
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <div className="fk-chat-welcome-avatar">
                       <Bot size={34} strokeWidth={2} />
                     </div>

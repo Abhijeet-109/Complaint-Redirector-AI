@@ -2318,7 +2318,12 @@ def get_payment_refund_details(
             )
             ineligible_reason = (
                 "This refund has already been completed."
-                if verified_refund else "An existing refund operation requires reconciliation before another refund can be initiated."
+                if verified_refund else
+                "A refund is currently processing with the payment provider."
+                if existing_refund.status == "processing" else
+                "A refund operation is currently pending with the payment provider."
+                if existing_refund.status == "pending" else
+                "An existing refund operation requires reconciliation before another refund can be initiated."
             )
         elif claim and (claim.workflow_status != "approved" or claim.resolution_type != "refund"):
             status_label = "ineligible"

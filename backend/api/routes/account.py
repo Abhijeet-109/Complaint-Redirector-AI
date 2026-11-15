@@ -213,7 +213,7 @@ def set_payment_preference(payload: PaymentPreference, db: Session = Depends(get
     return {"preferred_payment_method": user.preferred_payment_method}
 
 
-def _order_payload(order, return_claims=None, cancellation_refund=None):
+def _order_payload(order, return_claims=None, cancellation_refund=None, order_refunds=None):
     result = serialize_order(order)
     result["payment_status"] = order.payment_status
     shipment_status = (order.shipment.status or "").lower() if order.shipment else ""
@@ -310,18 +310,106 @@ def _order_payload(order, return_claims=None, cancellation_refund=None):
         chosen = chosen or next((image for image in images if image.variant_id is None), None)
         output["image"] = chosen.storage_key if chosen else None
         output["return_claims"] = claims_by_item.get(item.id, [])
+
+    # Calculate authoritative refund summary from verified refund records and claims
+    refunds_list = list(order_refunds) if order_refunds else ([cancellation_refund] if cancellation_refund else [])
+    processed_refunds = [r for r in refunds_list if r.status == "processed"]
+    processing_refunds = [r for r in refunds_list if r.status == "processing"]
+    pending_refunds = [r for r in refunds_list if r.status == "pending"]
+    failed_refunds = [r for r in refunds_list if r.status == "failed"]
+
+    refund_summary = None
+    if processed_refunds:
+        latest = processed_refunds[0]
+        total_amount = sum(r.amount for r in processed_refunds)
+        refund_summary = {
+            "status": "refunded",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": (latest.updated_at or latest.created_at).isoformat() if (latest.updated_at or latest.created_at) else None,
+            "count": len(processed_refunds),
+        }
+    elif processing_refunds:
+        latest = processing_refunds[0]
+        total_amount = sum(r.amount for r in processing_refunds)
+        refund_summary = {
+            "status": "processing",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": None,
+            "count": len(processing_refunds),
+        }
+    elif pending_refunds:
+        latest = pending_refunds[0]
+        total_amount = sum(r.amount for r in pending_refunds)
+        refund_summary = {
+            "status": "pending",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": None,
+            "count": len(pending_refunds),
+        }
+    elif failed_refunds:
+        latest = failed_refunds[0]
+        total_amount = sum(r.amount for r in failed_refunds)
+        refund_summary = {
+            "status": "failed",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": None,
+            "count": len(failed_refunds),
+        }
+    elif return_claims:
+        approved_refund_claim = next((c for c in return_claims if c.resolution_type == "refund" and c.workflow_status in {"approved", "completed", "resolved"}), None)
+        if approved_refund_claim:
+            refund_summary = {
+                "status": "pending",
+                "amount": float(order.total_amount),
+                "currency": "INR",
+                "refund_method": "original_payment",
+                "processed_at": None,
+                "count": 1,
+            }
+
+    result["refund_summary"] = refund_summary
+    if order.status == "cancelled" and not result.get("cancellation_refund_status") and refund_summary:
+        result["cancellation_refund_status"] = refund_summary["status"]
+
     return result
 
 
 @router.get("/orders")
 def customer_orders(db: Session = Depends(get_db), user=Depends(get_current_user)):
     orders = list_orders(db, user.id)
-    order_ids = [order.id for order in orders if order.status == "cancelled"]
-    refunds = db.scalars(select(Refund).where(
-        Refund.order_id.in_(order_ids), Refund.idempotency_key.in_([f"order-cancel:{order_id}" for order_id in order_ids]),
-    ).order_by(Refund.created_at.desc(), Refund.id.desc())).all() if order_ids else []
-    refunds_by_order = {refund.order_id: refund for refund in refunds}
-    return [_order_payload(order, cancellation_refund=refunds_by_order.get(order.id)) for order in orders]
+    all_order_ids = [order.id for order in orders]
+    all_claims = db.scalars(
+        select(ReturnRequest).where(ReturnRequest.order_id.in_(all_order_ids))
+        .order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc())
+    ).all() if all_order_ids else []
+    claims_by_order = {}
+    for claim in all_claims:
+        claims_by_order.setdefault(claim.order_id, []).append(claim)
+
+    all_refunds = db.scalars(
+        select(Refund).where(Refund.order_id.in_(all_order_ids))
+        .order_by(Refund.created_at.desc(), Refund.id.desc())
+    ).all() if all_order_ids else []
+    refunds_by_order = {}
+    for refund in all_refunds:
+        refunds_by_order.setdefault(refund.order_id, []).append(refund)
+
+    return [
+        _order_payload(
+            order,
+            return_claims=claims_by_order.get(order.id, []),
+            order_refunds=refunds_by_order.get(order.id, []),
+        )
+        for order in orders
+    ]
 
 
 @router.get("/orders/{order_id}")
@@ -330,12 +418,15 @@ def customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(ge
     if order is None:
         raise HTTPException(404, "Order not found")
     claims = db.scalars(
-        select(ReturnRequest).where(ReturnRequest.order_id == order.id).order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc())
+        select(ReturnRequest).where(ReturnRequest.order_id == order.id)
+        .order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc())
     ).all()
-    cancellation_refund = db.scalar(select(Refund).where(
-        Refund.order_id == order.id, Refund.idempotency_key == f"order-cancel:{order.id}",
-    ).order_by(Refund.id.desc()).limit(1))
-    return _order_payload(order, claims, cancellation_refund)
+    order_refunds = db.scalars(
+        select(Refund).where(Refund.order_id == order.id)
+        .order_by(Refund.created_at.desc(), Refund.id.desc())
+    ).all()
+    cancellation_refund = next((r for r in order_refunds if r.idempotency_key == f"order-cancel:{order.id}"), None)
+    return _order_payload(order, return_claims=claims, cancellation_refund=cancellation_refund, order_refunds=order_refunds)
 
 
 @router.post("/orders/{order_id}/cancel")
