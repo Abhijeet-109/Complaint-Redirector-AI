@@ -14,7 +14,10 @@ from backend.security_controls import complaint_count_for_utc_day
 class ComplaintQuotaTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(self.engine)
+        Base.metadata.create_all(
+            self.engine,
+            tables=[table for table in Base.metadata.sorted_tables if table.name != "knowledge_chunks"],
+        )
         self.session = sessionmaker(bind=self.engine)()
         user = User(name="Test User", email="test@example.com", password="hash", role="user")
         department = Department(name="Support", email="support@example.com")

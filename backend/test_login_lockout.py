@@ -29,7 +29,10 @@ class LoginLockoutTests(unittest.TestCase):
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-        Base.metadata.create_all(self.engine)
+        Base.metadata.create_all(
+            self.engine,
+            tables=[table for table in Base.metadata.sorted_tables if table.name != "knowledge_chunks"],
+        )
         self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False)
         with self.session_factory() as db:
             db.add(User(
