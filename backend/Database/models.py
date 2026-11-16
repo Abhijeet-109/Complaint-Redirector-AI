@@ -306,12 +306,12 @@ class Product(Base):
     slug = Column(String(220), nullable=False, unique=True, index=True)
     description = Column(String, nullable=True)
     short_description = Column(String(250), nullable=True)
-    highlights = Column(JSON, nullable=False, default=list)
-    specifications = Column(JSON, nullable=False, default=dict)
+    highlights = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
+    specifications = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
     is_returnable = Column(Boolean, nullable=True)
     return_window_days = Column(Integer, nullable=True)
     is_refundable = Column(Boolean, nullable=True)
-    payment_methods = Column(JSON, nullable=False, default=list)
+    payment_methods = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
     brand = Column(String(120), nullable=True, index=True)
     attributes = Column(JSON, nullable=False, default=dict)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
@@ -597,7 +597,7 @@ class Refund(Base):
     refund_method = Column(String(40), nullable=False)
     provider_refund_id = Column(String(120), nullable=True)
     external_reference = Column(String(120), nullable=True)
-    status = Column(String(24), nullable=False, default="pending", index=True)
+    status = Column(String(24), nullable=False, default="pending", server_default="pending", index=True)
     idempotency_key = Column(String(120), nullable=False)
     processed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     failure_reason = Column(String(500), nullable=True)
@@ -733,7 +733,7 @@ class ReturnRequestEvent(Base):
     )
 
     note = Column(Text, nullable=True)
-    event_data = Column(JSON, nullable=False, default=dict)
+    event_data = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
 
     created_at = Column(
         DateTime,
@@ -783,7 +783,7 @@ class ReturnEvidence(Base):
         nullable=False,
     )
 
-    is_active = Column(Boolean, nullable=False, default=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     uploaded_at = Column(
         DateTime,
         nullable=False,
@@ -839,11 +839,12 @@ class ReturnHandoff(Base):
         String(24),
         nullable=False,
         default="pending",
+        server_default="pending",
         index=True,
     )
 
     idempotency_key = Column(String(120), nullable=False)
-    payload = Column(JSON, nullable=False, default=dict)
+    payload = Column(JSON, nullable=False, default=dict, server_default=text("'{}'"))
     failure_reason = Column(Text, nullable=True)
 
     created_by_id = Column(
@@ -957,7 +958,7 @@ class UserAddress(Base):
     city = Column(String(100), nullable=False)
     state = Column(String(100), nullable=False)
     pin_code = Column(String(6), nullable=False)
-    label = Column(String(16), nullable=False, default="Home")
+    label = Column(String(16), nullable=False, default="Home", server_default="Home")
     is_default = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
