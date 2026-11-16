@@ -60,9 +60,9 @@ export function Header({ onOpenAuth, onSelectProduct, onNavigate }) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const handleNavigate = (page) => {
+  const handleNavigate = (page, value) => {
     if (onNavigate) {
-      onNavigate(page);
+      onNavigate(page, value);
     } else if (page === 'login' || page === 'register') {
       if (onOpenAuth) onOpenAuth(page);
     }

@@ -13,13 +13,16 @@ from sqlalchemy.orm import Session, selectinload
 from backend.Database.models import (
     CommerceOrder,
     CommerceOrderItem,
+    Department,
     Inventory,
     PaymentAttempt,
     Product,
     ProductCategory,
     ProductVariant,
     Refund,
+    ReturnHandoff,
     ReturnRequest,
+    ReturnRequestEvent,
     Shipment,
     ShipmentEvent,
     User,
@@ -41,16 +44,30 @@ def _utcnow() -> datetime:
 # Status transition maps
 # ---------------------------------------------------------------------------
 
-VALID_ORDER_TRANSITIONS: dict[str, list[str]] = {
-    "placed": ["processing", "cancelled"],
-    "processing": ["packed", "cancelled"],
-    "packed": ["shipped", "cancelled"],
-    "shipped": ["out_for_delivery"],
-    "out_for_delivery": ["delivered"],
+VALID_ORDER_TRANSITIONS: dict[str, set[str]] = {
+    "placed": {"accepted", "cancelled"},
+    "accepted": {"processing", "cancelled"},
+    "processing": {"packed", "cancelled"},
+    "packed": {"ready_to_ship", "cancelled"},
+    "ready_to_ship": set(),
+    # Historical states remain readable but cannot be advanced by Order Management.
+    "shipped": set(),
+    "out_for_delivery": set(),
     "delivered": [],
     "cancelled": [],
     "pending_payment": [],
     "payment_failed": [],
+}
+
+VALID_SHIPMENT_TRANSITIONS: dict[str, set[str]] = {
+    # Legacy rows stay actionable without inferring that dispatch has happened.
+    "pending": {"ready_for_dispatch"},
+    "ready_for_dispatch": {"received"},
+    "received": {"scheduled"},
+    "scheduled": {"shipped"},
+    "shipped": {"out_for_delivery"},
+    "out_for_delivery": {"delivered"},
+    "delivered": set(),
 }
 
 VALID_RETURN_TRANSITIONS: dict[str, list[str]] = {
@@ -91,9 +108,12 @@ def get_store_dashboard_kpis(db: Session) -> dict:
 
     # COD orders that have been delivered count as collected
     cod_revenue = db.scalar(
-        select(func.coalesce(func.sum(CommerceOrder.total_amount), 0)).where(
+        select(func.coalesce(func.sum(CommerceOrder.total_amount), 0)).join(
+            Shipment, Shipment.order_id == CommerceOrder.id
+        ).where(
             CommerceOrder.payment_method == "cod",
             CommerceOrder.status == "delivered",
+            Shipment.status == "delivered",
         )
     )
 
@@ -116,8 +136,7 @@ def get_store_dashboard_kpis(db: Session) -> dict:
     order_by_status = {row[0]: row[1] for row in order_status_rows}
     total_orders = sum(order_by_status.values())
 
-    # Fulfilment counts: Reconcile CommerceOrder.status and Shipment.status
-    # Exclude terminal/cancelled/failed orders: cancelled, payment_failed, pending_payment
+    # Each KPI uses the status field owned by that workflow.
     fulfilment_query = (
         select(
             CommerceOrder.id,
@@ -130,9 +149,14 @@ def get_store_dashboard_kpis(db: Session) -> dict:
     active_orders = db.execute(fulfilment_query).all()
 
     fc = {
-        "pending": 0,
+        "placed": 0,
+        "accepted": 0,
         "processing": 0,
         "packed": 0,
+        "ready_to_ship": 0,
+        "ready_for_dispatch": 0,
+        "received": 0,
+        "scheduled": 0,
         "shipped": 0,
         "out_for_delivery": 0,
         "delivered": 0,
@@ -140,20 +164,34 @@ def get_store_dashboard_kpis(db: Session) -> dict:
     for row in active_orders:
         ord_st = (row.status or "").lower()
         shp_st = (row.shipment_status or "").lower()
-        if ord_st == "delivered" or shp_st == "delivered":
+        order_stage = ord_st if ord_st in {"placed", "accepted", "processing", "packed", "ready_to_ship"} else None
+        shipment_stage = shp_st if shp_st in {"ready_for_dispatch", "received", "scheduled", "out_for_delivery", "delivered"} else None
+        if order_stage:
+            fc[order_stage] += 1
+        if ord_st == "ready_to_ship" and shipment_stage and shipment_stage != "delivered":
+            fc[shipment_stage] += 1
+        if ord_st == "delivered" and shp_st == "delivered":
             fc["delivered"] += 1
-        elif ord_st == "out_for_delivery" or shp_st == "out_for_delivery":
-            fc["out_for_delivery"] += 1
-        elif ord_st == "shipped" or shp_st == "shipped":
-            fc["shipped"] += 1
-        elif ord_st == "packed":
-            fc["packed"] += 1
-        elif ord_st == "processing":
-            fc["processing"] += 1
-        else:
-            fc["pending"] += 1
+        elif ord_st in {"shipped", "out_for_delivery"}:
+            # Legacy order rows are counted by their persisted historical stage.
+            fc[ord_st] += 1
 
-    pending_fulfilment = fc["pending"] + fc["processing"] + fc["packed"]
+    # Canonical five-stage dashboard: every row represents one order, with
+    # shipment-owned stages sourced only from Shipment.status.
+    fulfilment_overview = {key: 0 for key in (
+        "placed", "packed", "ready_to_ship", "out_for_delivery", "delivered",
+    )}
+    for row in active_orders:
+        ord_st = (row.status or "").lower()
+        shp_st = (row.shipment_status or "").lower()
+        if ord_st == "delivered" and shp_st == "delivered":
+            fulfilment_overview["delivered"] += 1
+        elif shp_st == "out_for_delivery":
+            fulfilment_overview["out_for_delivery"] += 1
+        elif ord_st in {"placed", "packed", "ready_to_ship"}:
+            fulfilment_overview[ord_st] += 1
+
+    pending_fulfilment = sum(fc[key] for key in ("placed", "accepted", "processing", "packed", "ready_to_ship"))
 
     # Pending payment capture
     pending_payments = db.scalar(
@@ -199,6 +237,9 @@ def get_store_dashboard_kpis(db: Session) -> dict:
         "total_orders": total_orders,
         "orders_by_status": order_by_status,
         "fulfilment_counts": fc,
+        "fulfilment_overview": fulfilment_overview,
+        "order_stage_counts": {key: fc[key] for key in ("placed", "accepted", "processing", "packed", "ready_to_ship")},
+        "shipment_stage_counts": {key: fc[key] for key in ("ready_for_dispatch", "received", "scheduled", "out_for_delivery", "delivered")},
         "pending_fulfilment": pending_fulfilment,
         "pending_payments": pending_payments,
         "total_stock": int(inv_rows[0]),
@@ -234,9 +275,12 @@ def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
             )
         ).all()
         cod_rows = db.execute(
-            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).where(
+            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).join(
+                Shipment, Shipment.order_id == CommerceOrder.id
+            ).where(
                 CommerceOrder.payment_method == "cod",
                 CommerceOrder.status == "delivered",
+                Shipment.status == "delivered",
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) >= start_date,
             )
         ).all()
@@ -285,9 +329,12 @@ def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
             )
         ).all()
         cod_rows = db.execute(
-            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).where(
+            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).join(
+                Shipment, Shipment.order_id == CommerceOrder.id
+            ).where(
                 CommerceOrder.payment_method == "cod",
                 CommerceOrder.status == "delivered",
+                Shipment.status == "delivered",
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) >= monday,
             )
         ).all()
@@ -338,9 +385,12 @@ def get_revenue_chart_data(db: Session, period: str, now: datetime) -> list:
             )
         ).all()
         cod_rows = db.execute(
-            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).where(
+            select(CommerceOrder.total_amount, func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at)).join(
+                Shipment, Shipment.order_id == CommerceOrder.id
+            ).where(
                 CommerceOrder.payment_method == "cod",
                 CommerceOrder.status == "delivered",
+                Shipment.status == "delivered",
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) >= year_start,
                 func.coalesce(CommerceOrder.placed_at, CommerceOrder.updated_at, CommerceOrder.created_at) < year_end,
             )
@@ -443,8 +493,8 @@ def _serialize_order_summary(order: CommerceOrder) -> dict:
     customer_name = None
     if order.user:
         customer_name = order.user.name or order.user.email
-    if not customer_name and order.shipping_address and isinstance(order.shipping_address, dict):
-        customer_name = order.shipping_address.get("full_name") or order.shipping_address.get("name")
+    if not customer_name and order.delivery_address and isinstance(order.delivery_address, dict):
+        customer_name = order.delivery_address.get("recipient_name") or order.delivery_address.get("name")
 
     prod_summary = None
     first_item = order.items[0] if order.items else None
@@ -461,6 +511,7 @@ def _serialize_order_summary(order: CommerceOrder) -> dict:
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
+        "next_status_options": _order_next_status_options(order),
         "payment_status": order.payment_status,
         "payment_method": order.payment_method,
         "total_amount": str(_money(order.total_amount or 0)),
@@ -473,7 +524,90 @@ def _serialize_order_summary(order: CommerceOrder) -> dict:
         "quantity": total_qty,
         "customer_name": customer_name,
         "product_summary": prod_summary,
+        "delivery_address": order.delivery_address,
+        "items": [
+            {
+                "product_name": item.product_name,
+                "variant_name": item.variant_name,
+                "sku": item.sku,
+                "quantity": item.quantity,
+                "unit_price": str(_money(item.unit_price)),
+            }
+            for item in order.items
+        ],
     }
+
+
+def _order_next_status_options(order: CommerceOrder) -> list[str]:
+    options = set(VALID_ORDER_TRANSITIONS.get(order.status, set()))
+    if order.payment_status in {"captured", "paid"}:
+        options.discard("cancelled")
+    return sorted(options)
+
+
+def list_order_delivery_orders(db: Session, *, status: str | None = None, limit: int = 50, offset: int = 0) -> dict:
+    """List active orders for the Order & Delivery department queue."""
+    actionable = {"placed", "accepted", "processing", "packed", "ready_to_ship"}
+    stmt = (
+        select(CommerceOrder)
+        .options(
+            selectinload(CommerceOrder.items),
+            selectinload(CommerceOrder.shipment),
+            selectinload(CommerceOrder.user),
+        )
+        .where(CommerceOrder.status.in_(actionable))
+        .order_by(CommerceOrder.created_at, CommerceOrder.id)
+    )
+    if status:
+        if status not in actionable:
+            raise ValueError("Unsupported order status filter")
+        stmt = stmt.where(CommerceOrder.status == status)
+    total_stmt = select(func.count(CommerceOrder.id)).where(CommerceOrder.status.in_(actionable))
+    if status:
+        total_stmt = total_stmt.where(CommerceOrder.status == status)
+    items = db.scalars(stmt.offset(offset).limit(limit)).all()
+    return {"items": [_serialize_order_summary(order) for order in items], "total": db.scalar(total_stmt) or 0,
+            "limit": limit, "offset": offset}
+
+
+def list_order_delivery_shipments(db: Session, *, status: str | None = None, limit: int = 50, offset: int = 0) -> dict:
+    """List shipments belonging to orders managed by Order & Delivery."""
+    statuses = set(VALID_SHIPMENT_TRANSITIONS)
+    stmt = (
+        select(Shipment)
+        .join(CommerceOrder, CommerceOrder.id == Shipment.order_id)
+        .options(
+            selectinload(Shipment.events).selectinload(ShipmentEvent.changed_by),
+            selectinload(Shipment.order).selectinload(CommerceOrder.items),
+            selectinload(Shipment.order).selectinload(CommerceOrder.user),
+        )
+        .where(CommerceOrder.status.not_in(("cancelled", "payment_failed", "pending_payment")))
+        .order_by(Shipment.created_at.desc(), Shipment.id.desc())
+    )
+    if status:
+        if status not in statuses:
+            raise ValueError("Unsupported shipment status filter")
+        stmt = stmt.where(Shipment.status == status)
+    total_stmt = select(func.count(Shipment.id)).join(CommerceOrder, CommerceOrder.id == Shipment.order_id).where(
+        CommerceOrder.status.not_in(("cancelled", "payment_failed", "pending_payment"))
+    )
+    if status:
+        total_stmt = total_stmt.where(Shipment.status == status)
+    shipments = db.scalars(stmt.offset(offset).limit(limit)).all()
+    rows = []
+    for shipment in shipments:
+        order_data = _serialize_order_summary(shipment.order)
+        rows.append({
+            **_serialize_shipment(shipment),
+            "order_number": shipment.order.order_number,
+            "order_status": shipment.order.status,
+            "customer_name": order_data["customer_name"],
+            "delivery_address": shipment.order.delivery_address,
+            "items": order_data["items"],
+            "total_amount": order_data["total_amount"],
+            "currency": order_data["currency"],
+        })
+    return {"items": rows, "total": db.scalar(total_stmt) or 0, "limit": limit, "offset": offset}
 
 
 def list_admin_orders(
@@ -559,6 +693,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
             selectinload(CommerceOrder.payment_attempts),
             selectinload(CommerceOrder.shipment).selectinload(Shipment.events)
             .selectinload(ShipmentEvent.changed_by),
+            selectinload(CommerceOrder.events).selectinload(ShipmentEvent.changed_by),
         )
         .where(CommerceOrder.id == order_id)
     )
@@ -614,6 +749,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         events_out = [
             {
                 "id": ev.id,
+                "event_type": ev.event_type,
                 "previous_status": ev.previous_status,
                 "new_status": ev.new_status,
                 "note": ev.note,
@@ -625,6 +761,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         shipment_out = {
             "id": s.id,
             "status": s.status,
+            "next_status_options": sorted(VALID_SHIPMENT_TRANSITIONS.get(s.status, set())),
             "carrier": s.carrier,
             "tracking_reference": s.tracking_reference,
             "tracking_url": s.tracking_url,
@@ -666,6 +803,7 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
+        "next_status_options": _order_next_status_options(order),
         "payment_status": order.payment_status,
         "payment_method": order.payment_method,
         "checkout_mode": order.checkout_mode,
@@ -686,17 +824,33 @@ def get_admin_order_detail(db: Session, order_id: int) -> dict | None:
         "items": items_out,
         "payment_attempts": attempts_out,
         "shipment": shipment_out,
+        "order_events": [
+            {
+                "id": event.id,
+                "event_type": event.event_type,
+                "previous_status": event.previous_status,
+                "new_status": event.new_status,
+                "note": event.note,
+                "changed_by": event.changed_by.name if event.changed_by else None,
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+            for event in order.events
+            if event.event_type == "order_status"
+        ],
         "return_requests": returns_out,
         "refunds": refunds_out,
     }
 
 
-def update_order_status(db: Session, order_id: int, new_status: str, changed_by: User) -> dict:
-    """
-    Validate and apply an admin order status transition.
-    - cancelled: releases reserved stock
-    - shipped: deducts inventory (reserved → reduce total_stock and reserved_stock)
-    """
+def update_order_status(
+    db: Session,
+    order_id: int,
+    new_status: str,
+    changed_by: User,
+    *,
+    note: str | None = None,
+) -> dict:
+    """Apply one order-processing transition and append its audit event."""
     order = db.scalar(
         select(CommerceOrder)
         .options(selectinload(CommerceOrder.items), selectinload(CommerceOrder.shipment))
@@ -712,38 +866,71 @@ def update_order_status(db: Session, order_id: int, new_status: str, changed_by:
             f"Cannot transition from '{order.status}' to '{new_status}'. "
             f"Allowed: {allowed or 'none (terminal state)'}"
         )
+    if new_status == "ready_to_ship" and order.shipment is not None and order.shipment.status not in {
+        "pending", "ready_for_dispatch",
+    }:
+        raise ValueError("Existing shipment has an unsupported legacy status and cannot be queued automatically.")
 
     now = _utcnow()
+    previous_status = order.status
 
     if new_status == "cancelled":
+        if order.shipment is not None and order.shipment.status in {
+            "picked_up", "in_transit", "out_for_delivery", "delivered",
+        }:
+            raise ValueError("Orders cannot be cancelled after outbound dispatch.")
+        captured = order.payment_status in {"captured", "paid"} or any(
+            attempt.status == "captured" for attempt in order.payment_attempts
+        )
+        has_cancellation_refund = db.scalar(select(Refund.id).where(
+            Refund.order_id == order.id,
+            Refund.idempotency_key == f"order-cancel:{order.id}",
+            Refund.status.in_(("pending", "processing", "processed", "failed")),
+        )) is not None
+        if captured and not has_cancellation_refund:
+            raise ValueError("Captured online payments cannot be cancelled through order management.")
         _release_reserved_stock(db, order)
 
-    if new_status == "shipped":
-        _deduct_shipped_inventory(db, order)
-        # Ensure a shipment record exists
-        if not order.shipment:
-            shipment = Shipment(order_id=order.id, status="shipped", shipped_at=now)
-            db.add(shipment)
-        else:
-            if order.shipment.status not in ("shipped", "out_for_delivery", "delivered"):
-                old_ship_status = order.shipment.status
-                order.shipment.status = "shipped"
-                order.shipment.shipped_at = now
-                event = ShipmentEvent(
-                    shipment_id=order.shipment.id,
-                    previous_status=old_ship_status,
-                    new_status="shipped",
-                    changed_by_id=changed_by.id,
-                    note="Order status changed to shipped",
-                )
-                db.add(event)
-
-    if new_status == "delivered" and order.shipment:
-        order.shipment.status = "delivered"
-        order.shipment.delivered_at = now
-
     order.status = new_status
-    db.commit()
+    db.add(ShipmentEvent(
+        event_type="order_status",
+        order_id=order.id,
+        previous_status=previous_status,
+        new_status=new_status,
+        changed_by_id=changed_by.id,
+        note=note,
+    ))
+
+    if new_status == "ready_to_ship":
+        if order.shipment is None:
+            order.shipment = Shipment(order_id=order.id, status="ready_for_dispatch")
+            db.flush()
+            db.add(ShipmentEvent(
+                event_type="shipment_status",
+                shipment_id=order.shipment.id,
+                previous_status=None,
+                new_status="ready_for_dispatch",
+                changed_by_id=changed_by.id,
+                note="Shipment queued for dispatch",
+            ))
+        elif order.shipment.status == "pending":
+            order.shipment.status = "ready_for_dispatch"
+            db.add(ShipmentEvent(
+                event_type="shipment_status",
+                shipment_id=order.shipment.id,
+                previous_status="pending",
+                new_status="ready_for_dispatch",
+                changed_by_id=changed_by.id,
+                note="Legacy pending shipment queued for dispatch",
+            ))
+        elif order.shipment.status not in VALID_SHIPMENT_TRANSITIONS and order.shipment.status != "ready_for_dispatch":
+            raise ValueError("Existing shipment has an unsupported legacy status and cannot be queued automatically.")
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(order)
     return _serialize_order_summary(order)
 
@@ -771,7 +958,7 @@ def _release_reserved_stock(db: Session, order: CommerceOrder):
 
 
 def _deduct_shipped_inventory(db: Session, order: CommerceOrder):
-    """When shipped: reduce reserved_stock and total_stock (item leaves warehouse)."""
+    """At outbound dispatch, reduce reserved and on-hand stock exactly once."""
     if not order.items:
         return
     variant_ids = [item.variant_id for item in order.items]
@@ -784,11 +971,12 @@ def _deduct_shipped_inventory(db: Session, order: CommerceOrder):
     by_variant = {row.variant_id: row for row in rows}
     for item in order.items:
         inv = by_variant.get(item.variant_id)
-        if inv is None:
-            continue
-        deduct = min(item.quantity, inv.reserved_stock)
-        inv.reserved_stock -= deduct
-        inv.total_stock -= deduct
+        if inv is None or inv.reserved_stock < item.quantity or inv.total_stock < item.quantity:
+            raise ValueError("Reserved inventory is insufficient for outbound dispatch.")
+    for item in order.items:
+        inv = by_variant[item.variant_id]
+        inv.reserved_stock -= item.quantity
+        inv.total_stock -= item.quantity
         # available_stock is unchanged; invariant: available + reserved = total
         # new: available + (reserved - qty) = total - qty ✓
         inv.stock_status = "in_stock" if inv.available_stock > 0 else "out_of_stock"
@@ -802,6 +990,7 @@ def _serialize_shipment(shipment: Shipment) -> dict:
     events_out = [
         {
             "id": ev.id,
+            "event_type": ev.event_type,
             "previous_status": ev.previous_status,
             "new_status": ev.new_status,
             "note": ev.note,
@@ -814,6 +1003,7 @@ def _serialize_shipment(shipment: Shipment) -> dict:
         "id": shipment.id,
         "order_id": shipment.order_id,
         "status": shipment.status,
+        "next_status_options": sorted(VALID_SHIPMENT_TRANSITIONS.get(shipment.status, set())),
         "carrier": shipment.carrier,
         "tracking_reference": shipment.tracking_reference,
         "tracking_url": shipment.tracking_url,
@@ -841,9 +1031,16 @@ def get_or_create_shipment(db: Session, order_id: int) -> Shipment:
         raise ValueError("Order not found")
     if order.shipment:
         return order.shipment
-    shipment = Shipment(order_id=order_id, status="pending")
+    shipment = Shipment(order_id=order_id, status="ready_for_dispatch")
     db.add(shipment)
     db.flush()
+    db.add(ShipmentEvent(
+        event_type="shipment_status",
+        shipment_id=shipment.id,
+        previous_status=None,
+        new_status="ready_for_dispatch",
+        note="Shipment queued for dispatch",
+    ))
     return shipment
 
 
@@ -857,9 +1054,10 @@ def update_shipment(
     tracking_url: str | None = None,
     estimated_delivery_date: datetime | None = None,
     notes: str | None = None,
+    audit_reason: str | None = None,
     changed_by: User,
 ) -> dict:
-    """Update shipment fields and record a ShipmentEvent on status change."""
+    """Apply one validated shipment transition and its coupled order/inventory writes."""
     order = db.scalar(
         select(CommerceOrder)
         .options(
@@ -875,14 +1073,51 @@ def update_shipment(
 
     shipment = order.shipment
     if shipment is None:
-        shipment = Shipment(order_id=order_id, status="pending")
-        db.add(shipment)
-        db.flush()
-        order.shipment = shipment
+        raise ValueError("Shipment not found")
 
     now = _utcnow()
+    if status is not None:
+        allowed = VALID_SHIPMENT_TRANSITIONS.get(shipment.status, set())
+        if status not in allowed:
+            raise ValueError(
+                f"Cannot transition shipment from '{shipment.status}' to '{status}'. "
+                f"Allowed: {sorted(allowed) or 'none (terminal or legacy state)'}"
+            )
+        if status == "delivered" and order.status not in {"ready_to_ship", "shipped", "out_for_delivery"}:
+            raise ValueError("Only an active fulfilment order can be completed by shipment delivery.")
+        if status == "shipped" and shipment.status != "shipped":
+            _deduct_shipped_inventory(db, order)
+        previous_status = shipment.status
+        shipment.status = status
+        if status == "shipped":
+            shipment.shipped_at = now
+        if status == "delivered":
+            shipment.delivered_at = now
+            previous_order_status = order.status
+            order.status = "delivered"
+            order.updated_at = now
+            db.add(ShipmentEvent(
+                event_type="order_status",
+                order_id=order.id,
+                previous_status=previous_order_status,
+                new_status="delivered",
+                changed_by_id=changed_by.id,
+                note=audit_reason or notes,
+                created_at=now,
+            ))
 
-    # Apply non-status fields
+        event = ShipmentEvent(
+            event_type="shipment_status",
+            shipment_id=shipment.id,
+            previous_status=previous_status,
+            new_status=status,
+            changed_by_id=changed_by.id,
+            note=audit_reason or notes,
+            created_at=now,
+        )
+        db.add(event)
+    if notes is not None:
+        shipment.notes = notes
     if carrier is not None:
         shipment.carrier = carrier
     if tracking_reference is not None:
@@ -891,37 +1126,12 @@ def update_shipment(
         shipment.tracking_url = tracking_url
     if estimated_delivery_date is not None:
         shipment.estimated_delivery_date = estimated_delivery_date
-    if notes is not None:
-        shipment.notes = notes
 
-    # Apply status change
-    if status is not None and status != shipment.status:
-        previous_status = shipment.status
-        shipment.status = status
-
-        # Inventory deduction on first transition to shipped
-        if status == "shipped" and previous_status not in ("shipped", "out_for_delivery", "delivered"):
-            _deduct_shipped_inventory(db, order)
-            shipment.shipped_at = now
-            # Sync order status if it's not yet shipped
-            if order.status == "packed":
-                order.status = "shipped"
-
-        if status == "delivered":
-            shipment.delivered_at = now
-            if order.status == "out_for_delivery":
-                order.status = "delivered"
-
-        event = ShipmentEvent(
-            shipment_id=shipment.id,
-            previous_status=previous_status,
-            new_status=status,
-            changed_by_id=changed_by.id,
-            note=notes,
-        )
-        db.add(event)
-
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     # Reload with events
     shipment = db.scalar(
         select(Shipment)
@@ -943,6 +1153,7 @@ def get_shipment_events(db: Session, order_id: int) -> list:
     return [
         {
             "id": ev.id,
+            "event_type": ev.event_type,
             "previous_status": ev.previous_status,
             "new_status": ev.new_status,
             "note": ev.note,
@@ -1389,13 +1600,19 @@ def update_return_status(
 ) -> dict:
     """
     Update return request status.
-    On inspected->completed with restock=True: restock inventory.
+    Generic administration cannot resolve a return request; use the Returns
+    workflow after its department work has been verified.
     """
     rr = db.scalar(
         select(ReturnRequest).where(ReturnRequest.id == return_id).with_for_update()
     )
     if rr is None:
         raise ValueError("Return request not found")
+
+    if new_status == "completed":
+        raise ValueError("Return requests must be resolved through the authorized Returns workflow after downstream work is verified.")
+    if rr.workflow_status is not None or rr.resolution_type in {"refund", "replacement"}:
+        raise ValueError("Structured return requests must be changed through the authorized Returns workflow.")
 
     allowed = VALID_RETURN_TRANSITIONS.get(rr.status, [])
     if new_status not in allowed:
@@ -1404,19 +1621,31 @@ def update_return_status(
             f"Allowed: {allowed or 'none (terminal state)'}"
         )
 
-    if rr.status == "inspected" and new_status == "completed" and restock:
-        inv = db.scalar(
-            select(Inventory)
-            .join(CommerceOrderItem, CommerceOrderItem.variant_id == Inventory.variant_id)
-            .where(CommerceOrderItem.id == rr.order_item_id)
-            .with_for_update()
-        )
-        if inv:
-            inv.available_stock += rr.quantity
-            inv.total_stock += rr.quantity
-            inv.stock_status = "in_stock" if inv.available_stock > 0 else "out_of_stock"
-
+    previous_legacy_status = rr.status
+    previous_workflow_status = rr.workflow_status
     rr.status = new_status
+    if previous_workflow_status is not None:
+        # Keep the structured claim state aligned while preserving the admin's
+        # established legacy transition and optional restock behavior.
+        workflow_by_legacy = {
+            "approved": "approved",
+            "rejected": "rejected",
+            "item_received": "approved",
+            "inspected": "approved",
+            "completed": "completed",
+        }
+        rr.workflow_status = workflow_by_legacy.get(new_status, previous_workflow_status)
+        rr.updated_at = _utcnow()
+        db.add(ReturnRequestEvent(
+            return_request_id=rr.id,
+            event_type="legacy_status_changed",
+            previous_status=previous_workflow_status,
+            new_status=rr.workflow_status,
+            actor_user_id=changed_by.id,
+            note=f"Legacy return status changed from {previous_legacy_status} to {new_status}.",
+            event_data={"previous_legacy_status": previous_legacy_status,
+                        "new_legacy_status": new_status},
+        ))
     db.commit()
     db.refresh(rr)
     return {
@@ -1525,6 +1754,8 @@ def process_razorpay_refund(
     reason: str = "",
     processed_by: User = None,
     order_number: str | None = None,
+    return_request_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
     """
     1. Validate payment captured, not already fully refunded.
@@ -1546,6 +1777,40 @@ def process_razorpay_refund(
         order_id = target_order.id
     elif not order_id:
         raise ValueError("Either order_number or order_id must be provided")
+
+    cancellation_key = idempotency_key if idempotency_key and idempotency_key.startswith("order-cancel:") else None
+    if cancellation_key:
+        existing_cancellation_refund = db.scalar(
+            select(Refund).where(Refund.idempotency_key == cancellation_key).with_for_update()
+        )
+        if existing_cancellation_refund is not None:
+            return {
+                "id": existing_cancellation_refund.id, "status": existing_cancellation_refund.status,
+                "amount": str(_money(existing_cancellation_refund.amount)),
+                "provider_refund_id": existing_cancellation_refund.provider_refund_id,
+                "failure_reason": existing_cancellation_refund.failure_reason, "duplicate": True,
+            }
+
+    return_request = None
+    if return_request_id is not None:
+        return_request = db.scalar(
+            select(ReturnRequest).where(ReturnRequest.id == return_request_id).with_for_update()
+        )
+        if return_request is None or return_request.order_id != order_id:
+            raise ValueError("Return request does not belong to this order")
+        existing = db.scalar(
+            select(Refund).where(Refund.return_request_id == return_request_id)
+            .order_by(Refund.created_at, Refund.id).with_for_update()
+        )
+        if existing is not None:
+            return {
+                "id": existing.id, "status": existing.status, "amount": str(_money(existing.amount)),
+                "provider_refund_id": existing.provider_refund_id,
+                "failure_reason": existing.failure_reason, "duplicate": True,
+            }
+        if not razorpay or not os.getenv("RAZORPAY_KEY_ID") or not os.getenv("RAZORPAY_KEY_SECRET"):
+            raise ValueError("Razorpay refund processing is not configured")
+        idempotency_key = idempotency_key or f"return-refund:{return_request_id}:v1"
 
     attempt = db.scalar(
         select(PaymentAttempt)
@@ -1577,20 +1842,26 @@ def process_razorpay_refund(
             f"Refund amount ₹{amount} exceeds refundable balance ₹{max_refundable}"
         )
 
-    idempotency_key = f"refund:{payment_attempt_id}:{uuid4().hex}"
     refund_record = Refund(
         order_id=order_id,
         payment_attempt_id=payment_attempt_id,
+        return_request_id=return_request_id,
         amount=amount,
         currency="INR",
         reason=reason,
         refund_method="razorpay",
-        status="pending",
-        idempotency_key=idempotency_key,
+        status="processing" if return_request_id is not None or cancellation_key else "pending",
+        idempotency_key=idempotency_key or f"refund:{payment_attempt_id}:{uuid4().hex}",
         processed_by_id=processed_by.id,
     )
     db.add(refund_record)
     db.flush()
+
+    # Return workflow refunds reserve a durable request-level record before
+    # calling the provider. A timeout can therefore never cause a fresh refund.
+    if return_request_id is not None or cancellation_key:
+        db.commit()
+        db.refresh(refund_record)
 
     # Call Razorpay
     try:
@@ -1607,20 +1878,59 @@ def process_razorpay_refund(
                 },
             )
             refund_record.provider_refund_id = rzp_response.get("id")
+            provider_status = str(rzp_response.get("status") or "").lower()
+            if return_request_id is not None or cancellation_key:
+                if provider_status == "processed" and refund_record.provider_refund_id:
+                    refund_record.status = "processed"
+                elif provider_status == "failed":
+                    refund_record.status = "failed"
+                    refund_record.failure_reason = str(rzp_response.get("error_description") or "Provider reported refund failure")[:500]
+                else:
+                    refund_record.status = "processing"
+                    refund_record.failure_reason = None
+                refund_record.updated_at = _utcnow()
+                db.commit()
+                if refund_record.status != "processed":
+                    return {
+                        "id": refund_record.id, "status": refund_record.status,
+                        "amount": str(amount), "provider_refund_id": refund_record.provider_refund_id,
+                        "failure_reason": refund_record.failure_reason,
+                    }
         else:
+            if return_request_id is not None or cancellation_key:
+                raise ValueError("Razorpay refund processing is not configured")
             # Fallback for development/test environment without live Razorpay credentials
             refund_record.provider_refund_id = f"rfnd_sim_{uuid4().hex[:14]}"
 
-        refund_record.status = "processed"
-        refund_record.updated_at = _utcnow()
+        if return_request_id is None and cancellation_key is None:
+            refund_record.status = "processed"
+            refund_record.updated_at = _utcnow()
     except Exception as exc:
+        if return_request_id is not None or cancellation_key:
+            # A provider exception may mean the request succeeded remotely.
+            # Keep the durable record non-successful and block automatic retry.
+            refund_record.status = "processing"
+            refund_record.failure_reason = f"Provider result uncertain: {exc}"[:500]
+            refund_record.updated_at = _utcnow()
+            db.commit()
+            return {
+                "id": refund_record.id, "status": refund_record.status,
+                "amount": str(amount), "provider_refund_id": refund_record.provider_refund_id,
+                "failure_reason": refund_record.failure_reason,
+            }
         refund_record.status = "failed"
         refund_record.failure_reason = str(exc)[:500]
         refund_record.updated_at = _utcnow()
         db.commit()
         raise ValueError(f"Razorpay refund failed: {exc}") from exc
 
-    # Update order payment_status
+    # Update order payment_status only when the actual refund succeeded.
+    if (return_request_id is not None or cancellation_key) and refund_record.status != "processed":
+        return {
+            "id": refund_record.id, "status": refund_record.status,
+            "amount": str(amount), "provider_refund_id": refund_record.provider_refund_id,
+            "failure_reason": refund_record.failure_reason,
+        }
     order = db.scalar(select(CommerceOrder).where(CommerceOrder.id == order_id).with_for_update())
     if order:
         total_refunded = _money(already_refunded) + amount
@@ -1649,6 +1959,8 @@ def record_cod_manual_refund(
     reason: str = "",
     processed_by: User = None,
     order_number: str | None = None,
+    return_request_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
     """Record a manual COD refund (no Razorpay involved)."""
     if order_number and not order_id:
@@ -1669,13 +1981,49 @@ def record_cod_manual_refund(
 
     order_id = order.id
 
+    return_request = None
+    if return_request_id is not None:
+        return_request = db.scalar(
+            select(ReturnRequest).where(ReturnRequest.id == return_request_id).with_for_update()
+        )
+        if return_request is None or return_request.order_id != order_id or return_request.resolution_type != "refund":
+            raise ValueError("Return request does not belong to this COD refund order")
+        existing = db.scalar(
+            select(Refund).where(Refund.return_request_id == return_request_id)
+            .order_by(Refund.created_at, Refund.id).with_for_update()
+        )
+        if existing is not None:
+            return {
+                "id": existing.id, "status": existing.status, "amount": str(_money(existing.amount)),
+                "external_reference": existing.external_reference, "duplicate": True,
+            }
+        if not external_reference or not external_reference.strip():
+            raise ValueError("An external reference is required for a COD refund")
+
     amount = _money(amount)
     if amount <= Decimal(0):
         raise ValueError("Refund amount must be positive")
 
-    idempotency_key = f"cod-refund:{order_id}:{uuid4().hex}"
+    if return_request_id is not None:
+        if order.total_amount is None:
+            raise ValueError("Order total is unavailable for COD refund validation")
+        already_refunded = db.scalar(
+            select(func.coalesce(func.sum(Refund.amount), 0)).where(
+                Refund.order_id == order_id,
+                Refund.status.in_(["pending", "processing", "processed"]),
+            )
+        ) or Decimal(0)
+        max_refundable = _money(order.total_amount) - _money(already_refunded)
+        if amount > max_refundable:
+            raise ValueError(f"Refund amount {amount} exceeds refundable order balance {max_refundable}")
+
+    idempotency_key = idempotency_key or (
+        f"return-refund:{return_request_id}:v1" if return_request_id is not None
+        else f"cod-refund:{order_id}:{uuid4().hex}"
+    )
     refund_record = Refund(
         order_id=order_id,
+        return_request_id=return_request_id,
         amount=amount,
         currency="INR",
         reason=reason,
@@ -1687,8 +2035,15 @@ def record_cod_manual_refund(
     )
     db.add(refund_record)
 
-    # Update payment status
-    order.payment_status = "refunded"
+    # Update payment status without treating a partial return as a full refund.
+    if return_request_id is None:
+        order.payment_status = "refunded"
+    else:
+        total_refunded = _money(already_refunded) + amount
+        order.payment_status = (
+            "refunded" if total_refunded >= _money(order.total_amount)
+            else "partially_refunded"
+        )
     db.commit()
     db.refresh(refund_record)
     return {
@@ -1696,4 +2051,358 @@ def record_cod_manual_refund(
         "status": refund_record.status,
         "amount": str(amount),
         "external_reference": refund_record.external_reference,
+    }
+
+
+def execute_return_refund(
+    db: Session,
+    *,
+    handoff_id: int,
+    actor: User,
+    external_reference: str | None = None,
+) -> dict:
+    """Execute or safely replay the single refund associated with a return request."""
+    handoff = db.scalar(
+        select(ReturnHandoff).where(ReturnHandoff.id == handoff_id).with_for_update()
+    )
+    if handoff is None or handoff.handoff_type != "refund_processing":
+        raise ValueError("Payments refund handoff not found")
+    payments = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+    if payments is None or handoff.destination_department_id != payments.id:
+        raise ValueError("Handoff is not assigned to Payments & Refunds")
+
+    def reject_execution_precondition(message: str):
+        error = ValueError(message)
+        if handoff.status in {"accepted", "in_progress"}:
+            _record_return_refund_execution_failure(
+                db,
+                claim_id=handoff.return_request_id,
+                handoff_id=handoff.id,
+                actor_id=actor.id,
+                error=error,
+            )
+        raise error
+
+    claim = db.scalar(
+        select(ReturnRequest).where(ReturnRequest.id == handoff.return_request_id).with_for_update()
+    )
+    if claim is None:
+        reject_execution_precondition("Return request not found")
+    if claim.workflow_status != "approved" or claim.resolution_type != "refund":
+        reject_execution_precondition("Only an approved refund request can be processed")
+    if claim.refund_timing not in {"immediate", "after_collection"}:
+        reject_execution_precondition("Refund timing is unavailable for this request")
+    returns_department = db.scalar(select(Department).where(Department.name == "Returns & Replacement"))
+    delivery_department = db.scalar(select(Department).where(Department.name == "Order & Delivery"))
+    expected_source_id = (
+        returns_department.id if claim.refund_timing == "immediate" and returns_department else
+        delivery_department.id if claim.refund_timing == "after_collection" and delivery_department else None
+    )
+    if expected_source_id is None or handoff.source_department_id != expected_source_id:
+        reject_execution_precondition("Payments handoff source does not match the approved refund workflow")
+    if claim.refund_timing == "after_collection":
+        pickup = db.scalar(
+            select(ReturnHandoff).where(
+                ReturnHandoff.return_request_id == claim.id,
+                ReturnHandoff.handoff_type == "refund_pickup",
+                ReturnHandoff.status == "completed",
+            ).limit(1)
+        )
+        if pickup is None:
+            reject_execution_precondition("Collection must be completed before processing this refund")
+
+    existing = db.scalar(
+        select(Refund).where(Refund.return_request_id == claim.id)
+        .order_by(Refund.created_at, Refund.id).with_for_update()
+    )
+    if existing is not None:
+        if existing.status == "processed" and handoff.status in {"pending", "accepted", "in_progress"}:
+            previous = handoff.status
+            handoff.status = "completed"
+            handoff.completed_at = _utcnow()
+            db.add(ReturnRequestEvent(
+                return_request_id=claim.id,
+                event_type="department_handoff_status_changed",
+                previous_status=previous,
+                new_status="completed",
+                actor_user_id=actor.id,
+                note="Refund was already processed; completing the Payments handoff.",
+                event_data={"handoff_id": handoff.id, "destination_department_id": payments.id},
+            ))
+        db.add(ReturnRequestEvent(
+            return_request_id=claim.id,
+            event_type="refund_execution_retry",
+            previous_status=existing.status,
+            new_status=existing.status,
+            actor_user_id=actor.id,
+            note="Existing return refund reused; no second refund was executed.",
+            event_data={"handoff_id": handoff.id, "refund_id": existing.id,
+                        "refund_status": existing.status},
+        ))
+        db.commit()
+        return _serialize_return_refund(existing, duplicate=True)
+
+    if handoff.status not in {"pending", "accepted", "in_progress"}:
+        raise ValueError("Accept the Payments handoff before processing its refund")
+
+    # Serialize refunds for this order before calculating the remaining balance.
+    # The handoff, claim, order and captured attempt stay locked through the one commit.
+    order = db.scalar(select(CommerceOrder).where(CommerceOrder.id == claim.order_id).with_for_update())
+    order_item = db.scalar(select(CommerceOrderItem).where(
+        CommerceOrderItem.id == claim.order_item_id,
+        CommerceOrderItem.order_id == claim.order_id,
+    ))
+    if order is None or order_item is None:
+        reject_execution_precondition("Return request order context is unavailable")
+    amount = _money(order_item.unit_price * claim.quantity)
+    if amount <= 0 or order.currency != "INR":
+        reject_execution_precondition("Return refund amount or currency is invalid")
+
+    attempt = None
+    if order.payment_method in {"razorpay", "upi", "netbanking"}:
+        attempt = db.scalar(select(PaymentAttempt).where(
+            PaymentAttempt.order_id == order.id,
+            PaymentAttempt.provider == "razorpay",
+            PaymentAttempt.status == "captured",
+            PaymentAttempt.provider_payment_id.isnot(None),
+        ).order_by(PaymentAttempt.paid_at.desc(), PaymentAttempt.id.desc()).with_for_update())
+        if attempt is None:
+            reject_execution_precondition("No captured Razorpay payment is available for this order")
+        reserved_query = select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.payment_attempt_id == attempt.id,
+            Refund.status.in_(("pending", "processing", "processed")),
+        )
+        captured_amount = _money(attempt.amount)
+    elif order.payment_method == "cod":
+        # The delivered order is the internal record that COD was collected.
+        if order.status != "delivered":
+            reject_execution_precondition("COD can only be refunded after the order was delivered")
+        reserved_query = select(func.coalesce(func.sum(Refund.amount), 0)).where(
+            Refund.order_id == order.id,
+            Refund.payment_attempt_id.is_(None),
+            Refund.status.in_(("pending", "processing", "processed")),
+        )
+        captured_amount = _money(order.total_amount)
+    else:
+        reject_execution_precondition("Order payment method is not supported for refunds")
+    already_reserved = _money(db.scalar(reserved_query) or 0)
+    if amount > captured_amount - already_reserved:
+        reject_execution_precondition("Refund amount exceeds refundable balance")
+
+    now = _utcnow()
+    previous = handoff.status
+    refund = Refund(
+        order_id=order.id,
+        payment_attempt_id=attempt.id if attempt else None,
+        return_request_id=claim.id,
+        amount=amount,
+        currency="INR",
+        reason=f"Return request {claim.id}: {claim.reason_code or claim.reason}",
+        refund_method="internal",
+        status="processed",
+        idempotency_key=f"return-refund:{claim.id}:v1",
+        processed_by_id=actor.id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(refund)
+    db.flush()
+
+    total_refunded = _money(already_reserved + amount)
+    order.payment_status = "refunded" if total_refunded >= captured_amount else "partially_refunded"
+    handoff.status = "completed"
+    handoff.completed_at = now
+    handoff.updated_at = now
+    handoff.failure_reason = None
+    db.add(ReturnRequestEvent(
+        return_request_id=claim.id,
+        event_type="refund_successfully_processed",
+        previous_status=None,
+        new_status="processed",
+        actor_user_id=actor.id,
+        note="Internal refund completed.",
+        event_data={"handoff_id": handoff.id, "refund_id": refund.id,
+                    "amount": str(amount), "currency": "INR", "refund_method": "internal"},
+    ))
+    db.add(ReturnRequestEvent(
+        return_request_id=claim.id,
+        event_type="department_handoff_status_changed",
+        previous_status=previous,
+        new_status="completed",
+        actor_user_id=actor.id,
+        note="Payments refund work completed.",
+        event_data={"handoff_id": handoff.id, "destination_department_id": payments.id,
+                    "refund_id": refund.id},
+    ))
+    db.commit()
+    db.refresh(refund)
+    return _serialize_return_refund(refund)
+
+
+def _serialize_return_refund(refund: Refund, *, duplicate: bool = False) -> dict:
+    return {
+        "id": refund.id,
+        "return_request_id": refund.return_request_id,
+        "status": refund.status,
+        "amount": str(_money(refund.amount)),
+        "currency": refund.currency,
+        "refund_method": refund.refund_method,
+        "provider_refund_id": refund.provider_refund_id,
+        "external_reference": refund.external_reference,
+        "failure_reason": refund.failure_reason,
+        "duplicate": duplicate,
+    }
+
+
+def _record_return_refund_execution_failure(
+    db: Session,
+    *,
+    claim_id: int,
+    handoff_id: int,
+    actor_id: int,
+    error: Exception,
+) -> None:
+    """Keep handoff state aligned with whether a durable financial result exists."""
+    db.rollback()
+    handoff = db.scalar(
+        select(ReturnHandoff).where(ReturnHandoff.id == handoff_id).with_for_update()
+    )
+    refund = db.scalar(
+        select(Refund).where(Refund.return_request_id == claim_id)
+        .order_by(Refund.created_at, Refund.id).limit(1).with_for_update()
+    )
+    reason = str(error)[:500]
+
+    if handoff is not None and handoff.status in {"accepted", "in_progress"}:
+        previous = handoff.status
+        now = _utcnow()
+        if refund is None or refund.status == "failed":
+            new_handoff_status = "failed"
+            handoff.failure_reason = reason if refund is None else (refund.failure_reason or reason)
+            handoff.completed_at = now
+        elif refund.status == "processed":
+            new_handoff_status = "completed"
+            handoff.completed_at = now
+        else:
+            new_handoff_status = "in_progress"
+        if previous != new_handoff_status:
+            handoff.status = new_handoff_status
+            handoff.updated_at = now
+            db.add(ReturnRequestEvent(
+                return_request_id=claim_id,
+                event_type="department_handoff_status_changed",
+                previous_status=previous,
+                new_status=new_handoff_status,
+                actor_user_id=actor_id,
+                note=reason,
+                event_data={"handoff_id": handoff.id,
+                            "destination_department_id": handoff.destination_department_id,
+                            "failure_stage": "before_refund_record" if refund is None else "after_refund_record",
+                            "refund_id": refund.id if refund else None},
+            ))
+
+    if refund is None:
+        event_type = "refund_execution_failed_before_refund"
+        new_status = "failed"
+        metadata = {"handoff_id": handoff_id, "refund_id": None,
+                    "failure_stage": "before_refund_record"}
+    else:
+        event_type = "refund_execution_interrupted"
+        new_status = refund.status
+        metadata = {"handoff_id": handoff_id, "refund_id": refund.id,
+                    "refund_status": refund.status,
+                    "failure_stage": "after_refund_record"}
+    db.add(ReturnRequestEvent(
+        return_request_id=claim_id,
+        event_type=event_type,
+        previous_status="in_progress",
+        new_status=new_status,
+        actor_user_id=actor_id,
+        note=reason,
+        event_data=metadata,
+    ))
+    db.commit()
+
+
+def list_return_refund_handoffs(db: Session, *, status: str | None, limit: int, offset: int) -> dict:
+    payments = db.scalar(select(Department).where(Department.name == "Payments & Refunds"))
+    if payments is None:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    query = select(ReturnHandoff).where(
+        ReturnHandoff.destination_department_id == payments.id,
+        ReturnHandoff.handoff_type == "refund_processing",
+    )
+    if status and status != "all":
+        query = query.where(ReturnHandoff.status == status)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    handoffs = db.scalars(
+        query.options(
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order).selectinload(CommerceOrder.user),
+            selectinload(ReturnHandoff.return_request).selectinload(ReturnRequest.order_item),
+        ).order_by(ReturnHandoff.updated_at.desc(), ReturnHandoff.id.desc())
+        .offset(offset).limit(limit)
+    ).all()
+    items = []
+    for handoff in handoffs:
+        claim = handoff.return_request
+        order = claim.order if claim else None
+        customer = order.user if order else None
+        item = claim.order_item if claim else None
+        refund = db.scalar(
+            select(Refund).where(Refund.return_request_id == claim.id)
+            .order_by(Refund.created_at.desc(), Refund.id.desc()).limit(1)
+        ) if claim else None
+        amount = _money(item.unit_price * claim.quantity) if item and claim else None
+        items.append({
+            "handoff_id": handoff.id,
+            "return_request_id": claim.id if claim else None,
+            "handoff_status": handoff.status,
+            "resolution_type": claim.resolution_type if claim else None,
+            "refund_timing": claim.refund_timing if claim else None,
+            "order_id": order.id if order else None,
+            "order_number": order.order_number if order else None,
+            "customer": ({"name": customer.name, "email": customer.email} if customer else None),
+            "payment_method": order.payment_method if order else None,
+            "item": ({"order_item_id": item.id, "product_name": item.product_name,
+                      "variant_name": item.variant_name, "sku": item.sku,
+                      "quantity": claim.quantity, "unit_price": str(_money(item.unit_price)),
+                      "refund_amount": str(amount)} if item and claim else None),
+            "refund": _serialize_return_refund(refund) if refund else None,
+        })
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+def get_return_refund_tracking(db: Session, claim_id: int) -> dict:
+    handoffs = db.scalars(
+        select(ReturnHandoff)
+        .options(selectinload(ReturnHandoff.source_department),
+                 selectinload(ReturnHandoff.destination_department))
+        .where(ReturnHandoff.return_request_id == claim_id)
+        .order_by(ReturnHandoff.created_at, ReturnHandoff.id)
+    ).all()
+    refund_handoff = next((row for row in handoffs if row.handoff_type == "refund_processing"), None)
+    fulfillment_handoff = next((row for row in handoffs if row.handoff_type in {
+        "refund_pickup", "replacement_fulfillment"
+    }), None)
+    refunds = db.scalars(
+        select(Refund).where(Refund.return_request_id == claim_id)
+        .order_by(Refund.created_at, Refund.id)
+    ).all()
+    if refund_handoff is None:
+        payments_tracking = "N/A" if any(row.handoff_type == "replacement_fulfillment" for row in handoffs) else {
+            "handoff_id": None,
+            "handoff_status": None,
+            "refunds": [_serialize_return_refund(row) for row in refunds],
+        }
+    else:
+        payments_tracking = {
+            "handoff_id": refund_handoff.id,
+            "handoff_status": refund_handoff.status,
+            "refunds": [_serialize_return_refund(row) for row in refunds],
+        }
+    return {
+        "order_delivery": ({"handoff_id": fulfillment_handoff.id,
+                            "handoff_type": fulfillment_handoff.handoff_type,
+                            "status": fulfillment_handoff.status} if fulfillment_handoff else None),
+        "payments": payments_tracking,
     }

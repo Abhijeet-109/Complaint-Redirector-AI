@@ -1,8 +1,9 @@
 """Authenticated customer profile, address, wishlist, order and preference APIs."""
 
 import re
+import os
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,11 +11,23 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.Database.checkout_services import serialize_order
 from backend.Database.models import (
-    Product, User, UserAddress, WishlistItem,
+    CommerceOrder, CommerceOrderItem, PaymentAttempt, Product, Refund, User, UserAddress, WishlistItem,
+    ReturnRequest,
 )
 from backend.Database.services import get_order, list_orders
+from backend.Database.admin_commerce_services import update_order_status
+from backend.Database.admin_commerce_services import process_razorpay_refund
+from backend.Database.return_services import (
+    claim_details, create_return_claim, evaluate_return_eligibility,
+    get_return_claim, record_customer_response,
+)
+from backend.Database.models import ReturnEvidence, ReturnRequestEvent
+from backend.Database.return_evidence_storage import (
+    MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES, delete_provider_evidence, save_evidence,
+)
 from backend.auth.dependencies import get_current_user, get_db
 from backend.auth.security import hash_password, verify_password
+from typing import Literal
 
 
 router = APIRouter(prefix="/api/account", tags=["Customer Account"])
@@ -65,6 +78,17 @@ class AddressInput(BaseModel):
 
 class PaymentPreference(BaseModel):
     preferred_payment_method: str | None = Field(default=None, pattern=r"^(cod|upi|netbanking)$")
+
+class ReturnClaimCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    order_id: int = Field(gt=0)
+    order_item_id: int = Field(gt=0)
+    quantity: int = Field(gt=0)
+
+    resolution_type: Literal["refund", "replacement"]
+    reason_code: str = Field(min_length=1, max_length=40)
+    description: str | None = Field(default=None, max_length=2000)
 
 
 def _address_json(row: UserAddress):
@@ -189,9 +213,32 @@ def set_payment_preference(payload: PaymentPreference, db: Session = Depends(get
     return {"preferred_payment_method": user.preferred_payment_method}
 
 
-def _order_payload(order):
+def _order_payload(order, return_claims=None, cancellation_refund=None, order_refunds=None):
     result = serialize_order(order)
+    result["payment_status"] = order.payment_status
+    shipment_status = (order.shipment.status or "").lower() if order.shipment else ""
+    order_status = (order.status or "").lower()
+    result["can_customer_cancel"] = (
+        order_status in {"placed", "accepted", "processing", "packed"}
+        and shipment_status not in {"picked_up", "in_transit", "out_for_delivery", "delivered"}
+    )
     result["created_at"] = order.created_at.isoformat() if order.created_at else None
+    result["delivered_at"] = order.shipment.delivered_at.isoformat() if order.shipment and order.shipment.delivered_at else None
+    order_events = [
+        {
+            "id": event.id,
+            "event_type": event.event_type,
+            "previous_status": event.previous_status,
+            "new_status": event.new_status,
+            "note": event.note,
+            "changed_by": event.changed_by.name if event.changed_by else None,
+            "changed_by_id": event.changed_by_id,
+            "created_at": event.created_at.isoformat() if event.created_at else None,
+        }
+        for event in (order.events or [])
+        if event.event_type == "order_status"
+    ]
+    shipment_events = []
     if order.shipment:
         result["shipment"] = {
             "status": order.shipment.status,
@@ -204,27 +251,165 @@ def _order_payload(order):
             "events": [
                 {
                     "id": event.id,
+                    "event_type": event.event_type,
                     "previous_status": event.previous_status,
                     "new_status": event.new_status,
                     "note": event.note,
+                    "changed_by": event.changed_by.name if event.changed_by else None,
                     "created_at": event.created_at.isoformat() if event.created_at else None,
                 }
                 for event in (order.shipment.events or [])
             ],
         }
+        shipment_events = result["shipment"]["events"]
     else:
         result["shipment"] = None
+    result["order_events"] = order_events
+    if order.status == "cancelled":
+        cancellation = next((event for event in reversed(order_events) if event["new_status"] == "cancelled"), None)
+        result["cancellation_label"] = (
+            "Cancelled by you" if cancellation and cancellation["changed_by_id"] == order.user_id else "Cancelled"
+        )
+        result["cancellation_refund_status"] = cancellation_refund.status if cancellation_refund else None
+    result["tracking_events"] = sorted(
+        order_events + shipment_events,
+        key=lambda event: (event["created_at"] or "", event["id"]),
+    )
+    customer_stages = {
+        ("order_status", "placed"): ("order_confirmed", "Order Confirmed"),
+        ("shipment_status", "shipped"): ("shipped", "Shipped"),
+        ("shipment_status", "out_for_delivery"): ("out_for_delivery", "Out for Delivery"),
+        ("shipment_status", "delivered"): ("delivered", "Delivered"),
+    }
+    milestones = {}
+    for event in result["tracking_events"]:
+        mapped = customer_stages.get((event["event_type"], event["new_status"]))
+        if mapped:
+            stage, label = mapped
+            milestones.setdefault(stage, {"stage": stage, "label": label, **event})
+    result["tracking_milestones"] = [
+        milestones.get(stage, {"stage": stage, "label": label, "created_at": None})
+        for stage, label in customer_stages.values()
+    ]
+    claims_by_item = {}
+    for claim in (return_claims or []):
+        claims_by_item.setdefault(claim.order_item_id, []).append({
+            "id": claim.id,
+            "order_item_id": claim.order_item_id,
+            "quantity": claim.quantity,
+            "resolution_type": claim.resolution_type,
+            "reason_code": claim.reason_code,
+            "status": claim.status,
+            "workflow_status": claim.workflow_status,
+            "requested_at": claim.requested_at.isoformat() if claim.requested_at else None,
+        })
     for output, item in zip(result["items"], order.items):
-        images = item.variant.product.images
+        product = item.variant.product if item.variant else None
+        images = product.images if product else []
         chosen = next((image for image in images if image.variant_id == item.variant_id), None)
         chosen = chosen or next((image for image in images if image.variant_id is None), None)
         output["image"] = chosen.storage_key if chosen else None
+        output["return_claims"] = claims_by_item.get(item.id, [])
+
+    # Calculate authoritative refund summary from verified refund records and claims
+    refunds_list = list(order_refunds) if order_refunds else ([cancellation_refund] if cancellation_refund else [])
+    processed_refunds = [r for r in refunds_list if r.status == "processed"]
+    processing_refunds = [r for r in refunds_list if r.status == "processing"]
+    pending_refunds = [r for r in refunds_list if r.status == "pending"]
+    failed_refunds = [r for r in refunds_list if r.status == "failed"]
+
+    refund_summary = None
+    if processed_refunds:
+        latest = processed_refunds[0]
+        total_amount = sum(r.amount for r in processed_refunds)
+        refund_summary = {
+            "status": "refunded",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": (latest.updated_at or latest.created_at).isoformat() if (latest.updated_at or latest.created_at) else None,
+            "count": len(processed_refunds),
+        }
+    elif processing_refunds:
+        latest = processing_refunds[0]
+        total_amount = sum(r.amount for r in processing_refunds)
+        refund_summary = {
+            "status": "processing",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": None,
+            "count": len(processing_refunds),
+        }
+    elif pending_refunds:
+        latest = pending_refunds[0]
+        total_amount = sum(r.amount for r in pending_refunds)
+        refund_summary = {
+            "status": "pending",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": None,
+            "count": len(pending_refunds),
+        }
+    elif failed_refunds:
+        latest = failed_refunds[0]
+        total_amount = sum(r.amount for r in failed_refunds)
+        refund_summary = {
+            "status": "failed",
+            "amount": float(total_amount),
+            "currency": latest.currency or "INR",
+            "refund_method": latest.refund_method,
+            "processed_at": None,
+            "count": len(failed_refunds),
+        }
+    elif return_claims:
+        approved_refund_claim = next((c for c in return_claims if c.resolution_type == "refund" and c.workflow_status in {"approved", "completed", "resolved"}), None)
+        if approved_refund_claim:
+            refund_summary = {
+                "status": "pending",
+                "amount": float(order.total_amount),
+                "currency": "INR",
+                "refund_method": "original_payment",
+                "processed_at": None,
+                "count": 1,
+            }
+
+    result["refund_summary"] = refund_summary
+    if order.status == "cancelled" and not result.get("cancellation_refund_status") and refund_summary:
+        result["cancellation_refund_status"] = refund_summary["status"]
+
     return result
 
 
 @router.get("/orders")
 def customer_orders(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return [_order_payload(order) for order in list_orders(db, user.id)]
+    orders = list_orders(db, user.id)
+    all_order_ids = [order.id for order in orders]
+    all_claims = db.scalars(
+        select(ReturnRequest).where(ReturnRequest.order_id.in_(all_order_ids))
+        .order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc())
+    ).all() if all_order_ids else []
+    claims_by_order = {}
+    for claim in all_claims:
+        claims_by_order.setdefault(claim.order_id, []).append(claim)
+
+    all_refunds = db.scalars(
+        select(Refund).where(Refund.order_id.in_(all_order_ids))
+        .order_by(Refund.created_at.desc(), Refund.id.desc())
+    ).all() if all_order_ids else []
+    refunds_by_order = {}
+    for refund in all_refunds:
+        refunds_by_order.setdefault(refund.order_id, []).append(refund)
+
+    return [
+        _order_payload(
+            order,
+            return_claims=claims_by_order.get(order.id, []),
+            order_refunds=refunds_by_order.get(order.id, []),
+        )
+        for order in orders
+    ]
 
 
 @router.get("/orders/{order_id}")
@@ -232,8 +417,306 @@ def customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(ge
     order = get_order(db, user.id, order_id)
     if order is None:
         raise HTTPException(404, "Order not found")
-    return _order_payload(order)
+    claims = db.scalars(
+        select(ReturnRequest).where(ReturnRequest.order_id == order.id)
+        .order_by(ReturnRequest.requested_at.desc(), ReturnRequest.id.desc())
+    ).all()
+    order_refunds = db.scalars(
+        select(Refund).where(Refund.order_id == order.id)
+        .order_by(Refund.created_at.desc(), Refund.id.desc())
+    ).all()
+    cancellation_refund = next((r for r in order_refunds if r.idempotency_key == f"order-cancel:{order.id}"), None)
+    return _order_payload(order, return_claims=claims, cancellation_refund=cancellation_refund, order_refunds=order_refunds)
 
+
+@router.post("/orders/{order_id}/cancel")
+def cancel_customer_order(order_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    order = db.scalar(select(CommerceOrder).where(
+        CommerceOrder.id == order_id, CommerceOrder.user_id == user.id,
+    ).with_for_update())
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    try:
+        attempts = db.scalars(select(PaymentAttempt).where(
+            PaymentAttempt.order_id == order.id, PaymentAttempt.status == "captured",
+        ).with_for_update()).all()
+        refund_result = None
+        if attempts or order.payment_status in {"captured", "paid"}:
+            if len(attempts) != 1:
+                raise ValueError("A captured order with multiple payment attempts requires Payments review.")
+            if not os.getenv("RAZORPAY_KEY_ID", "").strip() or not os.getenv("RAZORPAY_KEY_SECRET", "").strip():
+                raise ValueError("Razorpay is not configured; the captured order was not cancelled.")
+            attempt = attempts[0]
+            refund_result = process_razorpay_refund(
+                db, order_id=order.id, payment_attempt_id=attempt.id, amount=attempt.amount,
+                reason="Customer order cancellation", processed_by=user,
+                idempotency_key=f"order-cancel:{order.id}",
+            )
+        updated = update_order_status(db, order_id, new_status="cancelled", changed_by=user,
+                                      note="Cancelled by customer." if not refund_result else
+                                      f"Cancelled by customer; refund {refund_result['status']}.")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.refresh(order)
+    return {"order": updated, "cancellation_status": "cancelled", "payment_status": order.payment_status,
+            "refund": refund_result}
+
+
+@router.get("/orders/{order_id}/items/{order_item_id}/return-eligibility")
+def customer_return_eligibility(
+    order_id: int,
+    order_item_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    order = db.scalar(select(CommerceOrder).where(
+        CommerceOrder.id == order_id,
+        CommerceOrder.user_id == user.id,
+    ))
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    item_exists = db.scalar(select(CommerceOrderItem.id).where(
+        CommerceOrderItem.id == order_item_id,
+        CommerceOrderItem.order_id == order.id,
+    ))
+    if item_exists is None:
+        raise HTTPException(status_code=404, detail="Order item not found.")
+    try:
+        eligibility = evaluate_return_eligibility(
+            db,
+            order=order,
+            order_item_id=order_item_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        key: eligibility[key]
+        for key in (
+            "order_id", "order_item_id", "eligible", "reason_code", "message",
+            "delivered_at", "return_deadline", "return_window_days",
+            "quantity_purchased", "quantity_already_claimed", "quantity_available",
+            "active_claim", "available_resolutions",
+        )
+    }
+
+@router.post("/returns", status_code=status.HTTP_201_CREATED)
+def submit_return_claim(
+    payload: ReturnClaimCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    try:
+        claim = create_return_claim(
+            db,
+            user_id=user.id,
+            order_id=payload.order_id,
+            order_item_id=payload.order_item_id,
+            quantity=payload.quantity,
+            resolution_type=payload.resolution_type,
+            refund_timing=None,
+            reason_code=payload.reason_code,
+            description=payload.description,
+        )
+
+        db.commit()
+        db.refresh(claim)
+
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except RuntimeError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The return request conflicts with existing data.",
+        ) from exc
+
+    return {
+        "message": "Return request submitted successfully.",
+        "return_request": {
+            "id": claim.id,
+            "order_id": claim.order_id,
+            "order_item_id": claim.order_item_id,
+            "quantity": claim.quantity,
+            "resolution_type": claim.resolution_type,
+            "refund_timing": claim.refund_timing,
+            "reason_code": claim.reason_code,
+            "description": claim.description,
+            "status": claim.status,
+            "workflow_status": claim.workflow_status,
+            "requested_at": (
+                claim.requested_at.isoformat()
+                if claim.requested_at
+                else None
+            ),
+        },
+    }
+
+
+def _owned_return_claim(db: Session, claim_id: int, user_id: int):
+    claim = get_return_claim(db, claim_id)
+    if claim is None or claim.order is None or claim.order.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Return claim not found.")
+    return claim
+
+
+@router.get("/returns/{claim_id}")
+def customer_return_claim(claim_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    return claim_details(db, claim)
+
+
+def _save_claim_evidence(db: Session, claim_id: int, actor_id: int, files: list[UploadFile]):
+    if not files or len(files) > MAX_EVIDENCE_FILES:
+        raise HTTPException(status_code=400, detail=f"Upload between 1 and {MAX_EVIDENCE_FILES} evidence images.")
+    created = []
+    try:
+        for upload in files:
+            data = upload.file.read(MAX_EVIDENCE_BYTES + 1)
+            key, mime_type, digest, provider, provider_file_id = save_evidence(
+                data, upload.filename or "", upload.content_type or ""
+            )
+            row = ReturnEvidence(
+                return_request_id=claim_id,
+                storage_provider=provider,
+                storage_key=key,
+                provider_file_id=provider_file_id,
+                original_filename=(upload.filename or "evidence")[:255],
+                mime_type=mime_type,
+                size_bytes=len(data),
+                sha256=digest,
+                uploaded_by_id=actor_id,
+                is_active=True,
+            )
+            db.add(row)
+            created.append((row, key, provider, provider_file_id))
+            db.flush()
+            db.add(ReturnRequestEvent(
+                return_request_id=claim_id,
+                event_type="evidence_uploaded",
+                actor_user_id=actor_id,
+                event_data={"evidence_id": row.id, "content_type": mime_type, "size_bytes": len(data), "sha256": digest},
+            ))
+        return [row for row, _key, _provider, _file_id in created]
+    except Exception:
+        for _row, key, provider, file_id in created:
+            delete_provider_evidence(provider, key, file_id)
+        raise
+
+
+@router.post("/returns/{claim_id}/evidence", status_code=status.HTTP_201_CREATED)
+def upload_return_evidence(
+    claim_id: int,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    if claim.workflow_status in {"rejected", "completed", "cancelled"}:
+        raise HTTPException(status_code=409, detail="Evidence cannot be added to a closed claim.")
+    try:
+        rows = _save_claim_evidence(db, claim.id, user.id, files)
+        db.commit()
+        return {"items": [{"id": row.id, "filename": row.original_filename,
+                           "content_type": row.mime_type, "size_bytes": row.size_bytes,
+                           "uploaded_at": row.uploaded_at.isoformat() if row.uploaded_at else None}
+                          for row in rows]}
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        for row in locals().get("rows", []):
+            delete_provider_evidence(row.storage_provider, row.storage_key, row.provider_file_id)
+        raise HTTPException(status_code=500, detail="Evidence could not be saved.") from exc
+
+
+@router.get("/returns/{claim_id}/evidence/{evidence_id}")
+def get_return_evidence(claim_id: int, evidence_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    evidence = db.scalar(select(ReturnEvidence).where(
+        ReturnEvidence.id == evidence_id,
+        ReturnEvidence.return_request_id == claim.id,
+        ReturnEvidence.is_active.is_(True),
+    ))
+    if evidence is None:
+        raise HTTPException(status_code=404, detail="Evidence not found.")
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if evidence.storage_provider == "imagekit":
+        try:
+            import httpx
+            from urllib.parse import urlsplit
+            from fastapi.responses import Response
+            from backend.Database.return_evidence_storage import signed_evidence_url
+            signed_url = signed_evidence_url(evidence.storage_key, expires_in=60)
+            if urlsplit(signed_url).hostname != urlsplit(__import__("os").getenv("IMAGEKIT_URL_ENDPOINT", "")).hostname:
+                raise RuntimeError("ImageKit delivery endpoint is invalid.")
+            upstream = httpx.get(signed_url, timeout=15.0, follow_redirects=False)
+            if upstream.status_code != 200:
+                raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
+            return Response(upstream.content, media_type=evidence.mime_type, headers=headers)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Evidence image delivery is unavailable.") from exc
+    from backend.Database.return_evidence_storage import read_evidence
+    from fastapi.responses import FileResponse
+    path = read_evidence(evidence.storage_key)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Evidence file is unavailable.")
+    return FileResponse(path, media_type=evidence.mime_type,
+                        filename=evidence.original_filename, headers=headers)
+
+
+@router.post("/returns/{claim_id}/respond")
+def respond_to_return_information(
+    claim_id: int,
+    message: str | None = Form(default=None, max_length=2000),
+    files: list[UploadFile] | None = File(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    claim = _owned_return_claim(db, claim_id, user.id)
+    if claim.workflow_status != "information_requested":
+        raise HTTPException(status_code=409, detail="This claim is not waiting for customer information.")
+    try:
+        saved = _save_claim_evidence(db, claim.id, user.id, files or []) if files else []
+        record_customer_response(db, claim.id, actor_id=user.id, message=message, has_evidence=bool(saved))
+        db.commit()
+        return {"workflow_status": claim.workflow_status,
+                "evidence_ids": [row.id for row in saved]}
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        for row in locals().get("saved", []):
+            delete_provider_evidence(row.storage_provider, row.storage_key, row.provider_file_id)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        for row in locals().get("saved", []):
+            delete_provider_evidence(row.storage_provider, row.storage_key, row.provider_file_id)
+        raise HTTPException(status_code=500, detail="Customer response could not be saved.") from exc
 
 @router.get("/wishlist")
 def customer_wishlist(db: Session = Depends(get_db), user=Depends(get_current_user)):

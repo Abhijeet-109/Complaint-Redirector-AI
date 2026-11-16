@@ -134,6 +134,7 @@ def test_every_business_response_type_extracts_its_actual_tool_fields():
         ("get_product_details", {"success": True, "product": {"product_id": 3, "name": "Watch", "variants": []}}, "product_details"),
         ("compare_products", {"success": True, "products": [{"name": "Watch"}]}, "product_comparison"),
         ("get_my_cart", {"success": True, "cart": {"items": [], "item_count": 0, "total": "0"}}, "cart_summary"),
+        ("update_my_cart_item_quantity", {"success": True, "cart": {"items": [], "item_count": 0, "total": "0"}}, "cart_update"),
         ("list_my_orders", {"success": True, "orders": [{"order_number": "O-1", "status": "placed", "total_amount": "19.50"}]}, "order_list"),
         ("get_order_details", {"success": True, "order": {"order_number": "O-1", "items": [{"product": "Watch", "quantity": 1, "unit_price": "19.50", "line_total": "19.50"}]}}, "order_details"),
         ("get_order_status", {"success": True, "order_number": "O-1", "status": "placed"}, "order_status"),
@@ -203,7 +204,7 @@ def test_all_seven_specialists_return_canonical_envelopes():
         (order_agent, "build_order_agent", order_agent.run_order_agent, ("question", 7)),
         (shipping_agent, "build_shipping_agent", shipping_agent.run_shipping_agent, ("question", 7)),
         (returns_agent, "build_returns_agent", returns_agent.run_returns_agent, ("question", 7)),
-        (support_agent, "build_support_agent", support_agent.run_support_agent, ("question",)),
+        (support_agent, "build_support_agent", support_agent.run_support_agent, ("question", 7)),
     ]
     for module, factory_name, runner, args in cases:
         with patch.object(module, factory_name, return_value=fake):
@@ -213,6 +214,37 @@ def test_all_seven_specialists_return_canonical_envelopes():
     with patch.object(knowledge_agent, "answer_question", return_value={"answer": "Grounded answer", "sources": []}):
         response = knowledge_agent.run_knowledge_rag("question", [])
     assert AgentResponse.model_validate(response).response_type == "text"
+
+
+def test_support_node_passes_authenticated_identity_to_support_agent():
+    from backend.agents.agent_graph import support_node
+
+    with patch("backend.agents.agent_graph.run_support_agent", return_value={"answer": "ok"}) as runner:
+        result = support_node({"question": "Show my account details", "user_id": 81, "messages": []})
+
+    runner.assert_called_once()
+    assert runner.call_args.kwargs["user_id"] == 81
+    assert result["answer"]["answer"] == "ok"
+
+
+def test_customer_agent_builders_construct_with_the_current_tool_factories():
+    from backend.agents import cart_agent, order_agent, product_agent, returns_agent, shipping_agent, support_agent
+
+    cases = [
+        (product_agent, "build_product_agent", ()),
+        (cart_agent, "build_cart_agent", (7,)),
+        (order_agent, "build_order_agent", (7,)),
+        (shipping_agent, "build_shipping_agent", (7,)),
+        (returns_agent, "build_returns_agent", (7,)),
+        (support_agent, "build_support_agent", (7,)),
+    ]
+    for module, builder_name, args in cases:
+        builder_module = __import__(module.__name__ + ".agent", fromlist=[builder_name])
+        with patch.object(builder_module, "get_model", return_value="model"), patch.object(
+            builder_module, "create_agent", side_effect=lambda **kwargs: kwargs,
+        ):
+            constructed = getattr(module, builder_name)(*args)
+        assert constructed["tools"]
 
 
 def test_conversation_api_restores_only_valid_structured_metadata():

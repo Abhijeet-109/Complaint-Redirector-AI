@@ -1,6 +1,151 @@
 import { apiRequest } from './api';
 
 export const handlerService = {
+  async getReturnEvidenceBlob(claimId, evidenceId) {
+    const token = localStorage.getItem('flatkart_token');
+    const response = await fetch(`/api/v1/departments/returns/${claimId}/evidence/${evidenceId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error('Evidence image is unavailable.');
+    return response.blob();
+  },
+  getOrderDeliveryOrders(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/orders${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  updateOrderDeliveryOrderStatus(orderId, status, note) {
+    return apiRequest(`/api/v1/departments/order-delivery/orders/${orderId}/status`, {
+      method: 'PATCH', body: JSON.stringify({ status, note: note || null }),
+    });
+  },
+  getOrderDeliveryShipments(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/shipments${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  updateOrderDeliveryShipmentStatus(orderId, status, note, metadata = {}) {
+    return apiRequest(`/api/v1/departments/order-delivery/shipments/${orderId}/status`, {
+      method: 'PATCH', body: JSON.stringify({ status: status || null, note: note || null, ...metadata }),
+    });
+  },
+  getOrderDeliveryReturnHandoffs(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/return-handoffs${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryReturnHandoffDetails(handoffId) {
+    return apiRequest(`/api/v1/departments/order-delivery/return-handoffs/${handoffId}`, { method: 'GET' });
+  },
+  recordOrderDeliveryMilestone(handoffId, milestone, note) {
+    return apiRequest(`/api/v1/departments/order-delivery/return-handoffs/${handoffId}/milestones`, {
+      method: 'PATCH', body: JSON.stringify({ milestone, note }),
+    });
+  },
+  getOrderDeliveryDashboard(period = 'month') {
+    return apiRequest(`/api/v1/departments/order-delivery/dashboard?period=${period}`, { method: 'GET' });
+  },
+  getOrderDeliveryInventory(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.transaction_type) query.append('transaction_type', params.transaction_type);
+    if (params.stock_status) query.append('stock_status', params.stock_status);
+    if (params.category_id !== undefined) query.append('category_id', String(params.category_id));
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/inventory${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryInventoryCategories() {
+    return apiRequest('/api/v1/departments/order-delivery/inventory/categories', { method: 'GET' });
+  },
+  getOrderDeliveryExceptions(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/exceptions${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryHistoryAudit(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/order-delivery/history-audit${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getOrderDeliveryReportsStats(period = 'month') {
+    return apiRequest(`/api/v1/departments/order-delivery/reports-stats?period=${period}`, { method: 'GET' });
+  },
+  // Payments & Refunds department handler API methods
+  getPaymentsDashboard(period = 'month') {
+    return apiRequest(`/api/v1/departments/payments/dashboard?period=${period}`, { method: 'GET' });
+  },
+  getPaymentTransactions(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.payment_status) query.append('payment_status', params.payment_status);
+    if (params.payment_method) query.append('payment_method', params.payment_method);
+    if (params.date_from) query.append('date_from', params.date_from);
+    if (params.date_to) query.append('date_to', params.date_to);
+    if (params.amount_min !== undefined && params.amount_min !== null && params.amount_min !== '') query.append('amount_min', String(params.amount_min));
+    if (params.amount_max !== undefined && params.amount_max !== null && params.amount_max !== '') query.append('amount_max', String(params.amount_max));
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/payments/transactions${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getPaymentTransactionDetails(attemptId) {
+    return apiRequest(`/api/v1/departments/payments/transactions/${attemptId}`, { method: 'GET' });
+  },
+  getPaymentsRefunds(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.search) query.append('search', params.search);
+    if (params.refund_timing) query.append('refund_timing', params.refund_timing);
+    if (params.payment_method) query.append('payment_method', params.payment_method);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/payments/refunds${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+  getPaymentRefundDetails(handoffId) {
+    return apiRequest(`/api/v1/departments/payments/refunds/${handoffId}`, { method: 'GET' });
+  },
+  processPaymentRefund(handoffId, externalReference) {
+    return apiRequest(`/api/v1/departments/return-handoffs/${handoffId}/process-refund`, {
+      method: 'POST',
+      body: JSON.stringify({ external_reference: externalReference || null }),
+    });
+  },
+  getPaymentsSettlements(params = {}) {
+    return apiRequest('/api/v1/departments/payments/settlements', { method: 'GET' });
+  },
+  getPaymentsDisputes(params = {}) {
+    return apiRequest('/api/v1/departments/payments/disputes', { method: 'GET' });
+  },
+  getPaymentsReportsStats(period = 'month') {
+    return apiRequest(`/api/v1/departments/payments/reports/stats?period=${period}`, { method: 'GET' });
+  },
+  getPaymentsHistoryAudit(params = {}) {
+    const query = new URLSearchParams();
+    if (params.search) query.append('search', params.search);
+    if (params.event_type) query.append('event_type', params.event_type);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return apiRequest(`/api/v1/departments/payments/history-audit${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
   /**
    * Get complaints assigned to the current handler's department.
    * GET /api/v1/handler/complaints
@@ -47,6 +192,158 @@ export const handlerService = {
    */
   async getDepartments() {
     return await apiRequest('/api/v1/departments', { method: 'GET' });
+  },
+
+  /**
+   * List return claims (Review Queue or All Requests).
+   * GET /api/v1/departments/returns
+   */
+  async getReturns(params = {}) {
+    const query = new URLSearchParams();
+    if (params.workflow_status) query.append('workflow_status', params.workflow_status);
+    if (params.include_all) query.append('include_all', 'true');
+    if (params.resolution_type) query.append('resolution_type', params.resolution_type);
+    if (params.search) query.append('search', params.search);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return await apiRequest(`/api/v1/departments/returns${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+
+  /**
+   * Get details for a specific return claim.
+   * GET /api/v1/departments/returns/{claim_id}
+   */
+  async getClaimDetails(claimId) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}`, { method: 'GET' });
+  },
+
+  /**
+   * Approve a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/approve
+   */
+  async approveClaim(claimId, note, refundTiming = null) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ note, ...(refundTiming ? { refund_timing: refundTiming } : {}) }),
+    });
+  },
+
+  /**
+   * Reject a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/reject
+   */
+  async rejectClaim(claimId, note) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+  },
+
+  /**
+   * Request additional information for a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/request-information
+   */
+  async requestInformation(claimId, note) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/request-information`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    });
+  },
+  resolveReturnClaim(claimId, note = '') {
+    return apiRequest(`/api/v1/departments/returns/${claimId}/resolve`, {
+      method: 'POST', body: JSON.stringify({ note: note.trim() || null }),
+    });
+  },
+
+  /**
+   * Record inspection for a return claim.
+   * POST /api/v1/departments/returns/{claim_id}/inspections
+   */
+  async recordInspection(claimId, payload) {
+    return await apiRequest(`/api/v1/departments/returns/${claimId}/inspections`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Get single complaint by ID.
+   * GET /api/v1/handler/complaints/{id}
+   */
+  async getComplaintDetails(complaintId) {
+    return await apiRequest(`/api/v1/handler/complaints/${complaintId}`, { method: 'GET' });
+  },
+
+  /**
+   * Get single tracking handoff by ID.
+   * GET /api/v1/departments/tracking-handoffs/{id}
+   */
+  async getHandoffDetails(handoffId) {
+    return await apiRequest(`/api/v1/departments/tracking-handoffs/${handoffId}`, { method: 'GET' });
+  },
+
+  /**
+   * Update return handoff status.
+   * PATCH /api/v1/departments/return-handoffs/{handoff_id}/status
+   */
+  async updateHandoffStatus(handoffId, newStatus, note) {
+    return await apiRequest(`/api/v1/departments/return-handoffs/${handoffId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: newStatus, note: note || 'Status updated by handler' }),
+    });
+  },
+
+  /**
+   * List tracking handoffs between departments.
+   * GET /api/v1/departments/tracking-handoffs
+   */
+  async getTrackingHandoffs(params = {}) {
+    const query = new URLSearchParams();
+    if (params.department_name) query.append('department_name', params.department_name);
+    if (params.status) query.append('status', params.status);
+    if (params.search) query.append('search', params.search);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return await apiRequest(`/api/v1/departments/tracking-handoffs${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+
+  /**
+   * List audit logs / history events.
+   * GET /api/v1/departments/history-audit
+   */
+  async getHistoryAudit(params = {}) {
+    const query = new URLSearchParams();
+    if (params.action) query.append('action', params.action);
+    if (params.search) query.append('search', params.search);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    if (params.offset !== undefined) query.append('offset', String(params.offset));
+    const qs = query.toString();
+    return await apiRequest(`/api/v1/departments/history-audit${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+
+  /**
+   * Get overview KPI stats.
+   * GET /api/v1/departments/overview-stats
+   */
+  async getOverviewStats(period = 'month') {
+    const query = new URLSearchParams({ period });
+    return await apiRequest(`/api/v1/departments/overview-stats?${query.toString()}`, { method: 'GET' });
+  },
+
+  /**
+   * Get reports breakdown and trend data.
+   * GET /api/v1/departments/reports-stats
+   */
+  async getReportsStats(params = {}) {
+    const query = new URLSearchParams();
+    if (params.days !== undefined) query.append('days', String(params.days));
+    if (params.period !== undefined) query.append('period', String(params.period));
+    if (params.request_type !== undefined) query.append('request_type', String(params.request_type));
+    if (params.status !== undefined) query.append('status', String(params.status));
+    const qs = query.toString();
+    return await apiRequest(`/api/v1/departments/reports-stats${qs ? `?${qs}` : ''}`, { method: 'GET' });
   },
 };
 

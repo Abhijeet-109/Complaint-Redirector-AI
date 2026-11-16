@@ -3,8 +3,10 @@ import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Literal
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -16,7 +18,13 @@ from backend.chatbot.answer_pipeline import (
     detect_obvious_security_request,
 )
 from backend.Database.connection import SessionLocal
-from backend.Database.models import ChatbotTelemetry, ChatConversation
+from backend.Database.models import (
+    ChatbotTelemetry, ChatConversation, CommerceOrder, CommerceOrderItem, ReturnEvidence,
+)
+from backend.Database.return_evidence_storage import (
+    MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES, clear_staged_evidence,
+    list_staged_evidence, read_provider_evidence, stage_evidence,
+)
 from backend.auth.dependencies import get_db, require_role
 from backend.agents.agent_graph import agent_graph
 from backend.agents.response_schema import AgentResponse, STRUCTURED_RESPONSE_KEY, text_response
@@ -33,10 +41,22 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(None, min_length=1, max_length=100)
     # Reuse this value when retrying a request whose response may have been lost.
     request_id: str | None = Field(None, min_length=1, max_length=255)
+    order_id: int | None = Field(None, gt=0)
+    order_item_id: int | None = Field(None, gt=0)
+    new_return_intake: bool = False
 
 
 class ConversationCreateRequest(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=120)
+
+
+class ReturnIntakeActionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    thread_id: str = Field(min_length=1, max_length=255)
+    action: Literal["select_resolution", "select_reason",
+                    "set_description", "skip_description", "set_quantity",
+                    "go_back", "cancel", "confirm"]
+    value: str | None = Field(default=None, max_length=2000)
 
 
 def _conversation_payload(conversation):
@@ -86,7 +106,7 @@ def _get_owned_conversation(db, thread_id, user_id, *, lock=False):
     if lock:
         query = query.with_for_update()
     conversation = query.first()
-    if conversation is None:
+    if conversation is None or (conversation.delete_pending and not lock):
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return conversation
 
@@ -135,6 +155,7 @@ def list_conversations(
 ):
     conversations = db.query(ChatConversation).filter(
         ChatConversation.user_id == current_user.id,
+        ChatConversation.delete_pending.is_(False),
     ).order_by(ChatConversation.updated_at.desc(), ChatConversation.thread_id.desc()).all()
     return {"conversations": [_conversation_payload(item) for item in conversations]}
 
@@ -150,8 +171,18 @@ def get_conversation(
     graph = getattr(request.app.state, "agent_graph", agent_graph)
     state = _thread_state(graph, thread_id)
     messages = (state.values or {}).get("messages", []) if state else []
+    values = (state.values or {}) if state else {}
+    staged = [item for item in list_staged_evidence(current_user.id, thread_id)
+              if item.get("submission_key") == values.get("return_submission_key")]
     return {
         **_conversation_payload(conversation),
+        "return_intake": values.get("return_intake"),
+        "return_submission_key": values.get("return_submission_key"),
+        "staged_evidence": [{
+            "id": item["id"], "filename": item.get("filename"),
+            "content_type": item.get("mime_type"), "size_bytes": item.get("size_bytes"),
+            "preview_url": f"/chatbot/returns/evidence/{item['id']}?{urlencode({'thread_id': thread_id, 'return_submission_key': values.get('return_submission_key', '')})}",
+        } for item in staged],
         "messages": [
             _conversation_message(message)
             for message in messages
@@ -169,11 +200,156 @@ def delete_conversation(
 ):
     conversation = _get_owned_conversation(db, thread_id, current_user.id, lock=True)
     checkpointer = getattr(request.app.state, "chat_checkpointer", None)
+    conversation.delete_pending = True
+    db.commit()
+    try:
+        _finish_conversation_deletion(db, conversation, checkpointer)
+    except Exception as exc:
+        db.rollback()
+        logger.warning("Conversation deletion is pending recovery (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Conversation deletion could not finish and will be retried.") from exc
+    return None
+
+
+def _finish_conversation_deletion(db, conversation, checkpointer):
     if checkpointer is not None:
-        checkpointer.delete_thread(thread_id)
+        checkpointer.delete_thread(conversation.thread_id)
+    staged = list_staged_evidence(conversation.user_id, conversation.thread_id)
+    committed_keys = db.query(ReturnEvidence.storage_key).filter(
+        ReturnEvidence.storage_key.in_([item.get("storage_key") for item in staged])
+    ).all() if staged else []
+    clear_staged_evidence(staged, (row[0] for row in committed_keys))
     db.delete(conversation)
     db.commit()
-    return None
+
+
+@router.post("/returns/intake-action")
+def return_intake_action(
+    payload: ReturnIntakeActionRequest,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    """Persist a guided intake choice and submit confirmations without an LLM call."""
+    conversation = _get_owned_conversation(db, payload.thread_id, current_user.id, lock=True)
+    graph = getattr(http_request.app.state, "agent_graph", agent_graph)
+    config = {"configurable": {"thread_id": conversation.thread_id}}
+    state = _thread_state(graph, conversation.thread_id)
+    values = (state.values or {}) if state else {}
+    intake = values.get("return_intake")
+    if not isinstance(intake, dict):
+        raise HTTPException(status_code=409, detail="This return intake is no longer active.")
+    if payload.action == "confirm" and intake.get("step") == "complete" and intake.get("return_request_id"):
+        answer = f"Return request submitted successfully. Request ID: TRN-{intake['return_request_id']}. Our team will review your request."
+        return {"success": True, "answer": answer, "return_intake": intake}
+    if not intake.get("active"):
+        raise HTTPException(status_code=409, detail="This return intake is no longer active.")
+    if values.get("user_id") != current_user.id or intake.get("return_submission_key") != values.get("return_submission_key"):
+        raise HTTPException(status_code=404, detail="Return intake not found.")
+
+    # Resume an in-progress intake created before refund timing moved to the
+    # Returns approval step. The old customer choice is discarded.
+    if intake.get("step") == "refund_timing":
+        intake.pop("refund_timing", None)
+        intake["step"] = "description"
+
+    action = payload.action
+    step = intake.get("step")
+    if action == "select_resolution":
+        if step != "resolution" or payload.value not in {"refund", "replacement"}:
+            raise HTTPException(status_code=409, detail="Choose a valid resolution at this step.")
+        if intake.get("resolution_type") != payload.value:
+            intake.update(reason_code=None, description=None)
+        intake.update(resolution_type=payload.value, step="reason")
+    elif action == "select_reason":
+        if step != "reason":
+            raise HTTPException(status_code=409, detail="Choose a reason at this step.")
+        try:
+            from backend.Database.return_reason_codes import normalize_return_reason_code
+            reason_code = normalize_return_reason_code(payload.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Choose one of the supported return reasons.") from exc
+        intake.update(reason_code=reason_code, step="description")
+    elif action in {"set_description", "skip_description"}:
+        if step != "description":
+            raise HTTPException(status_code=409, detail="Description can only be updated at this step.")
+        intake.update(description=(payload.value or "").strip() or None
+                      if action == "set_description" else None, step="evidence")
+    elif action == "set_quantity":
+        if step != "review" or not payload.value or not payload.value.isdigit():
+            raise HTTPException(status_code=409, detail="Choose a valid quantity in the review step.")
+        quantity = int(payload.value)
+        if not 1 <= quantity <= int(intake.get("max_quantity", 0)):
+            raise HTTPException(status_code=422, detail="Quantity is outside the purchased item quantity.")
+        intake["quantity"] = quantity
+    elif action == "go_back":
+        previous = {"reason": "resolution", "description": "reason",
+                    "evidence": "description", "review": "evidence"}
+        if step not in previous:
+            raise HTTPException(status_code=409, detail="There is no previous step.")
+        intake["step"] = previous[step]
+    elif action == "cancel":
+        staged = list_staged_evidence(current_user.id, conversation.thread_id)
+        matching = [item for item in staged if item.get("submission_key") == intake["return_submission_key"]]
+        clear_staged_evidence(matching)
+        intake.update(active=False, step="cancelled")
+    elif action == "confirm":
+        if step != "review":
+            raise HTTPException(status_code=409, detail="Complete the return details and upload evidence before confirming.")
+        if not (intake.get("resolution_type") and intake.get("reason_code")):
+            raise HTTPException(status_code=422, detail="Complete all required return details before confirming.")
+        # Release the request-scoped conversation lock before the existing submission
+        # tool acquires its own lock. The unique submission key handles concurrent retries.
+        db.commit()
+        from backend.agents.returns.tools import build_returns_tools
+        tools = build_returns_tools(current_user.id, conversation.thread_id,
+                                    intake["order_id"], intake["order_item_id"],
+                                    intake["return_submission_key"])
+        submit_tool = next(tool for tool in tools if tool.name == "submit_my_return_request")
+        result = submit_tool.invoke({
+            "order_id": intake["order_id"],
+            "order_item_id": intake["order_item_id"],
+            "quantity": intake["quantity"],
+            "resolution_type": intake["resolution_type"],
+            "reason_code": intake["reason_code"],
+            "description": intake.get("description"),
+        })
+        if not isinstance(result, dict) or not result.get("success"):
+            return {"success": False,
+                    "answer": (result or {}).get("message", "The request could not be submitted. Please try again."),
+                    "return_intake": intake}
+        intake.update(active=False, step="complete", return_request_id=result["return_request_id"])
+        answer = f"Return request submitted successfully. Request ID: TRN-{result['return_request_id']}. Our team will review your request."
+        response = text_response("returns", answer)
+        graph.update_state(config, {
+            "answer": response,
+            "return_intake": intake,
+            "last_request_id": f"return-confirm:{intake['return_submission_key']}",
+            "messages": [AIMessage(content=answer, additional_kwargs={STRUCTURED_RESPONSE_KEY: response})],
+        })
+        return {"success": True, "answer": answer, "return_intake": intake}
+
+    graph.update_state(config, {"return_intake": intake})
+    return {"success": True, "answer": "Return request details updated.", "return_intake": intake}
+
+
+def recover_pending_conversation_deletions(db, checkpointer=None) -> int:
+    """Finish durable deletion tombstones after interruptions or storage failures."""
+    recovered = 0
+    while True:
+        conversation = db.query(ChatConversation).filter(
+            ChatConversation.delete_pending.is_(True),
+        ).with_for_update(skip_locked=True).first()
+        if conversation is None:
+            break
+        try:
+            _finish_conversation_deletion(db, conversation, checkpointer)
+            recovered += 1
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Pending conversation deletion recovery failed (%s)", type(exc).__name__)
+            break
+    return recovered
 
 
 def _safe_question_preview(question: str) -> str:
@@ -226,6 +402,136 @@ def chatbot_health():
     return {"status": "available", "service": "chatbot"}
 
 
+@router.post("/returns/evidence", status_code=202)
+def upload_chat_return_evidence(
+    http_request: Request,
+    thread_id: str,
+    order_id: int,
+    order_item_id: int,
+    return_submission_key: str,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    """Stage private evidence for an owned conversation and purchased order line."""
+    conversation = db.query(ChatConversation).filter(
+        ChatConversation.thread_id == thread_id,
+        ChatConversation.user_id == current_user.id,
+    ).with_for_update().first()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    if conversation.delete_pending:
+        raise HTTPException(status_code=409, detail="Conversation is being deleted.")
+    order = db.query(CommerceOrder).filter(
+        CommerceOrder.id == order_id, CommerceOrder.user_id == current_user.id,
+    ).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    item = db.query(CommerceOrderItem.id).filter(
+        CommerceOrderItem.id == order_item_id, CommerceOrderItem.order_id == order.id,
+    ).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Order item not found.")
+    try:
+        return_submission_key = str(uuid.UUID(return_submission_key))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="A valid return intake key is required.") from exc
+    graph = getattr(http_request.app.state, "agent_graph", agent_graph)
+    state = _thread_state(graph, thread_id)
+    state_key = ((state.values or {}).get("return_submission_key") if state else None)
+    if state_key != return_submission_key:
+        raise HTTPException(status_code=409, detail="Return intake is no longer active. Start or continue the current intake.")
+    intake = (state.values or {}).get("return_intake") if state else None
+    if not isinstance(intake, dict) or not intake.get("active") or intake.get("step") not in {"evidence", "review"}:
+        raise HTTPException(status_code=409, detail="Complete the return details before uploading evidence.")
+    try:
+        staged = [item for item in list_staged_evidence(current_user.id, thread_id)
+                  if item.get("submission_key") == return_submission_key
+                  and item.get("order_id") == order_id
+                  and item.get("order_item_id") == order_item_id]
+    except Exception as exc:
+        logger.error("Could not inspect staged return evidence (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Evidence storage is unavailable.") from exc
+    if not files or len(staged) + len(files) > MAX_EVIDENCE_FILES:
+        raise HTTPException(status_code=400, detail="Upload between 1 and 5 evidence images per request.")
+    results = []
+    for upload in files:
+        try:
+            data = upload.file.read(MAX_EVIDENCE_BYTES + 1)
+            metadata = stage_evidence(data, upload.filename or "", upload.content_type or "",
+                                      current_user.id, thread_id, order_id, order_item_id,
+                                      return_submission_key)
+            metadata["preview_url"] = f"/chatbot/returns/evidence/{metadata['id']}?{urlencode({'thread_id': thread_id, 'return_submission_key': return_submission_key})}"
+            results.append({"status": "pending_submission", **metadata})
+        except ValueError as exc:
+            results.append({"status": "failed", "filename": upload.filename or "",
+                            "message": str(exc)})
+        except Exception as exc:
+            logger.error("Chat evidence upload failed (%s)", type(exc).__name__)
+            results.append({"status": "failed", "filename": upload.filename or "",
+                            "message": "This image could not be uploaded. Please retry."})
+    if isinstance(intake, dict) and intake.get("active") and any(
+        item["status"] == "pending_submission" for item in results
+    ):
+        intake = {**intake, "step": "review",
+                  "evidence_count": len([item for item in list_staged_evidence(current_user.id, thread_id)
+                                          if item.get("submission_key") == return_submission_key])}
+        if callable(getattr(graph, "update_state", None)):
+            graph.update_state({"configurable": {"thread_id": thread_id}}, {"return_intake": intake})
+    db.commit()
+    return {"status": "pending_submission" if any(item["status"] == "pending_submission" for item in results)
+            else "failed", "thread_id": thread_id,
+            "order_id": order_id, "order_item_id": order_item_id, "files": results,
+            "return_intake": intake}
+
+
+@router.get("/returns/evidence/{evidence_token}")
+def get_staged_return_evidence(
+    evidence_token: str,
+    thread_id: str,
+    return_submission_key: str,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role("user")),
+):
+    try:
+        stable_key = str(uuid.UUID(return_submission_key))
+        if not re.fullmatch(r"[0-9a-f]{32}", evidence_token):
+            raise ValueError("Invalid evidence identifier")
+        stable_token = uuid.UUID(hex=evidence_token).hex
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Evidence image not found.") from exc
+    conversation = db.query(ChatConversation).filter(
+        ChatConversation.thread_id == thread_id,
+        ChatConversation.user_id == current_user.id,
+        ChatConversation.delete_pending.is_(False),
+    ).first()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Evidence image not found.")
+    graph = getattr(http_request.app.state, "agent_graph", agent_graph)
+    state = _thread_state(graph, thread_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Evidence image not found.")
+    values = state.values or {}
+    if values.get("user_id") != current_user.id or values.get("return_submission_key") != stable_key:
+        raise HTTPException(status_code=404, detail="Evidence image not found.")
+    staged = next((item for item in list_staged_evidence(current_user.id, thread_id)
+                   if item.get("id") == stable_token and item.get("submission_key") == stable_key), None)
+    if staged is None:
+        raise HTTPException(status_code=404, detail="Evidence image not found.")
+    try:
+        content = read_provider_evidence(staged.get("storage_provider", "local_private"), staged["storage_key"])
+    except Exception as exc:
+        logger.warning("Staged evidence preview failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Evidence image is unavailable.") from exc
+    if content is None:
+        raise HTTPException(status_code=404, detail="Evidence image is unavailable.")
+    from fastapi.responses import Response
+    return Response(content, media_type=staged["mime_type"], headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+    })
+
+
 @router.post("/ask")
 def ask_chatbot(
     request: ChatRequest,
@@ -236,6 +542,23 @@ def ask_chatbot(
     question = request.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Question cannot be empty.")
+    if (request.order_id is None) != (request.order_item_id is None):
+        raise HTTPException(status_code=422, detail="Provide both order_id and order_item_id.")
+    if request.new_return_intake and request.order_id is None:
+        raise HTTPException(status_code=422, detail="A new return intake requires order and item context.")
+    if request.order_id is not None:
+        owned_order = db.query(CommerceOrder.id).filter(
+            CommerceOrder.id == request.order_id,
+            CommerceOrder.user_id == _current_user.id,
+        ).first()
+        owned_item = db.query(CommerceOrderItem.id).filter(
+            CommerceOrderItem.id == request.order_item_id,
+            CommerceOrderItem.order_id == request.order_id,
+        ).first()
+        if owned_order is None:
+            raise HTTPException(status_code=404, detail="Order not found.")
+        if owned_item is None:
+            raise HTTPException(status_code=404, detail="Order item not found.")
 
     started = time.perf_counter()
     try:
@@ -246,6 +569,8 @@ def ask_chatbot(
                 ChatConversation.thread_id == requested_thread_id,
             ).with_for_update().first()
             if conversation is not None and conversation.user_id != _current_user.id:
+                raise HTTPException(status_code=404, detail="Conversation not found.")
+            if conversation is not None and conversation.delete_pending:
                 raise HTTPException(status_code=404, detail="Conversation not found.")
             if conversation is None and request.thread_id:
                 raise HTTPException(status_code=404, detail="Conversation not found.")
@@ -289,6 +614,12 @@ def ask_chatbot(
         completed_request_values = _completed_request_values(
             graph, config, request.request_id, previous_values
         )
+        if completed_request_values is not None:
+            return_submission_key = completed_request_values.get("return_submission_key")
+        elif request.new_return_intake:
+            return_submission_key = str(uuid.uuid4())
+        else:
+            return_submission_key = previous_values.get("return_submission_key") or str(uuid.uuid4())
         
         prefilter_blocked = False
 
@@ -310,6 +641,45 @@ def ask_chatbot(
                     or "New chat"
                 )
 
+        elif request.new_return_intake:
+            order = db.get(CommerceOrder, request.order_id)
+            purchased_item = db.get(CommerceOrderItem, request.order_item_id)
+            intake = {
+                "active": True,
+                "step": "resolution",
+                "thread_id": conversation.thread_id,
+                "order_id": order.id,
+                "order_number": order.order_number,
+                "order_item_id": purchased_item.id,
+                "product_name": purchased_item.product_name,
+                "variant_name": purchased_item.variant_name,
+                "quantity": 1,
+                "max_quantity": purchased_item.quantity,
+                "resolution_type": None,
+                "reason_code": None,
+                "description": None,
+                "evidence_count": 0,
+                "return_submission_key": return_submission_key,
+            }
+            result = text_response("returns", "Let's prepare your return or replacement request. Choose a resolution below.")
+            if not callable(getattr(graph, "update_state", None)):
+                raise HTTPException(status_code=503, detail="Saved return intake is unavailable.")
+            graph.update_state(config, {
+                "answer": result,
+                "request_id": request.request_id,
+                "last_request_id": request.request_id,
+                "thread_id": conversation.thread_id,
+                "user_id": _current_user.id,
+                "order_id": order.id,
+                "order_item_id": purchased_item.id,
+                "return_submission_key": return_submission_key,
+                "return_intake": intake,
+                "messages": [
+                    HumanMessage(content=question),
+                    AIMessage(content=result["answer"], additional_kwargs={STRUCTURED_RESPONSE_KEY: result}),
+                ],
+            })
+            conversation.title = "Return or Replace"
         else:
             prefilter_category = detect_obvious_security_request(question)
 
@@ -340,11 +710,18 @@ def ask_chatbot(
                     )
 
             else:
-                graph_result = graph.invoke({
+                graph_input = {
                     "question": question,
                     "user_id": _current_user.id,
                     "request_id": request.request_id,
-                }, config=config)
+                    "thread_id": conversation.thread_id,
+                    "return_submission_key": return_submission_key,
+                }
+                if request.order_id is not None:
+                    graph_input["order_id"] = request.order_id
+                if request.order_item_id is not None:
+                    graph_input["order_item_id"] = request.order_item_id
+                graph_result = graph.invoke(graph_input, config=config)
 
                 result = _validated_response(graph_result.get("answer"))
 
@@ -359,6 +736,9 @@ def ask_chatbot(
             "thread_id": conversation.thread_id,
             "title": conversation.title,
             "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+            "return_submission_key": return_submission_key,
+            "return_intake": (((_thread_state(graph, conversation.thread_id).values or {}).get("return_intake"))
+                              if _thread_state(graph, conversation.thread_id) else None),
         }
         result = {**_validated_response(result), **meta}
         

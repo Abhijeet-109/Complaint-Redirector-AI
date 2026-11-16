@@ -105,10 +105,10 @@ export const adminService = {
     return apiRequest(`/api/admin/commerce/orders${qs ? '?' + qs : ''}`);
   },
   getAdminOrderDetail: (orderId) => apiRequest(`/api/admin/commerce/orders/${orderId}`),
-  updateOrderStatus: (orderId, status) =>
+  updateOrderStatus: (orderId, status, reason) =>
     apiRequest(`/api/admin/commerce/orders/${orderId}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, reason }),
     }),
   updateShipment: (orderId, data) =>
     apiRequest(`/api/admin/commerce/orders/${orderId}/shipment`, {

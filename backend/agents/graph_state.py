@@ -16,6 +16,16 @@ class GraphState(TypedDict, total=False):
 
     user_id: int
 
+    thread_id: str
+
+    order_id: int | None
+
+    order_item_id: int | None
+
+    return_submission_key: str | None
+
+    return_intake: dict[str, Any]
+
     route: str
 
     answer: dict[str, Any]

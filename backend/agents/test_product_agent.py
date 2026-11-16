@@ -1,12 +1,14 @@
 import unittest
+from unittest.mock import patch
 
-from sqlalchemy import create_engine, event, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.orm import sessionmaker
 
 from backend.Database.connection import Base
-from backend.Database.models import Product, ProductVariant, User
+from backend.Database.models import Product
 from backend.Database.seed_commerce import seed_catalog
-from backend.agents.product_tools import build_product_tools
+from backend.agents.product import tools as product_tools
+from backend.agents.product.tools import build_product_tools
 
 
 class ProductToolsTests(unittest.TestCase):
@@ -17,14 +19,21 @@ class ProductToolsTests(unittest.TestCase):
         def enable_foreign_keys(dbapi_connection, _record):
             dbapi_connection.execute("PRAGMA foreign_keys=ON")
 
-        Base.metadata.create_all(self.engine)
-        self.session = Session(self.engine)
-        self.user = User(name="Test Customer", email="customer@example.com", password="hash", role="user")
-        self.session.add(self.user)
-        self.session.flush()
+        table_names = (
+            "product_categories", "products", "product_variants", "product_images", "inventory",
+        )
+        Base.metadata.create_all(
+            self.engine,
+            tables=[Base.metadata.tables[name] for name in table_names],
+        )
+        self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
+        self.session = self.Session()
         seed_catalog(self.session)
         self.session.commit()
 
+        self.session_patch = patch.object(product_tools, "SessionLocal", self.Session)
+        self.session_patch.start()
+        self.addCleanup(self.session_patch.stop)
         self.tools = build_product_tools()
         self.tool_by_name = {t.name: t for t in self.tools}
 
@@ -121,10 +130,10 @@ class ProductToolsTests(unittest.TestCase):
 
     def test_compare_products_with_missing(self):
         product = self.session.scalar(select(Product).limit(1))
-        result = self._run_tool("compare_products", product_ids=f"{product.id},-999")
+        result = self._run_tool("compare_products", product_ids=f"{product.id},999999")
         self.assertTrue(result["success"], result.get("message"))
         self.assertEqual(result["count"], 1)
-        self.assertIn(-999, result["not_found"])
+        self.assertIn(999999, result["not_found"])
 
     def test_compare_products_empty(self):
         result = self._run_tool("compare_products", product_ids="")
@@ -135,7 +144,7 @@ class ProductToolsTests(unittest.TestCase):
         ids = ",".join(str(i) for i in range(1, 12))
         result = self._run_tool("compare_products", product_ids=ids)
         self.assertFalse(result["success"])
-        self.assertIn("10", result["message"])
+        self.assertIn("5", result["message"])
 
     def test_ambiguous_query_returns_multiple(self):
         result = self._run_tool("search_products", query="shirt")

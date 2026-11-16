@@ -1,33 +1,46 @@
 import React, { useMemo } from 'react';
 
+const CANONICAL_DEPARTMENTS = [
+  'Returns & Replacement',
+  'Account & Security',
+  'Technical Support',
+  'Payments & Refunds',
+  'Order & Delivery',
+  'Product & Quality',
+];
+
 export function DepartmentComplaintChart({ complaints = [], departments = [] }) {
-  // Compute distribution of complaints by current assigned department
+  // Compute distribution of complaints across canonical & assigned departments
   const stats = useMemo(() => {
     const total = complaints.length;
-    if (total === 0) return [];
 
-    // Map department id/name to counts
+    // Seed map with the 6 canonical departments at 0
     const countMap = {};
+    CANONICAL_DEPARTMENTS.forEach((dept) => {
+      countMap[dept] = 0;
+    });
+
+    // Also include any active departments from DB/API
+    departments.forEach((d) => {
+      if (d?.name && !(d.name in countMap)) {
+        countMap[d.name] = 0;
+      }
+    });
+
+    // Count complaints by current assigned department
     complaints.forEach((c) => {
       const deptName = c.current_department || 'Unassigned';
       countMap[deptName] = (countMap[deptName] || 0) + 1;
     });
 
-    // Also include departments from departments list with 0 if not present
-    departments.forEach((d) => {
-      if (!(d.name in countMap)) {
-        countMap[d.name] = 0;
-      }
-    });
-
     const entries = Object.entries(countMap).map(([name, count]) => ({
       name,
       count,
-      percent: Math.round((count / total) * 100),
+      percent: total > 0 ? Math.round((count / total) * 100) : 0,
     }));
 
-    // Sort descending by count
-    return entries.sort((a, b) => b.count - a.count);
+    // Sort descending by count, then alphabetically
+    return entries.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [complaints, departments]);
 
   const maxCount = useMemo(() => {
@@ -40,38 +53,32 @@ export function DepartmentComplaintChart({ complaints = [], departments = [] }) 
         <div>
           <div className="ad-card-panel-title">Complaints by Department</div>
           <div className="ad-card-panel-sub">
-            Distribution across {complaints.length} registered complaints
+            Distribution across {complaints.length} registered {complaints.length === 1 ? 'complaint' : 'complaints'}
           </div>
         </div>
       </div>
 
-      {stats.length === 0 ? (
-        <div style={{ padding: '24px 0', textAlign: 'center', color: '#909B9D', fontSize: '13px' }}>
-          No complaint records recorded yet.
-        </div>
-      ) : (
-        <div className="ad-dept-bars-list">
-          {stats.slice(0, 6).map((item) => {
-            const barWidth = Math.max(Math.round((item.count / maxCount) * 100), 2);
-            return (
-              <div key={item.name} className="ad-dept-bar-item">
-                <div className="ad-dept-bar-meta">
-                  <span className="ad-dept-bar-name">{item.name}</span>
-                  <span className="ad-dept-bar-stats" style={{ fontWeight: '700', fontSize: '13px' }}>
-                    {item.count}
-                  </span>
-                </div>
-                <div className="ad-dept-bar-track">
-                  <div
-                    className="ad-dept-bar-fill"
-                    style={{ width: `${item.count === 0 ? 0 : barWidth}%` }}
-                  />
-                </div>
+      <div className="ad-dept-bars-list">
+        {stats.slice(0, 6).map((item) => {
+          const barWidth = Math.max(Math.round((item.count / maxCount) * 100), 0);
+          return (
+            <div key={item.name} className="ad-dept-bar-item">
+              <div className="ad-dept-bar-meta">
+                <span className="ad-dept-bar-name">{item.name}</span>
+                <span className="ad-dept-bar-stats" style={{ fontWeight: '700', fontSize: '13px' }}>
+                  {item.count}
+                </span>
               </div>
-            );
-          })}
-        </div>
-      )}
+              <div className="ad-dept-bar-track">
+                <div
+                  className="ad-dept-bar-fill"
+                  style={{ width: `${item.count === 0 ? 0 : Math.max(barWidth, 2)}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

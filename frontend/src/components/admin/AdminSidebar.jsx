@@ -73,6 +73,8 @@ export function AdminSidebar({ currentView = 'store-dashboard', onSelectView, is
           <NavItem view="handlers" icon={UserCheck} label="Manage Dept. Handlers" />
           <NavItem view="admins" icon={ShieldAlert} label="Manage Admins" superAdminOnly />
           <NavItem view="pipeline" icon={Bot} label="Chatbot & Pipeline" superAdminOnly />
+          <NavItem view="complaints" icon={FileText} label="Complaints" />
+          <NavItem view="analytics" icon={GitCompare} label="Redirection Analytics" />
         </div>
 
         {/* STORE MANAGEMENT - SECOND */}
@@ -86,13 +88,6 @@ export function AdminSidebar({ currentView = 'store-dashboard', onSelectView, is
           <NavItem view="products" icon={ShoppingCart} label="Manage Products" />
           <NavItem view="categories" icon={Tags} label="Manage Categories" />
           <NavItem view="shipment-options" icon={Truck} label="Shipment Options" />
-        </div>
-
-        {/* OPERATIONS - THIRD */}
-        <div className="ad-sidebar-group">
-          {!collapsed && <div className="ad-sidebar-group-title">Operations</div>}
-          <NavItem view="complaints" icon={FileText} label="Complaints" />
-          <NavItem view="analytics" icon={GitCompare} label="Redirection Analytics" />
         </div>
       </nav>
 

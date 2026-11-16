@@ -21,7 +21,12 @@ function formatINRDecimals(amount) {
 const STATUS_CONFIG = {
   pending: { bg: '#FEF3C7', color: '#B45309', label: 'Pending' },
   processing: { bg: '#CCFBF1', color: '#0F766E', label: 'Processing' },
+  accepted: { bg: '#E0F2FE', color: '#0369A1', label: 'Accepted' },
   packed: { bg: '#EDE9FE', color: '#6D28D9', label: 'Packed' },
+  ready_to_ship: { bg: '#EDE9FE', color: '#6D28D9', label: 'Ready to Ship' },
+  ready_for_dispatch: { bg: '#DBEAFE', color: '#1D4ED8', label: 'Ready for Dispatch' },
+  received: { bg: '#E0E7FF', color: '#4338CA', label: 'Received' },
+  scheduled: { bg: '#FEF3C7', color: '#B45309', label: 'Scheduled' },
   shipped: { bg: '#CFFAFE', color: '#0E7490', label: 'Shipped' },
   out_for_delivery: { bg: '#FFEDD5', color: '#C2410C', label: 'Out for Delivery' },
   delivered: { bg: '#DCFCE7', color: '#15803D', label: 'Delivered' },
@@ -49,20 +54,6 @@ function StatusBadge({ status }) {
   );
 }
 
-const VALID_TRANSITIONS = {
-  placed: ['processing', 'cancelled'],
-  processing: ['packed', 'cancelled'],
-  packed: ['shipped', 'cancelled'],
-  shipped: ['out_for_delivery'],
-  out_for_delivery: ['delivered'],
-  delivered: [],
-  cancelled: [],
-  pending_payment: [],
-  payment_failed: [],
-};
-
-const SHIPMENT_STATUSES = ['pending', 'shipped', 'out_for_delivery', 'delivered'];
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) {
@@ -89,6 +80,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
   // Status Update State
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [targetStatus, setTargetStatus] = useState('');
+  const [orderOverrideReason, setOrderOverrideReason] = useState('');
 
   // Shipment Update State
   const [updatingShipment, setUpdatingShipment] = useState(false);
@@ -98,6 +90,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
   const [estimatedDelivery, setEstimatedDelivery] = useState('');
   const [shipmentStatus, setShipmentStatus] = useState('');
   const [shipmentNotes, setShipmentNotes] = useState('');
+  const [shipmentOverrideReason, setShipmentOverrideReason] = useState('');
 
   // Handle focused order highlight and auto-scroll
   useEffect(() => {
@@ -119,6 +112,13 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
       };
     }
   }, [focusedOrderId, orders, onClearFocusedOrder]);
+
+  useEffect(() => {
+    if (!selectedOrderId) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [selectedOrderId]);
 
   const showToast = (type, message) => {
     setToast({ type, message });
@@ -170,21 +170,23 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
       const detail = await adminService.getAdminOrderDetail(orderId);
       setSelectedOrder(detail);
       setTargetStatus('');
+      setOrderOverrideReason('');
       if (detail.shipment) {
         setCarrier(detail.shipment.carrier || '');
         setTrackingRef(detail.shipment.tracking_reference || '');
         setTrackingUrl(detail.shipment.tracking_url || '');
         setEstimatedDelivery(detail.shipment.estimated_delivery_date ? detail.shipment.estimated_delivery_date.slice(0, 10) : '');
-        setShipmentStatus(detail.shipment.status || 'pending');
+        setShipmentStatus('');
         setShipmentNotes(detail.shipment.notes || '');
       } else {
         setCarrier('');
         setTrackingRef('');
         setTrackingUrl('');
         setEstimatedDelivery('');
-        setShipmentStatus('pending');
+        setShipmentStatus('');
         setShipmentNotes('');
       }
+      setShipmentOverrideReason('');
     } catch (err) {
       showToast('error', err.message || 'Failed to load order details');
       setSelectedOrderId(null);
@@ -197,11 +199,13 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
     if (!targetStatus || !selectedOrder) return;
     setUpdatingStatus(true);
     try {
-      await adminService.updateOrderStatus(selectedOrder.id, targetStatus);
+      await adminService.updateOrderStatus(selectedOrder.id, targetStatus, orderOverrideReason.trim() || null);
       showToast('success', `Order status updated to ${targetStatus}`);
       // Refresh detail and list
       const updated = await adminService.getAdminOrderDetail(selectedOrder.id);
       setSelectedOrder(updated);
+      setTargetStatus('');
+      setOrderOverrideReason('');
       fetchOrders(false, null);
     } catch (err) {
       showToast('error', err.message || 'Failed to update order status');
@@ -215,18 +219,21 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
     setUpdatingShipment(true);
     try {
       const payload = {
-        status: shipmentStatus,
+        status: shipmentStatus || null,
         carrier: carrier.trim() || null,
         tracking_reference: trackingRef.trim() || null,
         tracking_url: trackingUrl.trim() || null,
         estimated_delivery_date: estimatedDelivery ? new Date(estimatedDelivery).toISOString() : null,
         notes: shipmentNotes.trim() || null,
+        reason: shipmentOverrideReason.trim() || null,
       };
       await adminService.updateShipment(selectedOrder.id, payload);
       showToast('success', 'Shipment tracking updated successfully');
       // Refresh detail and list
       const updated = await adminService.getAdminOrderDetail(selectedOrder.id);
       setSelectedOrder(updated);
+      setShipmentStatus('');
+      setShipmentOverrideReason('');
       fetchOrders(false, null);
     } catch (err) {
       showToast('error', err.message || 'Failed to update shipment');
@@ -235,7 +242,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
     }
   };
 
-  const validNextStates = selectedOrder ? (VALID_TRANSITIONS[selectedOrder.status] || []) : [];
+  const validNextStates = selectedOrder?.next_status_options || [];
 
   return (
     <div className="sd-dashboard">
@@ -286,8 +293,10 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
           >
             <option value="">All Order Statuses</option>
             <option value="placed">Placed</option>
+            <option value="accepted">Accepted</option>
             <option value="processing">Processing</option>
             <option value="packed">Packed</option>
+            <option value="ready_to_ship">Ready to Ship</option>
             <option value="shipped">Shipped</option>
             <option value="out_for_delivery">Out for Delivery</option>
             <option value="delivered">Delivered</option>
@@ -303,8 +312,10 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
             style={{ height: 38, padding: '0 12px', borderRadius: 8, border: '1px solid #E5DFC8', fontSize: 13, background: '#FFFFFF', color: '#1D1C17' }}
           >
             <option value="">All Shipment States</option>
-            <option value="pending">Pending</option>
-            <option value="shipped">Shipped</option>
+            <option value="ready_for_dispatch">Ready for Dispatch</option>
+            <option value="received">Received</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="shipped">Legacy Shipped</option>
             <option value="out_for_delivery">Out for Delivery</option>
             <option value="delivered">Delivered</option>
           </select>
@@ -457,10 +468,10 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
           background: 'rgba(18, 45, 41, 0.4)', backdropFilter: 'blur(4px)',
           zIndex: 100, display: 'flex', justifyContent: 'flex-end',
         }}>
-          <div style={{
+          <div className="sd-order-drawer" style={{
             width: '100%', maxWidth: 640, height: '100%', background: '#F5F0E8',
             boxShadow: '-4px 0 20px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column',
-            overflowY: 'auto',
+            overflow: 'hidden',
           }}>
             {/* Drawer Header */}
             <div style={{
@@ -477,6 +488,7 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
               </div>
               <button
                 onClick={() => { setSelectedOrderId(null); setSelectedOrder(null); }}
+                aria-label="Close order details"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, color: '#5C5A54' }}
               >
                 <X size={20} />
@@ -484,12 +496,12 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
             </div>
 
             {loadingDetail ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 10 }}>
+              <div className="sd-order-drawer-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
                 <div style={{ width: 24, height: 24, border: '2px solid #E5DFC8', borderTopColor: '#122D29', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                 <span>Loading order details...</span>
               </div>
             ) : selectedOrder ? (
-              <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="sd-order-drawer-content" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
                 {/* Status & Transitions Card */}
                 <div className="sd-card">
@@ -524,6 +536,15 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
                             <option key={s} value={s}>{s.replace(/_/g, ' ').toUpperCase()}</option>
                           ))}
                         </select>
+                        <input
+                          type="text"
+                          aria-label="Admin override reason"
+                          placeholder="Optional override reason"
+                          value={orderOverrideReason}
+                          onChange={e => setOrderOverrideReason(e.target.value)}
+                          maxLength={500}
+                          style={{ flex: 1, height: 36, padding: '0 10px', borderRadius: 6, border: '1px solid #E5DFC8', fontSize: 13 }}
+                        />
                         <button
                           onClick={handleUpdateOrderStatus}
                           disabled={!targetStatus || updatingStatus}
@@ -636,7 +657,8 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
                         onChange={e => setShipmentStatus(e.target.value)}
                         style={{ width: '100%', height: 34, padding: '0 10px', borderRadius: 6, border: '1px solid #E5DFC8', fontSize: 13 }}
                       >
-                        {SHIPMENT_STATUSES.map(s => (
+                        <option value="">No status transition</option>
+                        {(selectedOrder.shipment?.next_status_options || []).map(s => (
                           <option key={s} value={s}>{s.replace(/_/g, ' ').toUpperCase()}</option>
                         ))}
                       </select>
@@ -652,8 +674,14 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
                     </div>
                   </div>
 
+                  {!selectedOrder.shipment && (
+                    <p style={{ fontSize: 12, color: '#8B5E13', margin: '0 0 12px' }}>
+                      Shipment management becomes available after the order reaches Ready to Ship.
+                    </p>
+                  )}
+
                   <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>Shipment Note / Audit</label>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>Operational Note</label>
                     <input
                       type="text"
                       placeholder="Reason or update comment..."
@@ -663,9 +691,20 @@ export function OrderManagement({ focusedOrderId = null, onClearFocusedOrder }) 
                     />
                   </div>
 
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: '#8B8578', display: 'block', marginBottom: 4 }}>Admin Override Reason (optional)</label>
+                    <input
+                      type="text"
+                      value={shipmentOverrideReason}
+                      onChange={e => setShipmentOverrideReason(e.target.value)}
+                      maxLength={500}
+                      style={{ width: '100%', height: 34, padding: '0 10px', borderRadius: 6, border: '1px solid #E5DFC8', fontSize: 13 }}
+                    />
+                  </div>
+
                   <button
                     onClick={handleUpdateShipment}
-                    disabled={updatingShipment}
+                    disabled={updatingShipment || !selectedOrder.shipment}
                     style={{
                       background: '#4A6741', color: '#fff', border: 'none', borderRadius: 8,
                       padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',

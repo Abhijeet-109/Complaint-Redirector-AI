@@ -14,7 +14,7 @@ AgentName = Literal[
 ResponseType = Literal[
     "product_list", "product_details", "product_comparison", "cart_summary", "cart_update",
     "order_list", "order_details", "order_status", "shipment_list", "shipment_details",
-    "return_request_list", "text",
+    "return_request_list", "return_request_details", "return_submission", "text",
 ]
 STRUCTURED_RESPONSE_KEY = "flatkart_response"
 
@@ -129,10 +129,27 @@ class ReturnRequestListData(ContractModel):
     return_requests: list[ReturnRequestData]
 
 
+class ReturnSubmissionData(ContractModel):
+    return_request_id: int
+    order_id: int
+    evidence_filenames: list[str]
+
+
+class ReturnRequestDetailsData(ContractModel):
+    request: dict
+    order: dict = Field(default_factory=dict)
+    current_workflow: dict = Field(default_factory=dict)
+    audit_history: list[dict] = Field(default_factory=list)
+    department_handoffs: list[dict] = Field(default_factory=list)
+    inspection_history: list[dict] = Field(default_factory=list)
+    evidence: list[dict] = Field(default_factory=list)
+    refund_history: list[dict] = Field(default_factory=list)
+
+
 ResponseData = (
     ProductListData | ProductDetailsData | ProductComparisonData | CartData | OrderListData
     | OrderDetailsData | OrderStatusData | ShipmentListData | ShipmentDetailsData
-    | ReturnRequestListData
+    | ReturnRequestListData | ReturnRequestDetailsData | ReturnSubmissionData
 )
 
 
@@ -158,6 +175,8 @@ class AgentResponse(ContractModel):
             "shipment_list": ShipmentListData,
             "shipment_details": ShipmentDetailsData,
             "return_request_list": ReturnRequestListData,
+            "return_submission": ReturnSubmissionData,
+            "return_request_details": ReturnRequestDetailsData,
         }.get(info.data.get("response_type"))
         if expected is None:
             if value is not None:

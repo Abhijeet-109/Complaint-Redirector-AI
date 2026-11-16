@@ -7,7 +7,7 @@ import './chatbot.css';
 
 const AssistantMessageContent = lazy(() => import('./AssistantMessageContent'));
 
-export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
+export function ChatbotWidget({ isOpen, onToggle, onNavigate, returnIntakeRequest = null }) {
   const { user, isAuthenticated } = useAuth();
   const authenticatedUserId = isAuthenticated && user?.id !== null && user?.id !== undefined
     ? String(user.id)
@@ -18,6 +18,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
   const messagesEndRef = useRef(null);
   const activeUserIdRef = useRef(authenticatedUserId);
   const requestGenerationRef = useRef(0);
+  const handledReturnIntakeRef = useRef(null);
 
   // Initialize or reset messages when authentication state changes
   useLayoutEffect(() => {
@@ -55,7 +56,7 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
     }
   }, [messages, isOpen]);
 
-  const handleSendMessage = async (customText) => {
+  const handleSendMessage = async (customText, requestContext = {}) => {
     const textToSend = (customText || inputText).trim();
     if (!textToSend || isLoading) return;
 
@@ -89,6 +90,9 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
       const result = await chatbotService.askQuestion(textToSend, {
         sessionId,
         requestId,
+        orderId: requestContext.orderId,
+        orderItemId: requestContext.orderItemId,
+        newReturnIntake: requestContext.newReturnIntake,
       });
 
       if (requestGeneration !== requestGenerationRef.current
@@ -121,6 +125,24 @@ export function ChatbotWidget({ isOpen, onToggle, onNavigate }) {
       }
     }
   };
+
+  useEffect(() => {
+    if (!isOpen || isLoading || !returnIntakeRequest?.requestKey
+      || handledReturnIntakeRef.current === returnIntakeRequest.requestKey) return;
+
+    handledReturnIntakeRef.current = returnIntakeRequest.requestKey;
+    const itemDescription = [
+      returnIntakeRequest.productName,
+      returnIntakeRequest.variantName,
+    ].filter(Boolean).join(' - ');
+    const quantityContext = returnIntakeRequest.quantity ? `, purchased quantity ${returnIntakeRequest.quantity}` : '';
+    const question = `I want to return or replace this item${itemDescription ? `: ${itemDescription}` : ''} from order #${returnIntakeRequest.orderNumber}${quantityContext}.`;
+    void handleSendMessage(question, {
+      orderId: returnIntakeRequest.orderId,
+      orderItemId: returnIntakeRequest.orderItemId,
+      newReturnIntake: true,
+    });
+  }, [isOpen, isLoading, returnIntakeRequest]);
 
   const handleQuickQuestion = (question) => {
     handleSendMessage(question);

@@ -26,6 +26,28 @@
   padding: 0;
 }
 
+/* ==========================================================================
+   GLOBAL INVISIBLE-SCROLLBAR (FLATKART SYSTEM-WIDE)
+   Visually hides all scrollbar tracks and thumbs across all routes and elements
+   while preserving 100% native scrolling (wheel, touch, keyboard, programmatic).
+   ========================================================================== */
+html,
+body,
+#root,
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar,
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 #root {
   zoom: var(--fk-zoom, 1.1);
 }
@@ -1787,7 +1809,14 @@ input, textarea, select {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fk-account-nav-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .fk-account-nav-btn {
@@ -1860,18 +1889,16 @@ input, textarea, select {
 .fk-account-main-area.is-scrollable {
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 0 36px;
-  scrollbar-width: thin;
-  scrollbar-color: #DFDBD1 transparent;
+  padding: 14px 0 36px;
+  /* Visually hide scrollbars across all browsers while fully preserving mouse-wheel, touch, trackpad and keyboard scrolling */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .fk-account-main-area.is-scrollable::-webkit-scrollbar {
-  width: 6px;
-}
-
-.fk-account-main-area.is-scrollable::-webkit-scrollbar-thumb {
-  background-color: #DFDBD1;
-  border-radius: 4px;
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 @media (max-width: 960px) {

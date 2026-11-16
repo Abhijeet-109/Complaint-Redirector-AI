@@ -224,6 +224,7 @@ class ChatConversation(Base):
     thread_id = Column(String(255), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String(120), nullable=False, default="New chat")
+    delete_pending = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
 
@@ -452,6 +453,12 @@ class CommerceOrder(Base):
     shipment = relationship("Shipment", back_populates="order", uselist=False, cascade="all, delete-orphan")
     payment_attempts = relationship("PaymentAttempt", back_populates="order", cascade="all, delete-orphan")
     user = relationship("User")
+    events = relationship(
+        "ShipmentEvent",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="ShipmentEvent.created_at, ShipmentEvent.id",
+    )
 
 
 class CommerceOrderItem(Base):
@@ -534,18 +541,27 @@ class Shipment(Base):
         "ShipmentEvent",
         back_populates="shipment",
         cascade="all, delete-orphan",
-        order_by="ShipmentEvent.created_at",
+        order_by="ShipmentEvent.created_at, ShipmentEvent.id",
     )
 
 
 class ShipmentEvent(Base):
     __tablename__ = "shipment_events"
+    __table_args__ = (
+        CheckConstraint(
+            "(event_type = 'order_status' AND order_id IS NOT NULL AND shipment_id IS NULL) OR "
+            "(event_type = 'shipment_status' AND shipment_id IS NOT NULL AND order_id IS NULL)",
+            name="ck_shipment_events_owner_matches_type",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
+    event_type = Column(String(24), nullable=False, default="shipment_status", server_default="shipment_status")
+    order_id = Column(Integer, ForeignKey("commerce_orders.id", ondelete="CASCADE"), nullable=True, index=True)
     shipment_id = Column(
         Integer,
         ForeignKey("shipments.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     previous_status = Column(String(32), nullable=True)
@@ -554,6 +570,7 @@ class ShipmentEvent(Base):
     note = Column(String(500), nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     shipment = relationship("Shipment", back_populates="events")
+    order = relationship("CommerceOrder", back_populates="events")
     changed_by = relationship("User", foreign_keys=[changed_by_id])
 
 
@@ -604,11 +621,16 @@ class ReturnRequest(Base):
             "resolution_type IS NULL OR resolution_type IN ('refund', 'replacement')",
             name="ck_return_requests_resolution_type",
         ),
+        CheckConstraint(
+            "refund_timing IS NULL OR refund_timing IN ('immediate', 'after_collection')",
+            name="ck_return_requests_refund_timing",
+        ),
         ForeignKeyConstraint(
             ["order_item_id", "order_id"],
             ["commerce_order_items.id", "commerce_order_items.order_id"],
             name="fk_return_requests_item_belongs_to_order",
         ),
+        UniqueConstraint("submission_key", name="uq_return_requests_submission_key"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -634,6 +656,8 @@ class ReturnRequest(Base):
     resolution_type = Column(String(20), nullable=True)
     reason_code = Column(String(40), nullable=True)
     description = Column(Text, nullable=True)
+    refund_timing = Column(String(24), nullable=True)
+    submission_key = Column(String(36), nullable=True)
 
     # Separate workflow status; nullable for legacy records.
     workflow_status = Column(String(40), nullable=True, index=True)

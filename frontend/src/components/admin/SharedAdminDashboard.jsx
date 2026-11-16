@@ -17,6 +17,8 @@ import { DepartmentComplaintChart } from './DepartmentComplaintChart';
 import { DepartmentRedirections } from './DepartmentRedirections';
 import { ComplaintsTable } from './ComplaintsTable';
 import { ComplaintDetailsPanel } from './ComplaintDetailsPanel';
+import { ComplaintsOversightView } from './ComplaintsOversightView';
+import { SuperAdminOverviewView } from './SuperAdminOverviewView';
 import { ManagementTable } from './ManagementTable';
 import { PipelineManagementView } from './pipeline/PipelineManagementView';
 import { ProductManagement } from './ProductManagement';
@@ -39,6 +41,7 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
   });
   const [focusedPaymentId, setFocusedPaymentId] = useState(null);
   const [focusedOrderId, setFocusedOrderId] = useState(null);
+  const [focusedComplaintId, setFocusedComplaintId] = useState(null);
 
   const handleNavigateView = (view, targetId = null) => {
     if (view === 'payments' && targetId) {
@@ -46,6 +49,9 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
     }
     if (view === 'orders' && targetId) {
       setFocusedOrderId(targetId);
+    }
+    if (view === 'complaints' && targetId) {
+      setFocusedComplaintId(targetId);
     }
     setCurrentView(view);
   };
@@ -219,87 +225,18 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
           {currentView === 'payments' && <PaymentHistory focusedPaymentId={focusedPaymentId} onClearFocusedPayment={() => setFocusedPaymentId(null)} />}
           {currentView === 'returns' && <RefundManagement />}
           {/* ========================================================
-              VIEW 1: OVERVIEW
+              VIEW 1: OVERVIEW (Super Admin Redesign)
               ======================================================== */}
           {currentView === 'overview' && (
-            <>
-              {/* Header */}
-              <div className="ad-header-row">
-                <div>
-                  <h1 className="ad-page-heading">
-                    {isSuperAdmin ? 'Overview' : 'Admin Overview'}
-                  </h1>
-                  <p className="ad-page-subtext">
-                    Operational snapshot across the complaint redirection system.
-                  </p>
-                </div>
-                <div className="ad-live-pill">
-                  Live System Data
-                </div>
-              </div>
-
-              {/* Section Tag */}
-              <div className="ad-section-title">System at a Glance</div>
-
-              {/* KPI Cards Row (9 cards for Super Admin, 8 cards for Admin) */}
-              {isSuperAdmin ? (
-                <div className="ad-kpi-grid-9">
-                  <MetricCard label="Total Users" value={kpis.totalUsers} sub="Live Accounts" icon={Users} />
-                  <MetricCard label="Departments" value={kpis.totalDepartments} sub="Active Units" icon={Building2} />
-                  <MetricCard label="Department Handlers" value={kpis.totalHandlers} sub="Staff Active" icon={UserCheck} />
-                  <MetricCard label="Admins" value={kpis.totalAdmins} sub="Super Admin View" icon={ShieldAlert} />
-                  <MetricCard label="Total Complaints" value={kpis.totalComplaints} sub="All Records" icon={FileText} />
-                  <MetricCard label="Pending" value={kpis.pending} sub="Awaiting Action" icon={Clock} color="#C86830" />
-                  <MetricCard label="Resolved" value={kpis.resolved} sub="Closed Successfully" icon={CheckCircle2} color="#3A6943" />
-                  <MetricCard label="Followed Up" value={kpis.followedUp} sub="In Progress" icon={TrendingUp} color="#4558A6" />
-                  <MetricCard label="Complaints Redirected" value={kpis.redirected} sub="Unique Forwarded" icon={GitCompare} />
-                </div>
-              ) : (
-                <div className="ad-kpi-grid-8">
-                  <MetricCard label="Total Users" value={kpis.totalUsers} sub="Live Accounts" icon={Users} />
-                  <MetricCard label="Departments" value={kpis.totalDepartments} sub="Active Units" icon={Building2} />
-                  <MetricCard label="Department Handlers" value={kpis.totalHandlers} sub="Staff Active" icon={UserCheck} />
-                  <MetricCard label="Total Complaints" value={kpis.totalComplaints} sub="All Records" icon={FileText} />
-                  <MetricCard label="Pending" value={kpis.pending} sub="Awaiting Action" icon={Clock} color="#C86830" />
-                  <MetricCard label="Resolved" value={kpis.resolved} sub="Closed Successfully" icon={CheckCircle2} color="#3A6943" />
-                  <MetricCard label="Followed Up" value={kpis.followedUp} sub="In Progress" icon={TrendingUp} color="#4558A6" />
-                  <MetricCard label="Complaints Redirected" value={kpis.redirected} sub="Unique Forwarded" icon={GitCompare} />
-                </div>
-              )}
-
-              {/* Analytical Cards Row (Complaints by Dept + Redirection Breakdown) */}
-              <div className="ad-analytics-row">
-                <DepartmentComplaintChart complaints={complaints} departments={departments} />
-                <DepartmentRedirections redirectionData={redirectionData} />
-              </div>
-
-              {/* Complaints Table + Details Panel */}
-              <div className="ad-complaints-section">
-                <ComplaintsTable
-                  complaints={complaints}
-                  departments={departments}
-                  selectedComplaint={selectedComplaint}
-                  onSelectComplaint={setSelectedComplaint}
-                  title="Recent Complaints"
-                />
-                <ComplaintDetailsPanel complaint={selectedComplaint} />
-              </div>
-
-              {/* Super Admin Chatbot & Pipeline Ribbon */}
-              {isSuperAdmin && (
-                <div className="ad-pipeline-ribbon">
-                  <div className="ad-pipeline-info">
-                    <span className="ad-pipeline-title">Chatbot & Pipeline Management</span>
-                    <span className="ad-pipeline-desc">
-                      SUPER ADMIN ONLY · Knowledge base documents, indexing and chatbot performance configuration.
-                    </span>
-                  </div>
-                  <button className="ad-pipeline-btn" onClick={() => { setCurrentView('pipeline'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
-                    Open pipeline console →
-                  </button>
-                </div>
-              )}
-            </>
+            <SuperAdminOverviewView
+              complaints={complaints}
+              departments={departments}
+              users={users}
+              redirectionData={redirectionData}
+              onNavigate={handleNavigateView}
+              onRefresh={loadDashboardData}
+              isSuperAdmin={isSuperAdmin}
+            />
           )}
 
           {/* ========================================================
@@ -395,24 +332,13 @@ export function SharedAdminDashboard({ isSuperAdmin = false, onNavigate }) {
               VIEW 6: COMPLAINTS OVERSIGHT
               ======================================================== */}
           {currentView === 'complaints' && (
-            <>
-              <div className="ad-header-row">
-                <div>
-                  <h1 className="ad-page-heading">Complaints Oversight</h1>
-                  <p className="ad-page-subtext">All customer complaints across all departments with status details.</p>
-                </div>
-              </div>
-              <div className="ad-complaints-section">
-                <ComplaintsTable
-                  complaints={complaints}
-                  departments={departments}
-                  selectedComplaint={selectedComplaint}
-                  onSelectComplaint={setSelectedComplaint}
-                  title="All Complaints"
-                />
-                <ComplaintDetailsPanel complaint={selectedComplaint} />
-              </div>
-            </>
+            <ComplaintsOversightView
+              complaints={complaints}
+              departments={departments}
+              redirectionData={redirectionData}
+              focusedComplaintId={focusedComplaintId}
+              onClearFocusedComplaint={() => setFocusedComplaintId(null)}
+            />
           )}
 
           {/* ========================================================

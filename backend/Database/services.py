@@ -128,11 +128,17 @@ def list_products(
     category_id: int | None = None,
     search: str | None = None,
     limit: int = 50,
+    visible_category_ids: set[int] | None = None,
 ) -> list[Product]:
     if not 1 <= limit <= 100:
         raise ValueError("limit must be between 1 and 100")
     query = select(Product).options(selectinload(Product.variants), selectinload(Product.images))
     query = query.where(Product.is_active.is_(True))
+    if visible_category_ids is not None:
+        query = query.where(
+            Product.category_id.is_(None)
+            | Product.category_id.in_(visible_category_ids)
+        )
     if category_id is not None:
         query = query.where(Product.category_id == category_id)
     if search:
@@ -283,7 +289,13 @@ def get_cart(session: Session, user_id: int) -> Cart | None:
     )
 
 
-def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[CommerceOrder]:
+def list_orders(
+    session: Session,
+    user_id: int,
+    *,
+    limit: int = 50,
+    status: str | None = None,
+) -> list[CommerceOrder]:
     if not 1 <= limit <= 100:
         raise ValueError("limit must be between 1 and 100")
     query = (
@@ -294,11 +306,13 @@ def list_orders(session: Session, user_id: int, *, limit: int = 50) -> list[Comm
             .selectinload(ProductVariant.product)
             .selectinload(Product.images),
             selectinload(CommerceOrder.shipment).selectinload(Shipment.events),
+            selectinload(CommerceOrder.events),
         )
         .where(CommerceOrder.user_id == user_id)
-        .order_by(CommerceOrder.created_at.desc())
-        .limit(limit)
     )
+    if status is not None:
+        query = query.where(CommerceOrder.status == status)
+    query = query.order_by(CommerceOrder.created_at.desc()).limit(limit)
     return list(session.scalars(query))
 
 
@@ -311,6 +325,7 @@ def get_order(session: Session, user_id: int, order_id: int) -> CommerceOrder | 
             .selectinload(ProductVariant.product)
             .selectinload(Product.images),
             selectinload(CommerceOrder.shipment).selectinload(Shipment.events),
+            selectinload(CommerceOrder.events),
         )
         .where(CommerceOrder.id == order_id, CommerceOrder.user_id == user_id)
     )
