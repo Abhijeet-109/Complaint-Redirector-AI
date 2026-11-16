@@ -539,9 +539,15 @@ def cancel_razorpay_attempt(payload: PaymentAttemptInput, db: Session = Depends(
     states = {row.get("status") for row in payments.get("items", [])}
     if states & {"captured", "authorized"}:
         raise HTTPException(409, "Razorpay is still processing this payment")
-    fail_attempt(db, attempt, "Checkout dismissed by customer", state="cancelled")
+    # If the provider already recorded a failed payment, persist "failed".
+    # A checkout the customer merely dismissed (no payment attempt on provider)
+    # keeps the "cancelled" state.
+    if states and states.issubset({"failed", "refunded"}):
+        fail_attempt(db, attempt, "Payment failed on provider", state="failed")
+    else:
+        fail_attempt(db, attempt, "Checkout dismissed by customer", state="cancelled")
     db.commit()
-    return {"status": "cancelled"}
+    return {"status": attempt.status}
 
 
 @router.post("/api/payments/razorpay/webhook")

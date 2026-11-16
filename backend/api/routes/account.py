@@ -218,8 +218,15 @@ def _order_payload(order, return_claims=None, cancellation_refund=None, order_re
     result["payment_status"] = order.payment_status
     shipment_status = (order.shipment.status or "").lower() if order.shipment else ""
     order_status = (order.status or "").lower()
+    result["can_retry_payment"] = (
+        order_status == "payment_failed"
+        and not any(
+            attempt.status == "captured"
+            for attempt in (order.payment_attempts or [])
+        )
+    )
     result["can_customer_cancel"] = (
-        order_status in {"placed", "accepted", "processing", "packed"}
+        order_status in {"placed", "accepted", "processing", "packed", "payment_failed"}
         and shipment_status not in {"picked_up", "in_transit", "out_for_delivery", "delivered"}
     )
     result["created_at"] = order.created_at.isoformat() if order.created_at else None
@@ -276,7 +283,8 @@ def _order_payload(order, return_claims=None, cancellation_refund=None, order_re
         key=lambda event: (event["created_at"] or "", event["id"]),
     )
     customer_stages = {
-        ("order_status", "placed"): ("order_confirmed", "Order Confirmed"),
+        ("order_status", "placed"): ("order_placed", "Order Placed"),
+        ("order_status", "accepted"): ("order_confirmed", "Order Confirmed"),
         ("shipment_status", "shipped"): ("shipped", "Shipped"),
         ("shipment_status", "out_for_delivery"): ("out_for_delivery", "Out for Delivery"),
         ("shipment_status", "delivered"): ("delivered", "Delivered"),
@@ -301,6 +309,7 @@ def _order_payload(order, return_claims=None, cancellation_refund=None, order_re
             "reason_code": claim.reason_code,
             "status": claim.status,
             "workflow_status": claim.workflow_status,
+            "decision_note": claim.decision_note,
             "requested_at": claim.requested_at.isoformat() if claim.requested_at else None,
         })
     for output, item in zip(result["items"], order.items):

@@ -21,7 +21,9 @@ import { handlerService } from '../../services/handlerService';
 import { HandlerStatusBadge } from './HandlerStatusBadge';
 
 export function HandlerRequestDetailView({ requestId, claimId: claimIdProp, onBack, onNavigate, onRefresh }) {
-  const resolvedId = requestId || claimIdProp;
+  const rawId = requestId || claimIdProp;
+  const displayIdMatch = String(rawId ?? '').match(/^trn-(\d+)$/i);
+  const resolvedId = displayIdMatch ? displayIdMatch[1] : rawId;
   const [claim, setClaim] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

@@ -212,7 +212,7 @@ export function MyAccount({ section = 'profile', onNavigate }) {
     >
       {['profile', 'address', 'payments'].includes(validSection)
         ? <AccountSection key={validSection} section={validSection} onProfileSaved={(value) => { setUser({ ...user, ...value }); localStorage.setItem('flatkart_user', JSON.stringify({ ...user, ...value })); }} />
-        : validSection === 'orders' ? <AccountOrders filter={orderFilter} onFilterChange={setOrderFilter} resetTrigger={resetOrderTrigger} onStartReturnIntake={handleStartReturnIntake} />
+        : validSection === 'orders' ? <AccountOrders filter={orderFilter} onFilterChange={setOrderFilter} resetTrigger={resetOrderTrigger} onStartReturnIntake={handleStartReturnIntake} onNavigate={onNavigate} />
           : validSection === 'support-tickets' ? <AccountSupportTickets />
             : <section style={{ padding: 28 }}><h1>Wishlist</h1><p>Your saved products are available in the wishlist panel.</p></section>}
     </AccountLayout>

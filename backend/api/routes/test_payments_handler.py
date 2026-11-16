@@ -249,6 +249,14 @@ class PaymentsHandlerUnitTests(unittest.TestCase):
         self.assertIn("***@", detail["customer"]["email_masked"])
         self.assertEqual(detail["customer"]["phone_masked"], "******3210")
 
+    def test_payment_transaction_details_accepts_string_path_id(self):
+        detail = get_payment_transaction_details(str(self.attempt.id), self.db, self.payments_handler)
+        self.assertEqual(detail["id"], self.attempt.id)
+
+        with self.assertRaises(HTTPException) as ctx:
+            get_payment_transaction_details("not-a-payment-id", self.db, self.payments_handler)
+        self.assertEqual(ctx.exception.status_code, 404)
+
     def test_legacy_claim_missing_refund_timing_is_ineligible_and_rejected(self):
         from backend.Database.models import ReturnRequest, ReturnHandoff
         from backend.api.routes.department import process_return_refund_handoff, ReturnRefundExecutionInput
