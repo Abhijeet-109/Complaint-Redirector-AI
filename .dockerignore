@@ -1,8 +1,27 @@
-# Python environment and cache
+# Python environments, caches and bytecode
 myenv/
+.venv/
+venv/
 **/__pycache__/
 **/*.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Test suites and test-only artifacts (kept in GitHub, not sent to Docker)
+**/tests/
+**/__tests__/
+**/test_*.py
+**/*_test.py
+!backend/api/routes/test_auth.py
+backend/chatbot/evaluation/
+
+# Development notebooks and debugging material
+**/*.ipynb
+backend/Debugging/
+backend/Notebooks/
+verify_postgres_persistence.py
+backend/Database/inspect_schema.py
 
 # Secrets and environment configuration
 .env
@@ -13,12 +32,16 @@ myenv/
 .git/
 .kilo/
 
-# Database backup
+# Database backups and local database files
 flatkart_backup.dump
+*.sqlite
+*.sqlite3
 
 # Frontend dependencies and build output
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
+frontend/tests/
 
 # Local logs
 *.log
