@@ -236,6 +236,7 @@ def evaluate_return_eligibility(
             "quantity": active_claim.quantity,
             "resolution_type": active_claim.resolution_type,
             "requested_at": active_claim.requested_at,
+            "decision_note": active_claim.decision_note,
         }
         result.update(
             reason_code="active_claim_exists",

@@ -709,22 +709,30 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
       )}
 
       {cancelTarget && (
-        <div className="fk-tracking-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelling) setCancelTarget(null); }}>
-          <section className="fk-tracking-modal-content" role="dialog" aria-modal="true" aria-labelledby="cancel-order-heading">
-            <div className="fk-tracking-modal-header">
-              <div>
+        <div className="fk-cancel-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelling) setCancelTarget(null); }}>
+          <section className="fk-cancel-modal" role="dialog" aria-modal="true" aria-labelledby="cancel-order-heading">
+            <header className="fk-cancel-modal-header">
+              <div className="fk-cancel-modal-title-group">
                 <h3 id="cancel-order-heading">Cancel this order?</h3>
                 <p>Are you sure you want to cancel this order?</p>
               </div>
               <button type="button" className="fk-modal-close-btn" disabled={cancelling} onClick={() => setCancelTarget(null)} aria-label="Close"><X size={18} /></button>
+            </header>
+            <div className="fk-cancel-modal-body">
+              <div className="fk-cancel-modal-row">
+                <span className="fk-cancel-modal-label">Order</span>
+                <span className="fk-cancel-modal-value">{cancelTarget.order_number}</span>
+              </div>
+              <div className="fk-cancel-modal-row">
+                <span className="fk-cancel-modal-label">Total</span>
+                <span className="fk-cancel-modal-value">{money(cancelTarget.total_amount, cancelTarget.currency)}</span>
+              </div>
+              {cancelError && <div className="fk-orders-error-banner" role="alert">{cancelError}</div>}
             </div>
-            <p>Order: {cancelTarget.order_number}</p>
-            <p>Total: {money(cancelTarget.total_amount, cancelTarget.currency)}</p>
-            {cancelError && <div className="fk-orders-error-banner" role="alert">{cancelError}</div>}
-            <div className="fk-pre-delivery-actions">
-              <button type="button" className="fk-timeline-updates-btn" disabled={cancelling} onClick={() => setCancelTarget(null)}>Keep Order</button>
-              <button type="button" className="fk-timeline-updates-btn" disabled={cancelling} onClick={confirmCancellation}>{cancelling ? 'Cancelling…' : 'Confirm Cancellation'}</button>
-            </div>
+            <footer className="fk-cancel-modal-footer">
+              <button type="button" className="fk-cancel-btn-secondary" disabled={cancelling} onClick={() => setCancelTarget(null)}>Keep Order</button>
+              <button type="button" className="fk-cancel-btn-primary" disabled={cancelling} onClick={confirmCancellation}>{cancelling ? 'Cancelling…' : 'Confirm Cancellation'}</button>
+            </footer>
           </section>
         </div>
       )}
