@@ -8,7 +8,7 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# Test suites and test-only artifacts (kept in GitHub, excluded from image)
+# Test suites and test-only artifacts: retained in GitHub, excluded from Docker
 **/tests/
 **/__tests__/
 **/test_*.py
