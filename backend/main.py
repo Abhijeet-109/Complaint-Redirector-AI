@@ -25,7 +25,6 @@ from backend.api.routes.admin import router as admin_router
 from backend.api.routes.classifier import router as classifier_router
 from backend.api.routes.complaint import router as complaint_router
 from backend.api.routes.email import router as email_router
-from backend.api.routes.test_auth import router as test_auth_router
 from backend.api.routes.department import handler_router as handler_department_router
 from backend.api.routes.department import router as department_router
 from backend.api.routes.chatbot import router as chatbot_router
@@ -48,6 +47,10 @@ from sqlalchemy.engine import make_url
 
 logger = logging.getLogger("flatkart.startup")
 APP_ENV = app_environment()
+
+# Development-only RBAC diagnostic endpoint; omit it from production images.
+if APP_ENV != "production":
+    from backend.api.routes.test_auth import router as test_auth_router
 
 
 def _cleanup_expired_return_evidence():
