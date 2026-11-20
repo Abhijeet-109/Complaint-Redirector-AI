@@ -115,6 +115,15 @@ class ReturnWorkflowApiTests(unittest.TestCase):
         Image.new("RGB", (2, 2), "red").save(stream, format="PNG")
         return stream.getvalue()
 
+    def test_handler_return_details_accepts_display_id_prefix(self):
+        self.actor = self.handler
+        response = self.client.get(f"/api/v1/departments/returns/TRN-{self.claim.id}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["id"], self.claim.id)
+
+        invalid = self.client.get("/api/v1/departments/returns/trn-not-a-number")
+        self.assertEqual(invalid.status_code, 404, invalid.text)
+
     def test_reports_stats_bucket_calendar_periods_and_apply_filters(self):
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         self.claim.requested_at = now

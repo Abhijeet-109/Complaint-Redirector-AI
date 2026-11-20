@@ -52,7 +52,7 @@ const calculateDaysLeft = (deadline) => {
 
 const labels = {
   pending_payment: 'Payment pending',
-  placed: 'Order confirmed',
+  placed: 'Order placed',
   accepted: 'Order accepted',
   payment_failed: 'Payment failed',
   captured: 'Paid',
@@ -150,7 +150,7 @@ function customerOrderTrackingStatus(order) {
   return humanize(order.status || 'confirmation pending');
 }
 
-export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger, onStartReturnIntake }) {
+export function AccountOrders({ filter: externalFilter, onFilterChange, resetTrigger, onStartReturnIntake, onNavigate }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -183,6 +183,26 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
     } finally {
       setCancelling(false);
     }
+  };
+
+  const handleRetryPayment = (order) => {
+    // Clear any stale idempotency key so the checkout creates a fresh attempt
+    const prefix = 'flatkart_checkout_cart_';
+    Object.keys(sessionStorage)
+      .filter((k) => k.startsWith(prefix))
+      .forEach((k) => sessionStorage.removeItem(k));
+    onNavigate?.('checkout');
+  };
+
+  const handleContinueConversation = (claim) => {
+    const handoff = {
+      intent: 'continue_conversation',
+      claimId: claim.id,
+      requestKey: (globalThis.crypto?.randomUUID?.() || `fk-${Date.now()}`),
+      createdAt: Date.now(),
+    };
+    sessionStorage.setItem('flatkart_return_intake_handoff', JSON.stringify(handoff));
+    onNavigate?.('my-conversations');
   };
 
   // Collapse expanded order and scroll to top when Back to orders is triggered
@@ -554,10 +574,32 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
                                 {eligibilityState[currentItemId]?.error && (
                                   <p className="fk-return-chat-state" role="alert">{eligibilityState[currentItemId].error}</p>
                                 )}
-                                {!eligibilityLoading && currentClaim && (
+                                {!eligibilityLoading && currentClaim && currentClaim.workflow_status !== 'information_requested' && (
                                   <div className="fk-return-chat-ineligible">
                                     <strong>Request already submitted</strong>
                                     <p>Request #{currentClaim.id} &middot; {humanize(currentClaim.workflow_status || currentClaim.status)}</p>
+                                  </div>
+                                )}
+                                {!eligibilityLoading && currentClaim && currentClaim.workflow_status === 'information_requested' && (
+                                  <div className="fk-return-chat-ineligible">
+                                    <strong>Additional information requested</strong>
+                                    <p>Request #{currentClaim.id} &middot; Information Requested</p>
+                                    {currentClaim.decision_note && (
+                                      <p style={{ marginTop: 8, padding: '10px 12px', background: '#FEF9C3', borderRadius: 6, fontSize: 13.5, color: '#713F12', border: '1px solid #FDE68A' }}>
+                                        <strong>Message from Returns team:</strong> {currentClaim.decision_note}
+                                      </p>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="fk-return-chat-button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleContinueConversation(currentClaim);
+                                      }}
+                                    >
+                                      Continue Conversation
+                                    </button>
+                                    <small>Provide the requested information to continue processing your return.</small>
                                   </div>
                                 )}
                                 {!eligibilityLoading && !currentClaim && currentEligibility?.eligible && (
@@ -623,6 +665,12 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
 
                         {!isDelivered && (
                           <>
+                            {order.can_retry_payment && (
+                              <button type="button" className="fk-timeline-updates-btn"
+                                onClick={(event) => { event.stopPropagation(); handleRetryPayment(order); }}>
+                                Retry Payment
+                              </button>
+                            )}
                             {order.can_customer_cancel && (
                               <button type="button" className="fk-timeline-updates-btn"
                                 onClick={(event) => { event.stopPropagation(); setCancelTarget(order); setCancelError(''); }}>
@@ -661,22 +709,30 @@ export function AccountOrders({ filter: externalFilter, onFilterChange, resetTri
       )}
 
       {cancelTarget && (
-        <div className="fk-tracking-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelling) setCancelTarget(null); }}>
-          <section className="fk-tracking-modal-content" role="dialog" aria-modal="true" aria-labelledby="cancel-order-heading">
-            <div className="fk-tracking-modal-header">
-              <div>
+        <div className="fk-cancel-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !cancelling) setCancelTarget(null); }}>
+          <section className="fk-cancel-modal" role="dialog" aria-modal="true" aria-labelledby="cancel-order-heading">
+            <header className="fk-cancel-modal-header">
+              <div className="fk-cancel-modal-title-group">
                 <h3 id="cancel-order-heading">Cancel this order?</h3>
                 <p>Are you sure you want to cancel this order?</p>
               </div>
               <button type="button" className="fk-modal-close-btn" disabled={cancelling} onClick={() => setCancelTarget(null)} aria-label="Close"><X size={18} /></button>
+            </header>
+            <div className="fk-cancel-modal-body">
+              <div className="fk-cancel-modal-row">
+                <span className="fk-cancel-modal-label">Order</span>
+                <span className="fk-cancel-modal-value">{cancelTarget.order_number}</span>
+              </div>
+              <div className="fk-cancel-modal-row">
+                <span className="fk-cancel-modal-label">Total</span>
+                <span className="fk-cancel-modal-value">{money(cancelTarget.total_amount, cancelTarget.currency)}</span>
+              </div>
+              {cancelError && <div className="fk-orders-error-banner" role="alert">{cancelError}</div>}
             </div>
-            <p>Order: {cancelTarget.order_number}</p>
-            <p>Total: {money(cancelTarget.total_amount, cancelTarget.currency)}</p>
-            {cancelError && <div className="fk-orders-error-banner" role="alert">{cancelError}</div>}
-            <div className="fk-pre-delivery-actions">
-              <button type="button" className="fk-timeline-updates-btn" disabled={cancelling} onClick={() => setCancelTarget(null)}>Keep Order</button>
-              <button type="button" className="fk-timeline-updates-btn" disabled={cancelling} onClick={confirmCancellation}>{cancelling ? 'Cancelling…' : 'Confirm Cancellation'}</button>
-            </div>
+            <footer className="fk-cancel-modal-footer">
+              <button type="button" className="fk-cancel-btn-secondary" disabled={cancelling} onClick={() => setCancelTarget(null)}>Keep Order</button>
+              <button type="button" className="fk-cancel-btn-primary" disabled={cancelling} onClick={confirmCancellation}>{cancelling ? 'Cancelling…' : 'Confirm Cancellation'}</button>
+            </footer>
           </section>
         </div>
       )}

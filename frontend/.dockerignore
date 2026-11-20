@@ -1,0 +1,13 @@
+# Frontend production build context
+node_modules/
+dist/
+coverage/
+tests/
+__tests__/
+**/*.test.*
+**/*.spec.*
+*.log
+.env
+.env.*
+!.env.example
+.git/

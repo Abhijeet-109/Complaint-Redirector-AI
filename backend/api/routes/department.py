@@ -707,11 +707,16 @@ def get_handler_reports_stats(
 
 @handler_router.get("/returns/{claim_id}")
 def handler_return_claim_details(
-    claim_id: int,
+    claim_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_role("department_handler", "admin", "super_admin")),
 ):
-    claim = _require_claim_access(db, claim_id, current_user)
+    raw_claim_id = claim_id[4:] if claim_id[:4].casefold() == "trn-" else claim_id
+    try:
+        numeric_claim_id = int(raw_claim_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Return request not found.") from exc
+    claim = _require_claim_access(db, numeric_claim_id, current_user)
     details = claim_details(db, claim)
     details["tracking"] = {
         "return_request_id": claim.id,
@@ -2021,6 +2026,11 @@ def get_payment_transaction_details(
             } for row in related_refunds],
         }
 
+    try:
+        payment_attempt_id = int(attempt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Transaction not found.") from exc
+
     att = db.scalar(
         select(PaymentAttempt)
         .options(
@@ -2028,7 +2038,7 @@ def get_payment_transaction_details(
             selectinload(PaymentAttempt.order).selectinload(CommerceOrder.items),
             selectinload(PaymentAttempt.order).selectinload(CommerceOrder.shipment),
         )
-        .where(PaymentAttempt.id == attempt_id)
+        .where(PaymentAttempt.id == payment_attempt_id)
     )
     if not att:
         raise HTTPException(status_code=404, detail="Transaction not found.")

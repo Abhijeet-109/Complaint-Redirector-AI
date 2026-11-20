@@ -227,6 +227,9 @@ export function MyConversations({ onNavigate }) {
     } catch {
       return;
     }
+    // 'continue_conversation': handler requested more info — just land on this page.
+    if (handoff?.intent === 'continue_conversation') return;
+
     if (handoff?.intent !== 'return_replacement'
       || !handoff.orderId || !handoff.orderItemId
       || Date.now() - Number(handoff.createdAt || 0) > 5 * 60 * 1000) return;

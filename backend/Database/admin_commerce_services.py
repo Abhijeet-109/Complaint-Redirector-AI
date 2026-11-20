@@ -56,7 +56,7 @@ VALID_ORDER_TRANSITIONS: dict[str, set[str]] = {
     "delivered": [],
     "cancelled": [],
     "pending_payment": [],
-    "payment_failed": [],
+    "payment_failed": ["cancelled"],
 }
 
 VALID_SHIPMENT_TRANSITIONS: dict[str, set[str]] = {

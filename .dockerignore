@@ -22,3 +22,26 @@ frontend/dist/
 
 # Local logs
 *.log
+
+# Python and ML artifacts
+**/.venv/
+venv/
+**/.cache/
+**/nltk_data/
+
+# Development and testing
+**/tests/
+**/test_*.py
+**/*_test.py
+
+# Frontend and generated files
+frontend/.next/
+frontend/coverage/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+!backend/api/routes/test_auth.py

@@ -340,7 +340,7 @@ class HandlerSupportAPITests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
 
-    def test_customer_details_are_not_added_to_user_or_admin_lists(self):
+    def test_customer_details_are_limited_to_authorized_complaint_lists(self):
         user_complaints = self.client.get(
             "/api/v1/complaints/mine",
             headers=self._headers("rahul@example.com"),
@@ -362,10 +362,15 @@ class HandlerSupportAPITests(unittest.TestCase):
             admin_complaints.text,
         )
 
-        for response in (user_complaints, admin_complaints):
-            for row in response.json():
-                self.assertNotIn("user_name", row)
-                self.assertNotIn("user_email", row)
+        for row in user_complaints.json():
+            self.assertNotIn("user_name", row)
+            self.assertNotIn("user_email", row)
+
+        for row in admin_complaints.json():
+            self.assertIn("user_id", row)
+            self.assertIn("user_name", row)
+            self.assertIn("user_email", row)
+            self.assertNotIn("password", row)
 
 
 if __name__ == "__main__":

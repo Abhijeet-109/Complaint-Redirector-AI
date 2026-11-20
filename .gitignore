@@ -7,8 +7,11 @@ __pycache__/
 .venv/
 venv/
 env/
+env.production
 ENV/
 myenv/
+.kilo/
+.kilo
 
 # Environment variables and local secrets
 .env
@@ -60,3 +63,12 @@ backend\uploads
 /backend/data/
 /backend/chatbot/data/
 .kilo
+
+
+# Database backups - never commit
+*.dump
+*.sqlite
+*.sqlite3
+
+# Production environment
+env.production
