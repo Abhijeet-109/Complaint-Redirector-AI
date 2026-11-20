@@ -1,28 +1,8 @@
-# Python environments, caches and bytecode
+# Python environment and cache
 myenv/
-.venv/
-venv/
 **/__pycache__/
 **/*.py[cod]
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Test suites and test-only artifacts: retained in GitHub, excluded from Docker
-**/tests/
-**/__tests__/
-**/test_*.py
-**/*_test.py
-backend/api/routes/test_auth.py
-backend/chatbot/evaluation/
-
-# Development notebooks and debugging material
-**/*.ipynb
-backend/Debugging/
-backend/Notebooks/
-backend/download_embedding_model.py
-verify_postgres_persistence.py
-backend/Database/inspect_schema.py
 
 # Secrets and environment configuration
 .env
@@ -33,16 +13,35 @@ backend/Database/inspect_schema.py
 .git/
 .kilo/
 
-# Database backups and local database files
+# Database backup
 flatkart_backup.dump
-*.sqlite
-*.sqlite3
 
 # Frontend dependencies and build output
 frontend/node_modules/
 frontend/dist/
-frontend/coverage/
-frontend/tests/
 
 # Local logs
 *.log
+
+# Python and ML artifacts
+**/.venv/
+venv/
+**/.cache/
+**/nltk_data/
+
+# Development and testing
+**/tests/
+**/test_*.py
+**/*_test.py
+
+# Frontend and generated files
+frontend/.next/
+frontend/coverage/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+!backend/api/routes/test_auth.py
