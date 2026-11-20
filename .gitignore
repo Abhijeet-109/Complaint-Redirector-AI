@@ -72,3 +72,6 @@ backend\uploads
 
 # Production environment
 env.production
+
+# Docker image archives
+flatkart-backend.tar

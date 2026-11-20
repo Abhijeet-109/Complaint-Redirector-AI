@@ -45,3 +45,6 @@ frontend/coverage/
 Thumbs.db
 
 !backend/api/routes/test_auth.py
+
+# Docker image archives
+flatkart-backend.tar
